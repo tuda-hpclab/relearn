@@ -10,14 +10,30 @@
 
 #include "test_synapse_creation_request.h"
 
-#include "adapter/neurons/NeuronTypesAdapter.h"
-#include "adapter/neuron_id/NeuronIdAdapter.h"
-#include "adapter/neurons/NeuronTypesAdapter.h"
-
+#include "neurons/enums/SynapticElementType.h"
 #include "neurons/helper/SynapseCreationRequests.h"
+#include "util/RelearnException.h"
+
+#include "mpi-wrapper/MPIInfo.h"
+#include "mpi-wrapper/MPIRank.h"
+
+#include "factory/neuron_id/neuron_id_factory.h"
+#include "factory/neuron_types/neuron_types_factory.h"
+
+#include <gtest/gtest.h>
+
+#include <iostream>
 
 TEST_F(SynapseCreationTest, testDefaultConstructor) {
-    SynapseCreationRequest scr{};
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto scr = SynapseCreationRequest{};
 
     const auto& target_neuron_id = scr.get_target();
     const auto& source_neuron_id = scr.get_source();
@@ -30,11 +46,19 @@ TEST_F(SynapseCreationTest, testDefaultConstructor) {
 }
 
 TEST_F(SynapseCreationTest, testConstructor) {
-    const auto& golden_target_neuron_id = NeuronIdAdapter::get_random_neuron_id(mt);
-    const auto& golden_source_neuron_id = NeuronIdAdapter::get_random_neuron_id(mt);
-    const auto& golden_signal_type = NeuronTypesAdapter::get_random_signal_type(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    SynapseCreationRequest scr{ golden_target_neuron_id, golden_source_neuron_id, golden_signal_type };
+        return;
+    }
+
+    const auto& golden_target_neuron_id = NeuronIdFactory::get_random_neuron_id(mt);
+    const auto& golden_source_neuron_id = NeuronIdFactory::get_random_neuron_id(mt);
+    const auto& golden_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
+
+    const auto scr = SynapseCreationRequest{ golden_target_neuron_id, golden_source_neuron_id, golden_signal_type };
 
     const auto& target_neuron_id = scr.get_target();
     const auto& source_neuron_id = scr.get_source();
@@ -47,29 +71,45 @@ TEST_F(SynapseCreationTest, testConstructor) {
 }
 
 TEST_F(SynapseCreationTest, testConstructorException) {
-    const auto& golden_signal_type = NeuronTypesAdapter::get_random_signal_type(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    const auto& dummy_neuron_id = NeuronIdAdapter::get_random_neuron_id(mt);
+        return;
+    }
 
-    ASSERT_THROW(SynapseCreationRequest scr(NeuronID::virtual_id(), dummy_neuron_id, golden_signal_type), RelearnException);
-    ASSERT_THROW(SynapseCreationRequest scr(NeuronID::uninitialized_id(), dummy_neuron_id, golden_signal_type), RelearnException);
+    const auto& golden_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
 
-    ASSERT_THROW(SynapseCreationRequest scr(dummy_neuron_id, NeuronID::virtual_id(), golden_signal_type), RelearnException);
-    ASSERT_THROW(SynapseCreationRequest scr(dummy_neuron_id, NeuronID::uninitialized_id(), golden_signal_type), RelearnException);
+    const auto& dummy_neuron_id = NeuronIdFactory::get_random_neuron_id(mt);
 
-    ASSERT_THROW(SynapseCreationRequest scr(NeuronID::virtual_id(), NeuronID::virtual_id(), golden_signal_type), RelearnException);
-    ASSERT_THROW(SynapseCreationRequest scr(NeuronID::virtual_id(), NeuronID::uninitialized_id(), golden_signal_type), RelearnException);
+    ASSERT_THROW_NO_PRINT(SynapseCreationRequest scr(NeuronID::virtual_id(), dummy_neuron_id, golden_signal_type), RelearnException);
+    ASSERT_THROW_NO_PRINT(SynapseCreationRequest scr(NeuronID::uninitialized_id(), dummy_neuron_id, golden_signal_type), RelearnException);
 
-    ASSERT_THROW(SynapseCreationRequest scr(NeuronID::uninitialized_id(), NeuronID::virtual_id(), golden_signal_type), RelearnException);
-    ASSERT_THROW(SynapseCreationRequest scr(NeuronID::uninitialized_id(), NeuronID::uninitialized_id(), golden_signal_type), RelearnException);
+    ASSERT_THROW_NO_PRINT(SynapseCreationRequest scr(dummy_neuron_id, NeuronID::virtual_id(), golden_signal_type), RelearnException);
+    ASSERT_THROW_NO_PRINT(SynapseCreationRequest scr(dummy_neuron_id, NeuronID::uninitialized_id(), golden_signal_type), RelearnException);
+
+    ASSERT_THROW_NO_PRINT(SynapseCreationRequest scr(NeuronID::virtual_id(), NeuronID::virtual_id(), golden_signal_type), RelearnException);
+    ASSERT_THROW_NO_PRINT(SynapseCreationRequest scr(NeuronID::virtual_id(), NeuronID::uninitialized_id(), golden_signal_type), RelearnException);
+
+    ASSERT_THROW_NO_PRINT(SynapseCreationRequest scr(NeuronID::uninitialized_id(), NeuronID::virtual_id(), golden_signal_type), RelearnException);
+    ASSERT_THROW_NO_PRINT(SynapseCreationRequest scr(NeuronID::uninitialized_id(), NeuronID::uninitialized_id(), golden_signal_type), RelearnException);
 }
 
 TEST_F(SynapseCreationTest, testStructuredBinding) {
-    const auto& golden_target_neuron_id = NeuronIdAdapter::get_random_neuron_id(mt);
-    const auto& golden_source_neuron_id = NeuronIdAdapter::get_random_neuron_id(mt);
-    const auto& golden_signal_type = NeuronTypesAdapter::get_random_signal_type(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    SynapseCreationRequest scr{ golden_target_neuron_id, golden_source_neuron_id, golden_signal_type };
+        return;
+    }
+
+    const auto& golden_target_neuron_id = NeuronIdFactory::get_random_neuron_id(mt);
+    const auto& golden_source_neuron_id = NeuronIdFactory::get_random_neuron_id(mt);
+    const auto& golden_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
+
+    const auto scr = SynapseCreationRequest{ golden_target_neuron_id, golden_source_neuron_id, golden_signal_type };
 
     const auto& [target_neuron_id, source_neuron_id, signal_type] = scr;
 

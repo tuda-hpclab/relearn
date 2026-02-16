@@ -10,7 +10,10 @@
  *
  */
 
+#include "Config.h"
 #include "Types.h"
+
+#include "algorithm/Kernel/KernelBase.h"
 #include "util/RelearnException.h"
 #include "util/Vec3.h"
 
@@ -18,73 +21,61 @@
 #include <numeric>
 
 /**
- * Offers a static interface to calculate the attraction based on a weibull distribution, i.e.,
+ * Offers an inheritance-based interface to calculate the attraction based on a weibull distribution, i.e.,
  * if x is the distance, the attraction is proportional to
  * b * k * x^(k-1) * exp(-b * x^k)
  */
-class WeibullDistributionKernel {
+class WeibullDistributionKernel : public KernelBase {
 public:
     using counter_type = RelearnTypes::counter_type;
     using position_type = RelearnTypes::position_type;
+
+    using KernelBase::get_probability;
 
     static constexpr double default_k = 1.0;
     static constexpr double default_b = 1.0;
 
     /**
-     * @brief Sets the shape parameter k, must be greater than 0.0
-     * @param k The shape parameter, > 0.0
-     * @exception Throws a RelearnException if k <= 0.0
+     * @brief Constructs a new Gaussian kernel
+     * @param _k The shape parameter, > 0.0
+     * @param _b The scaling parameter, > 0.0
+     * @exception Throws a RelearnException if _k <= 0.0 or _b <= 0.0
      */
-    static void set_k(const double k) {
-        RelearnException::check(k > 0.0, "In WeibullDistributionKernel::set_k, k was not greater than 0.0");
-        WeibullDistributionKernel::k = k;
+    WeibullDistributionKernel(const double _k = default_k, const double _b = default_b)
+        : k{ _k }
+        , b{ _b } {
+        RelearnException::check(_k > 0.0, "WeibullDistributionKernel::WeibullDistributionKernel, _k was not greater than 0.0");
+        RelearnException::check(_b > 0.0, "WeibullDistributionKernel::WeibullDistributionKernel, _b was not greater than 0.0");
     }
+
+    ~WeibullDistributionKernel() override = default;
 
     /**
      * @brief Returns the currently used shape parameter
      * @return The currently used shape parameter
      */
-    [[nodiscard]] static double get_k() noexcept {
+    [[nodiscard]] double get_k() const noexcept {
         return k;
-    }
-
-    /**
-     * @brief Sets the scale parameter b, must be greater than 0.0
-     * @param b The scaling parameter, > 0.0
-     * @exception Throws a RelearnException if b <= 0.0
-     */
-    static void set_b(const double b) {
-        RelearnException::check(b > 0.0, "In WeibullDistributionKernel::set_b, b was not greater than 0.0");
-        WeibullDistributionKernel::b = b;
     }
 
     /**
      * @brief Returns the currently used scale parameter
      * @return The currently used scale parameter
      */
-    [[nodiscard]] static double get_b() noexcept {
+    [[nodiscard]] double get_b() const noexcept {
         return b;
     }
 
     /**
      * @brief Calculates the attractiveness to connect on the basis of the weibull distribution
-     * @param source_position The source position s
-     * @param target_position The target position t
-     * @param number_free_elements The linear scaling factor l
-     * @return The calculated attractiveness
+     * @param distance The distance between the source and target neuron
+     * @return The probability for a connection, >= 0.0; not normalized to [0, 1]
      */
-    [[nodiscard]] static double calculate_attractiveness_to_connect(const position_type& source_position, const position_type& target_position,
-        const counter_type& number_free_elements) noexcept {
-        if (number_free_elements == 0) {
-            return 0.0;
-        }
+    [[nodiscard]] double get_probability(const double distance) const override {
+        const auto factor_1 = b * k;
 
-        const auto factor_1 = number_free_elements * b * k;
-
-        const auto x = (source_position - target_position).calculate_2_norm();
-
-        const auto factor_2 = std::pow(x, k - 1);
-        const auto exponent = -b * factor_2 * x;
+        const auto factor_2 = std::pow(distance, k - 1);
+        const auto exponent = -b * factor_2 * distance;
         const auto factor_3 = std::exp(exponent);
 
         const auto result = factor_1 * factor_2 * factor_3;
@@ -92,7 +83,26 @@ public:
         return result;
     }
 
+    [[nodiscard]] bool is_approximately_equal(const KernelBase& other, double epsilon = Constants::eps) const override {
+        const auto double_equal = [epsilon](double first, double second) {
+            return fabs(first - second) < epsilon;
+        };
+        const auto* other_kernel = dynamic_cast<const WeibullDistributionKernel*>(&other);
+        if (!other_kernel) {
+            return false;
+        }
+        return double_equal(get_b(), other_kernel->get_b()) && double_equal(get_k(), other_kernel->get_k());
+    }
+
+    [[nodiscard]] KernelType get_kernel_type() const override {
+        return KernelType::Weibull;
+    }
+
+    std::string to_humanreadable_string() const override {
+        return fmt::format("Kernel Weibull with k={} b={}", k, b);
+    }
+
 private:
-    static inline double k{ default_k };
-    static inline double b{ default_b };
+    double k{ default_k };
+    double b{ default_b };
 };

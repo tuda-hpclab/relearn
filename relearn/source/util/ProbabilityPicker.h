@@ -12,14 +12,14 @@
 
 #include "util/Random.h"
 #include "util/RelearnException.h"
-#include "util/ranges/Functional.hpp"
 
-#include <cmath>
-#include <numeric>
-#include <span>
+#include "cpp-utility/ranges/Functional.hpp"
 
 #include <range/v3/algorithm/all_of.hpp>
 #include <range/v3/numeric/accumulate.hpp>
+
+#include <cmath>
+#include <span>
 
 /**
  * This class provides the possibility to pick an element from a vector based on their probabilities.
@@ -40,14 +40,14 @@ public:
     [[nodiscard]] static std::size_t pick_target(const std::span<const double> probabilities, const double random_number) {
         RelearnException::check(!probabilities.empty(), "ProbabilityPicker::pick_target: There were no probabilities to pick from");
         RelearnException::check(random_number >= 0.0, "ProbabilityPicker::pick_target: random_number was smaller than 0.0");
-        RelearnException::check(ranges::all_of(probabilities, greater_equal(0.0)), "ProbabilityPicker::pick_target: Some probability was negative");
+        RelearnException::check(ranges::all_of(probabilities, utility::greater_equal(0.0)), "ProbabilityPicker::pick_target: Some probability was negative");
 
         if (!(0.0 < random_number)) {
             // This exists for denormalized numbers
             return 0;
         }
 
-        auto counter = std::size_t(0);
+        auto counter = std::size_t{ 0 };
         auto sum_probabilities = 0.0;
 
         for (; counter < probabilities.size() && sum_probabilities < random_number; counter++) {
@@ -56,12 +56,12 @@ public:
 
         RelearnException::check(sum_probabilities > 0.0, "ProbabilityPicker::pick_target: The sum of probabilities was <= 0.0");
 
-        while (probabilities[counter - std::size_t(1)] <= 0.0) {
+        while (probabilities[counter - 1U] <= 0.0) {
             // Ignore all probabilities that are <= 0.0
             counter--;
         }
 
-        return counter - std::size_t(1);
+        return counter - 1U;
     }
 
     /**

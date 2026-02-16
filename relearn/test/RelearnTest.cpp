@@ -10,31 +10,29 @@
 
 #include "RelearnTest.hpp"
 
-#include "algorithm/Cells.h"
+#include "algorithm/BarnesHutInternal/BarnesHutCell.h"
+#include "algorithm/BarnesHutInternal/BarnesHutInvertedCell.h"
+#include "algorithm/FMMInternal/FastMultipoleMethodCell.h"
+#include "algorithm/Internal/octree/OctreeNode.h"
 #include "io/LogFiles.h"
-
-#include "mpi/MPIWrapper.h"
-#include "structure/OctreeNode.h"
+#include "neuron_monitor/test_neuron_monitor.h"
 #include "util/MemoryHolder.h"
-#include "util/RelearnException.h"
+
+#include "mpi-wrapper/MPIWrapper.h"
+
+#include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstddef>
+#include <filesystem>
 #include <iostream>
+#include <vector>
 
-int RelearnTest::iterations = 10;
+std::size_t RelearnTest::iterations = 10;
 double RelearnTest::eps = 0.001;
 
 bool RelearnTest::use_predetermined_seed = false;
-unsigned int RelearnTest::predetermined_seed = 2818124801;
-
-std::vector<OctreeNode<BarnesHutCell>> holder_bh_cells{};
-std::vector<OctreeNode<BarnesHutInvertedCell>> holder_bhi_cells{};
-
-RelearnTest::RelearnTest() {
-}
-
-RelearnTest::~RelearnTest() {
-}
+std::mt19937::result_type RelearnTest::predetermined_seed = 2328571864;
 
 void RelearnTest::SetUp() {
     if (use_predetermined_seed) {
@@ -53,44 +51,23 @@ void RelearnTest::SetUp() {
 }
 
 void RelearnTest::TearDown() {
-    // Remove tmp files
-    for (auto const& entry : std::filesystem::recursive_directory_iterator("./")) {
-        if (std::filesystem::is_regular_file(entry) && entry.path().extension() == ".tmp") {
-            std::filesystem::remove(entry);
-            std::cerr << "REMOVED " << entry.path() << std::endl;
-        }
-    }
 
-    std::cerr << "Test finished\n";
 }
 
 RelearnMemoryTest::RelearnMemoryTest() {
-    MemoryHolder<BarnesHutCell>::init(holder_bh_cells);
-    MemoryHolder<BarnesHutInvertedCell>::init(holder_bhi_cells);
-}
-
-RelearnMemoryTest::~RelearnMemoryTest() {
 }
 
 int main(int argc, char** argv) {
-    MPIWrapper::init(1, argv);
+    mpiPP::MPIWrapper::init(argc, argv);
     ::testing::InitGoogleTest(&argc, argv);
 
-    holder_bh_cells.resize(1024 * 1024);
-    holder_bhi_cells.resize(1024 * 1024);
-
-    RelearnException::hide_messages = true;
     LogFiles::disable = true;
-
-    MemoryHolder<BarnesHutCell>::init(holder_bh_cells);
-    MemoryHolder<BarnesHutInvertedCell>::init(holder_bhi_cells);
 
     const auto tests_return_code = RUN_ALL_TESTS();
 
-    RelearnException::hide_messages = false;
     LogFiles::disable = false;
 
-    MPIWrapper::finalize();
+    mpiPP::MPIWrapper::finalize();
 
     return tests_return_code;
 }

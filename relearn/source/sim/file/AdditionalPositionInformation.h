@@ -12,10 +12,7 @@
 
 #include "Types.h"
 
-#include "neurons/enums/SignalType.h"
-
-#include <cstdint>
-#include <string>
+#include <vector>
 
 /**
  * This struct summarizes neurons loaded from a file. It is made up of:
@@ -26,6 +23,6 @@
 struct AdditionalPositionInformation {
     RelearnTypes::bounding_box_type sim_size;
     std::vector<RelearnTypes::bounding_box_type> subdomain_sizes;
-    RelearnTypes::number_neurons_type total_neurons;
-    RelearnTypes::number_neurons_type local_neurons;
+    RelearnTypes::number_neurons_type total_neurons{};
+    RelearnTypes::number_neurons_type local_neurons{};
 };

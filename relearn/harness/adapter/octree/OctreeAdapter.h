@@ -10,27 +10,25 @@
  *
  */
 
-#include "adapter/random/RandomAdapter.h"
-
-#include "adapter/simulation/SimulationAdapter.h"
-
+#include "algorithm/Internal/octree/Cell.h"
+#include "algorithm/Internal/octree/Octree.h"
+#include "algorithm/Internal/octree/OctreeNode.h"
 #include "neurons/helper/RankNeuronId.h"
-#include "structure/Cell.h"
-#include "structure/Octree.h"
-#include "structure/OctreeNode.h"
 #include "util/NeuronID.h"
 #include "util/Vec3.h"
 
-#include "gtest/gtest.h"
+#include "mpi-wrapper/MPIRank.h"
+
+#include <range/v3/algorithm/for_each.hpp>
 
 #include <cmath>
+#include <cstdint>
 #include <random>
 #include <stack>
 #include <tuple>
 #include <unordered_map>
+#include <utility>
 #include <vector>
-
-#include <range/v3/algorithm/for_each.hpp>
 
 class OctreeAdapter {
 public:
@@ -52,7 +50,7 @@ public:
 
             if (current_node->is_parent()) {
                 const auto& childs = current_node->get_children();
-                for (auto i = 0; i < 8; i++) {
+                for (auto i = 0ULL; i < 8ULL; i++) {
                     const auto child = childs[i];
                     if (child != nullptr) {
                         octree_nodes.emplace(child, level + 1);
@@ -79,6 +77,61 @@ public:
                 return_value.emplace_back(current_node);
                 continue;
             }
+
+            const auto& childs = current_node->get_children();
+            for (auto* child : childs) {
+                if (child != nullptr) {
+                    octree_nodes.push(child);
+                }
+            }
+        }
+
+        return return_value;
+    }
+
+    template <typename AdditionalCellAttributes>
+    static std::vector<OctreeNode<AdditionalCellAttributes>*> extract_leaf_nodes(OctreeNode<AdditionalCellAttributes>* root) {
+        std::vector<OctreeNode<AdditionalCellAttributes>*> return_value{};
+
+        std::stack<OctreeNode<AdditionalCellAttributes>*> octree_nodes{};
+        octree_nodes.push(root);
+
+        while (!octree_nodes.empty()) {
+            OctreeNode<AdditionalCellAttributes>* current_node = octree_nodes.top();
+            octree_nodes.pop();
+
+            if (current_node->is_leaf()) {
+                return_value.emplace_back(current_node);
+                continue;
+            }
+
+            const auto& childs = current_node->get_children();
+            for (auto* child : childs) {
+                if (child != nullptr) {
+                    octree_nodes.push(child);
+                }
+            }
+        }
+
+        return return_value;
+    }
+
+    template <typename AdditionalCellAttributes>
+    static std::vector<OctreeNode<AdditionalCellAttributes>*> extract_inner_nodes(OctreeNode<AdditionalCellAttributes>* root) {
+        std::vector<OctreeNode<AdditionalCellAttributes>*> return_value{};
+
+        std::stack<OctreeNode<AdditionalCellAttributes>*> octree_nodes{};
+        octree_nodes.push(root);
+
+        while (!octree_nodes.empty()) {
+            OctreeNode<AdditionalCellAttributes>* current_node = octree_nodes.top();
+            octree_nodes.pop();
+
+            if (current_node->is_leaf()) {
+                continue;
+            }
+
+            return_value.emplace_back(current_node);
 
             const auto& childs = current_node->get_children();
             for (auto* child : childs) {
@@ -128,7 +181,7 @@ public:
     }
 
     template <typename AdditionalCellAttributes>
-    static std::vector<std::pair<Vec3d, NeuronID>> extract_neurons_tree(const OctreeImplementation<AdditionalCellAttributes>& octree) {
+    static std::vector<std::pair<Vec3d, NeuronID>> extract_neurons_tree(const Octree<AdditionalCellAttributes>& octree) {
         const auto root = octree.get_root();
         if (root == nullptr) {
             return {};
@@ -138,225 +191,33 @@ public:
     }
 
     template <typename AdditionalCellAttributes>
-    static OctreeNode<AdditionalCellAttributes> get_standard_tree(const RelearnTypes::number_neurons_type number_neurons, const Vec3d& min_pos, const Vec3d& max_pos, std::mt19937& mt) {
-        auto get_synaptic_count = [&mt]() { return RandomAdapter::get_random_integer<typename OctreeNode<AdditionalCellAttributes>::counter_type>(1, 2, mt); };
+    static std::vector<OctreeNode<AdditionalCellAttributes>*> extract_branch_nodes(OctreeNode<AdditionalCellAttributes>* root, const std::uint8_t branch_node_level) {
+        std::vector<OctreeNode<AdditionalCellAttributes>*> branch_nodes{};
 
-        OctreeNode<AdditionalCellAttributes> root{};
-        root.set_level(0);
-        root.set_rank(MPIRank::root_rank());
+        std::stack<OctreeNode<AdditionalCellAttributes>*> octree_nodes{};
+        octree_nodes.push(root);
 
-        root.set_cell_neuron_id(NeuronID(0));
-        root.set_cell_size(min_pos, max_pos);
-        root.set_cell_neuron_position(SimulationAdapter::get_random_position_in_box(min_pos, max_pos, mt));
+        while (!octree_nodes.empty()) {
+            OctreeNode<AdditionalCellAttributes>* current_node = octree_nodes.top();
+            octree_nodes.pop();
 
-        for (const auto id : NeuronID::range(1, number_neurons)) {
-            auto* ptr = root.insert(SimulationAdapter::get_random_position_in_box(min_pos, max_pos, mt), id);
-        }
-
-        std::stack<OctreeNode<AdditionalCellAttributes>*> stack{};
-        stack.push(&root);
-
-        while (!stack.empty()) {
-            auto* current = stack.top();
-            stack.pop();
-
-            if (current->is_leaf()) {
-                if constexpr (OctreeNode<AdditionalCellAttributes>::has_excitatory_dendrite) {
-                    current->set_cell_number_excitatory_dendrites(get_synaptic_count());
-                }
-
-                if constexpr (OctreeNode<AdditionalCellAttributes>::has_inhibitory_dendrite) {
-                    current->set_cell_number_inhibitory_dendrites(get_synaptic_count());
-                }
-
-                if constexpr (OctreeNode<AdditionalCellAttributes>::has_excitatory_axon) {
-                    current->set_cell_number_excitatory_axons(get_synaptic_count());
-                }
-
-                if constexpr (OctreeNode<AdditionalCellAttributes>::has_inhibitory_axon) {
-                    current->set_cell_number_inhibitory_axons(get_synaptic_count());
-                }
-
+            if (current_node->get_level() == branch_node_level) {
+                branch_nodes.emplace_back(current_node);
                 continue;
             }
 
-            for (auto* child : current->get_children()) {
+            for (auto* child : current_node->get_children()) {
                 if (child != nullptr) {
-                    stack.push(child);
+                    octree_nodes.push(child);
                 }
             }
         }
 
-        OctreeNodeUpdater<AdditionalCellAttributes>::update_tree(&root);
-
-        return root;
+        return branch_nodes;
     }
 
     template <typename AdditionalCellAttributes>
-    static OctreeNode<AdditionalCellAttributes> get_tree_no_axons(const RelearnTypes::number_neurons_type number_neurons, const Vec3d& min_pos, const Vec3d& max_pos, std::mt19937& mt) {
-        auto get_synaptic_count = [&mt]() { return RandomAdapter::get_random_integer<typename OctreeNode<AdditionalCellAttributes>::counter_type>(0, 1, mt); };
-
-        OctreeNode<AdditionalCellAttributes> root{};
-        root.set_level(0);
-        root.set_rank(MPIRank::root_rank());
-
-        root.set_cell_neuron_id(NeuronID(0));
-        root.set_cell_size(min_pos, max_pos);
-        root.set_cell_neuron_position(SimulationAdapter::get_random_position_in_box(min_pos, max_pos, mt));
-
-        for (const auto id : NeuronID::range(1, number_neurons)) {
-            auto* ptr = root.insert(SimulationAdapter::get_random_position_in_box(min_pos, max_pos, mt), id);
-        }
-
-        std::stack<OctreeNode<AdditionalCellAttributes>*> stack{};
-        stack.push(&root);
-
-        while (!stack.empty()) {
-            auto* current = stack.top();
-            stack.pop();
-
-            if (current->is_leaf()) {
-                if constexpr (OctreeNode<AdditionalCellAttributes>::has_excitatory_dendrite) {
-                    current->set_cell_number_excitatory_dendrites(get_synaptic_count());
-                }
-
-                if constexpr (OctreeNode<AdditionalCellAttributes>::has_inhibitory_dendrite) {
-                    current->set_cell_number_inhibitory_dendrites(get_synaptic_count());
-                }
-
-                if constexpr (OctreeNode<AdditionalCellAttributes>::has_excitatory_axon) {
-                    current->set_cell_number_excitatory_axons(0);
-                }
-
-                if constexpr (OctreeNode<AdditionalCellAttributes>::has_inhibitory_axon) {
-                    current->set_cell_number_inhibitory_axons(0);
-                }
-
-                continue;
-            }
-
-            for (auto* child : current->get_children()) {
-                if (child != nullptr) {
-                    stack.push(child);
-                }
-            }
-        }
-
-        OctreeNodeUpdater<AdditionalCellAttributes>::update_tree(&root);
-
-        return root;
-    }
-
-    template <typename AdditionalCellAttributes>
-    static OctreeNode<AdditionalCellAttributes> get_tree_no_dendrites(const RelearnTypes::number_neurons_type number_neurons, const Vec3d& min_pos, const Vec3d& max_pos, std::mt19937& mt) {
-        auto get_synaptic_count = [&mt]() { return RandomAdapter::get_random_integer<typename OctreeNode<AdditionalCellAttributes>::counter_type>(0, 1, mt); };
-
-        OctreeNode<AdditionalCellAttributes> root{};
-        root.set_level(0);
-        root.set_rank(MPIRank::root_rank());
-
-        root.set_cell_neuron_id(NeuronID(0));
-        root.set_cell_size(min_pos, max_pos);
-        root.set_cell_neuron_position(SimulationAdapter::get_random_position_in_box(min_pos, max_pos, mt));
-
-        for (const auto id : NeuronID::range(1, number_neurons)) {
-            auto* ptr = root.insert(SimulationAdapter::get_random_position_in_box(min_pos, max_pos, mt), id);
-        }
-
-        std::stack<OctreeNode<AdditionalCellAttributes>*> stack{};
-        stack.push(&root);
-
-        while (!stack.empty()) {
-            auto* current = stack.top();
-            stack.pop();
-
-            if (current->is_leaf()) {
-                if constexpr (OctreeNode<AdditionalCellAttributes>::has_excitatory_dendrite) {
-                    current->set_cell_number_excitatory_dendrites(0);
-                }
-
-                if constexpr (OctreeNode<AdditionalCellAttributes>::has_inhibitory_dendrite) {
-                    current->set_cell_number_inhibitory_dendrites(0);
-                }
-
-                if constexpr (OctreeNode<AdditionalCellAttributes>::has_excitatory_axon) {
-                    current->set_cell_number_excitatory_axons(get_synaptic_count());
-                }
-
-                if constexpr (OctreeNode<AdditionalCellAttributes>::has_inhibitory_axon) {
-                    current->set_cell_number_inhibitory_axons(get_synaptic_count());
-                }
-
-                continue;
-            }
-
-            for (auto* child : current->get_children()) {
-                if (child != nullptr) {
-                    stack.push(child);
-                }
-            }
-        }
-
-        OctreeNodeUpdater<AdditionalCellAttributes>::update_tree(&root);
-
-        return root;
-    }
-
-    template <typename AdditionalCellAttributes>
-    static OctreeNode<AdditionalCellAttributes> get_tree_no_synaptic_elements(const RelearnTypes::number_neurons_type number_neurons, const Vec3d& min_pos, const Vec3d& max_pos, std::mt19937& mt) {
-        OctreeNode<AdditionalCellAttributes> root{};
-        root.set_level(0);
-        root.set_rank(MPIRank::root_rank());
-
-        root.set_cell_neuron_id(NeuronID(0));
-        root.set_cell_size(min_pos, max_pos);
-        root.set_cell_neuron_position(SimulationAdapter::get_random_position_in_box(min_pos, max_pos, mt));
-
-        for (const auto id : NeuronID::range(1, number_neurons)) {
-            auto* ptr = root.insert(SimulationAdapter::get_random_position_in_box(min_pos, max_pos, mt), id);
-        }
-
-        std::stack<OctreeNode<AdditionalCellAttributes>*> stack{};
-        stack.push(&root);
-
-        while (!stack.empty()) {
-            auto* current = stack.top();
-            stack.pop();
-
-            if (current->is_leaf()) {
-                if constexpr (OctreeNode<AdditionalCellAttributes>::has_excitatory_dendrite) {
-                    current->set_cell_number_excitatory_dendrites(0);
-                }
-
-                if constexpr (OctreeNode<AdditionalCellAttributes>::has_inhibitory_dendrite) {
-                    current->set_cell_number_inhibitory_dendrites(0);
-                }
-
-                if constexpr (OctreeNode<AdditionalCellAttributes>::has_excitatory_axon) {
-                    current->set_cell_number_excitatory_axons(0);
-                }
-
-                if constexpr (OctreeNode<AdditionalCellAttributes>::has_inhibitory_axon) {
-                    current->set_cell_number_inhibitory_axons(0);
-                }
-
-                continue;
-            }
-
-            for (auto* child : current->get_children()) {
-                if (child != nullptr) {
-                    stack.push(child);
-                }
-            }
-        }
-
-        OctreeNodeUpdater<AdditionalCellAttributes>::update_tree(&root);
-
-        return root;
-    }
-
-    template <typename AdditionalCellAttributes>
-    static void mark_node_as_distributed(OctreeNode<AdditionalCellAttributes>* root, const std::uint16_t level_of_branch_nodes) {
+    static void mark_node_as_distributed(OctreeNode<AdditionalCellAttributes>* root, const std::uint8_t level_of_branch_nodes) {
         std::vector<OctreeNode<AdditionalCellAttributes>*> branch_nodes{};
         branch_nodes.reserve(static_cast<size_t>(std::pow(8.0, level_of_branch_nodes) * 2));
 
@@ -384,31 +245,107 @@ public:
 
         auto current_rank = 0;
         for (auto* node : branch_nodes) {
-            node->set_rank(MPIRank(current_rank));
+            node->set_rank(mpiPP::MPIRank(current_rank));
             current_rank++;
         }
 
         auto mark_children = [](OctreeNode<AdditionalCellAttributes>* node) {
             auto rank = node->get_mpi_rank();
 
-            std::stack<OctreeNode<AdditionalCellAttributes>*> stack{};
-            stack.push(node);
+            auto children_stack = std::stack<OctreeNode<AdditionalCellAttributes>*>{};
+            children_stack.push(node);
 
-            while (!stack.empty()) {
-                auto* current = stack.top();
-                stack.pop();
+            while (!children_stack.empty()) {
+                auto* current = children_stack.top();
+                children_stack.pop();
 
                 current->set_rank(rank);
 
                 for (auto* child : current->get_children()) {
                     if (child != nullptr) {
-                        stack.push(child);
+                        children_stack.push(child);
                     }
                 }
             }
         };
 
         ranges::for_each(branch_nodes, mark_children);
+    }
+
+    template <typename AdditionalCellAttributes>
+    static void invalidate_elements(OctreeNode<AdditionalCellAttributes>* root, const ElementType element_type, const SignalType signal_type) {
+        std::stack<OctreeNode<AdditionalCellAttributes>*> stack{};
+        stack.push(root);
+
+        while (!stack.empty()) {
+            OctreeNode<AdditionalCellAttributes>* current = stack.top();
+            stack.pop();
+
+            if (current->is_leaf()) {
+                if (element_type == ElementType::Axon) {
+                    if (signal_type == SignalType::Excitatory) {
+                        current->set_cell_number_excitatory_axons(0);
+                        current->set_cell_excitatory_axons_position({});
+                    } else {
+                        current->set_cell_number_inhibitory_axons(0);
+                        current->set_cell_inhibitory_axons_position({});
+                    }
+                } else {
+                    if (signal_type == SignalType::Excitatory) {
+                        current->set_cell_number_excitatory_dendrites(0);
+                        current->set_cell_excitatory_dendrites_position({});
+                    } else {
+                        current->set_cell_number_inhibitory_dendrites(0);
+                        current->set_cell_inhibitory_dendrites_position({});
+                    }
+                }
+                continue;
+            }
+
+            for (auto* child : current->get_children()) {
+                if (child != nullptr) {
+                    stack.push(child);
+                }
+            }
+        }
+
+        OctreeNodeUpdater<AdditionalCellAttributes>::update_tree(root);
+    }
+
+    template <typename AdditionalCellAttributes>
+    static void increase_number_elements(OctreeNode<AdditionalCellAttributes>* root, const ElementType element_type, const SignalType signal_type) {
+        std::stack<OctreeNode<AdditionalCellAttributes>*> stack{};
+        stack.push(root);
+
+        while (!stack.empty()) {
+            OctreeNode<AdditionalCellAttributes>* current = stack.top();
+            stack.pop();
+
+            if (current->is_leaf()) {
+                if (element_type == ElementType::Axon) {
+                    if (signal_type == SignalType::Excitatory) {
+                        current->set_cell_number_excitatory_axons((current->get_cell().get_number_excitatory_axons() * 2) + 1);
+                    } else {
+                        current->set_cell_number_inhibitory_axons((current->get_cell().get_number_inhibitory_axons() * 2) + 1);
+                    }
+                } else {
+                    if (signal_type == SignalType::Excitatory) {
+                        current->set_cell_number_excitatory_dendrites((current->get_cell().get_number_excitatory_dendrites() * 2) + 1);
+                    } else {
+                        current->set_cell_number_inhibitory_dendrites((current->get_cell().get_number_inhibitory_dendrites() * 2) + 1);
+                    }
+                }
+                continue;
+            }
+
+            for (auto* child : current->get_children()) {
+                if (child != nullptr) {
+                    stack.push(child);
+                }
+            }
+        }
+
+        OctreeNodeUpdater<AdditionalCellAttributes>::update_tree(root);
     }
 
     template <typename AdditionalCellAttributes>
@@ -446,7 +383,7 @@ public:
             stack.pop();
 
             if (current->is_leaf()) {
-                RankNeuronId rni{ current->get_mpi_rank(), current->get_cell_neuron_id() };
+                const RankNeuronId rni{ current->get_mpi_rank(), current->get_cell_neuron_id() };
                 mapping.emplace(rni, current);
                 continue;
             }

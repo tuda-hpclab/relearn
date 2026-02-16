@@ -12,34 +12,44 @@
 
 #include "Config.h"
 #include "Types.h"
+#include "Types2.h"
+
 #include "algorithm/AlgorithmEnum.h"
+#include "algorithm/CombinedAlgorithmsInternal/CombinedAlgorithms.h"
 #include "sim/Essentials.h"
-#include "util/Interval.h"
+#include "util/NeuronID.h"
+#include "util/RelearnException.h"
 #include "util/StatisticalMeasures.h"
-#include "neurons/helper/GlobalAreaMapper.h"
+
+#include "cpp-utility/Interval.hpp"
 
 #include <cstddef>
 #include <cstdint>
-#include <filesystem>
 #include <functional>
 #include <map>
 #include <memory>
-#include <optional>
 #include <string>
+#include <tuple>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
+namespace utility {
+class MemoryFootprint;
+}
+
 class Algorithm;
-class AreaMonitor;
 class CalciumCalculator;
-class NetworkGraph;
+class GlobalGroupMapper;
+class GroupMonitor;
+class KernelBase;
 class NeuronModel;
 class NeuronMonitor;
 class NeuronToSubdomainAssignment;
 class Neurons;
-class Octree;
 class Partition;
 class SynapseDeletionFinder;
+class SynapticElements;
 class SynapticElements;
 
 /**
@@ -54,26 +64,26 @@ public:
 
     /**
      * @brief Constructs a new object with the given partition and essentials.
-     * @param essentials The essentials container for this simulation
-     * @param partition The partition for this simulation
+     * @param _essentials The essentials container for this simulation
+     * @param _partition The partition for this simulation
      */
-    Simulation(std::unique_ptr<Essentials> essentials, std::shared_ptr<Partition> partition);
+    Simulation(std::unique_ptr<Essentials> _essentials, std::shared_ptr<Partition> _partition);
 
     /**
      * @brief Registers a monitor for the given neuron id.
      *      Does not check for duplicates, etc.
      * @param neuron_id The local neuron id that should be monitored
      */
-    void register_neuron_monitor(const NeuronID& neuron_id);
+    void register_neuron_monitor(NeuronID neuron_id);
 
     /**
-     * @brief Enables the area monitor for all areas. Must be called before initialize()
-     * @param enable If the area monitor shall be enabled
+     * @brief Enables the group monitor for all groups. Must be called before initialize()
+     * @param enable If the group monitor shall be enabled
      */
-    void enable_area_monitor(bool enable, bool monitor_connectivity) {
-        RelearnException::check(enable || !monitor_connectivity, "Simulation::enable_area_monitor: You cant monitor the connectivity without the area monitor enabled");
-        area_monitor_enabled = enable;
-        area_monitor_connectivity = monitor_connectivity;
+    void enable_group_monitor(const bool enable, const bool monitor_connectivity) {
+        RelearnException::check(enable || !monitor_connectivity, "Simulation::enable_group_monitor: You cant monitor the connectivity without the group monitor enabled");
+        group_monitor_enabled = enable;
+        group_monitor_connectivity = monitor_connectivity;
     }
 
     /**
@@ -83,11 +93,15 @@ public:
      */
     void set_acceptance_criterion_for_barnes_hut(double value);
 
+    void set_algorithm_vector_for_combined_algorithms(RelearnTypes::AlgorithmConfigs&& algorithm_configs_to_use);
+
+    void set_indices_and_neurons_for_combined_algorithms(const RelearnTypes::AlgorithmIndexWithNeuronsType& inds_and_neurons);
+
     /**
      * @brief Sets the neuron model used for the simulation
-     * @param nm The neuron model
+     * @param _neuron_model The neuron model
      */
-    void set_neuron_model(std::unique_ptr<NeuronModel>&& nm) noexcept;
+    void set_neuron_model(std::unique_ptr<NeuronModel>&& _neuron_model) noexcept;
 
     /**
      * @brief Sets the calcium calculator used for the simulation
@@ -96,26 +110,14 @@ public:
     void set_calcium_calculator(std::unique_ptr<CalciumCalculator>&& calculator) noexcept;
 
     /**
-     * @brief Sets the synaptic elements model for the axons
-     * @param se The synaptic elements model
+     * @brief Sets the synaptic elements used for the simulation
+     * @param _synaptic_elements The synaptic elements
      */
-    void set_axons(std::shared_ptr<SynapticElements>&& se) noexcept;
-
-    /**
-     * @brief Sets the synaptic elements model for the excitatory dendrites
-     * @param se The synaptic elements model
-     */
-    void set_dendrites_ex(std::shared_ptr<SynapticElements>&& se) noexcept;
-
-    /**
-     * @brief Sets the synaptic elements model for the inhibitory dendrites
-     * @param se The synaptic elements model
-     */
-    void set_dendrites_in(std::shared_ptr<SynapticElements>&& se) noexcept;
+    void set_synaptic_elements(std::shared_ptr<SynapticElements>&& _synaptic_elements) noexcept;
 
     /**
      * @brief Sets the synapse deletion finder
-     * @param se The synapse deletion finder
+     * @param sdf The synapse deletion finder
      */
     void set_synapse_deletion_finder(std::unique_ptr<SynapseDeletionFinder>&& sdf) noexcept;
 
@@ -142,9 +144,15 @@ public:
 
     /**
      * @brief Sets the algorithm that is used for finding target neurons.
-     * @param algorithm The desired algorithm
+     * @param new_algorithm_enum The desired algorithm
      */
-    void set_algorithm(AlgorithmEnum algorithm) noexcept;
+    void set_algorithm(AlgorithmEnum new_algorithm_enum) noexcept;
+
+    /**
+     * @brief Sets the probability kernel that is used for the simulation
+     * @param kernel The kernel
+     */
+    void set_probability_kernel(std::unique_ptr<KernelBase>&& kernel) noexcept;
 
     /**
      * @brief Sets the percentage of neurons that fired in the 0th simulation step.
@@ -161,9 +169,9 @@ public:
 
     /**
      * @brief Sets the list of neurons into a static sate. Only static connections are allowed from and to a static neuron
-     * @param static_neurons Vector with neuron ids for the local rank
+     * @param _static_neurons Vector with neuron ids for the local rank
      */
-    void set_static_neurons(std::vector<NeuronID> static_neurons);
+    void set_static_neurons(std::vector<NeuronID> _static_neurons);
 
     /**
      * @brief Sets the new interval determining when the electrical activity is updated
@@ -198,11 +206,27 @@ public:
     }
 
     /**
+     * @brief Sets the new interval determining when the group monitors are updated
+     * @param interval The new interval with first and last step, as well as the frequency
+     */
+    void set_update_group_monitor_interval(const auto& interval) {
+        interval_group_monitor = interval;
+    }
+
+    /**
      * @brief Sets the new interval determining when the calcium is logged
      * @param interval The new interval with first and last step, as well as the frequency
      */
     void set_log_calcium_interval(const auto& interval) {
         interval_calcium_log = interval;
+    }
+
+    /**
+     * @brief Sets the new interval determining when the fire rate is logged
+     * @param interval The new interval with first and last step, as well as the frequency
+     */
+    void set_log_fire_rate_interval(const auto& interval) {
+        interval_fire_rate_log = interval;
     }
 
     /**
@@ -230,14 +254,6 @@ public:
     }
 
     /**
-     * @brief Sets the new interval determining when the histograms are logged
-     * @param interval The new interval with first and last step, as well as the frequency
-     */
-    void set_log_historgram_interval(const auto& interval) {
-        interval_histogram_log = interval;
-    }
-
-    /**
      * @brief Initializes the simulation and all other objects.
      * @exception Throws a RelearnException if one object is missing or something went wrong otherwise
      */
@@ -258,39 +274,27 @@ public:
     void finalize() const;
 
     /**
-     * @brief Increases the capacity of each registered neuron monitor by the requested size
-     * @param size The size by which to increase the monitors
+     * @brief Returns an std::shared_ptr to the partition object
+     * @return The partition object
      */
-    void increase_monitoring_capacity(size_t size);
-
-    /**
-     * @brief Returns a vector with an std::unique_ptr for each class inherited from NeuronModels which can be cloned
-     * @return A vector with all inherited classes
-     */
-    static std::vector<std::unique_ptr<NeuronModel>> get_models();
+    [[nodiscard]] const std::shared_ptr<Partition>& get_partition() const noexcept {
+        return partition;
+    }
 
     /**
      * @brief Returns an std::shared_ptr to the neurons object
      * @return The neurons object
      */
-    std::shared_ptr<Neurons> get_neurons() noexcept {
+    [[nodiscard]] std::shared_ptr<Neurons> get_neurons() const noexcept {
         return neurons;
     }
 
     /**
-     * @brief Returns an std::shared_ptr to the network graph
-     * @return The network graph
+     * @brief Returns the neuron monitor
+     * @return A constant reference to the neuron monitor
      */
-    std::shared_ptr<NetworkGraph> get_network_graph() noexcept {
-        return network_graph;
-    }
-
-    /**
-     * @brief Returns an std::shared_ptr to all neuron monitors
-     * @return All neuron monitors
-     */
-    std::shared_ptr<std::vector<NeuronMonitor>> get_monitors() noexcept {
-        return monitors;
+    [[nodiscard]] const std::unique_ptr<NeuronMonitor>& get_monitor() const noexcept {
+        return neuron_monitor;
     }
 
     /**
@@ -325,37 +329,37 @@ public:
      */
     void snapshot_monitors();
 
-    const std::shared_ptr<std::unordered_map<RelearnTypes::area_id, AreaMonitor>>& get_area_monitors() const noexcept {
-        return area_monitors;
+    /**
+     * @brief Returns the group monitors
+     * @return The group monitors
+     */
+    [[nodiscard]] const std::shared_ptr<std::unordered_map<RelearnTypes::group_id, GroupMonitor>>& get_group_monitors() const noexcept {
+        return group_monitors;
     }
 
 private:
     std::unique_ptr<Essentials> essentials{};
+    std::unique_ptr<utility::MemoryFootprint> footprint{};
+
+    std::unique_ptr<KernelBase> probability_kernel{};
 
     std::shared_ptr<Partition> partition{};
 
     std::unique_ptr<NeuronToSubdomainAssignment> neuron_to_subdomain_assignment{};
 
-    std::shared_ptr<SynapticElements> axons{};
-    std::shared_ptr<SynapticElements> dendrites_ex{};
-    std::shared_ptr<SynapticElements> dendrites_in{};
+    std::shared_ptr<SynapticElements> synaptic_elements{};
 
     std::vector<NeuronID> static_neurons{};
-    std::vector<std::string> static_areas{};
+    std::vector<std::string> static_groups;
 
     std::unique_ptr<NeuronModel> neuron_models{};
     std::unique_ptr<CalciumCalculator> calcium_calculator{};
     std::shared_ptr<Neurons> neurons{};
     std::unique_ptr<SynapseDeletionFinder> synapse_deletion_finder{};
 
-    std::shared_ptr<Algorithm> algorithm{};
-    std::shared_ptr<Octree> global_tree{};
-
-    std::shared_ptr<NetworkGraph> network_graph{};
-
-    std::shared_ptr<std::vector<NeuronMonitor>> monitors{};
-    std::shared_ptr<std::unordered_map<RelearnTypes::area_id, AreaMonitor>> area_monitors{};
-    std::shared_ptr<GlobalAreaMapper> global_area_mapper{};
+    std::unique_ptr<NeuronMonitor> neuron_monitor{};
+    std::shared_ptr<std::unordered_map<RelearnTypes::group_id, GroupMonitor>> group_monitors;
+    std::shared_ptr<GlobalGroupMapper> global_group_mapper;
 
     std::vector<std::pair<step_type, std::vector<NeuronID>>> enable_interrupts{};
     std::vector<std::pair<step_type, std::vector<NeuronID>>> disable_interrupts{};
@@ -366,33 +370,37 @@ private:
     std::function<double(int, NeuronID::value_type)> target_calcium_calculator{};
     std::function<double(int, NeuronID::value_type)> initial_calcium_initiator{};
 
-    Interval interval_update_electrical_activity{ 0, std::numeric_limits<RelearnTypes::step_type>::max(), RelearnTypes::step_type(1) };
-    Interval interval_update_synaptic_elements{ 0, std::numeric_limits<RelearnTypes::step_type>::max(), RelearnTypes::step_type(1) };
-    Interval interval_update_plasticity{ 0, std::numeric_limits<RelearnTypes::step_type>::max(), Config::plasticity_update_step };
+    utility::Interval<step_type> interval_update_electrical_activity{ .begin = 0, .end = std::numeric_limits<RelearnTypes::step_type>::max(), .frequency = RelearnTypes::step_type{ 1 } };
+    utility::Interval<step_type> interval_update_synaptic_elements{ .begin = 0, .end = std::numeric_limits<RelearnTypes::step_type>::max(), .frequency = RelearnTypes::step_type{ 1 } };
+    utility::Interval<step_type> interval_update_plasticity{ .begin = 0, .end = std::numeric_limits<RelearnTypes::step_type>::max(), .frequency = Config::plasticity_update_step };
 
-    Interval interval_neuron_monitor{ 0, std::numeric_limits<RelearnTypes::step_type>::max(), Config::neuron_monitor_log_step };
+    utility::Interval<step_type> interval_neuron_monitor{ .begin = 0, .end = std::numeric_limits<RelearnTypes::step_type>::max(), .frequency = Config::neuron_monitor_log_step };
+    utility::Interval<step_type> interval_group_monitor{ .begin = 0, .end = std::numeric_limits<RelearnTypes::step_type>::max(), .frequency = Config::group_monitor_log_step };
 
-    Interval interval_calcium_log{ 0, std::numeric_limits<RelearnTypes::step_type>::max(), Config::calcium_log_step };
-    Interval interval_synaptic_input_log{ 0, std::numeric_limits<RelearnTypes::step_type>::max(), Config::synaptic_input_log_step };
-    Interval interval_network_log{ 0, std::numeric_limits<RelearnTypes::step_type>::max(), Config::network_log_step };
+    utility::Interval<step_type> interval_calcium_log{ .begin = 0, .end = std::numeric_limits<RelearnTypes::step_type>::max(), .frequency = Config::calcium_log_step };
+    utility::Interval<step_type> interval_fire_rate_log{ .begin = 0, .end = std::numeric_limits<RelearnTypes::step_type>::max(), .frequency = Config::fire_rate_log_step };
+    utility::Interval<step_type> interval_synaptic_input_log{ .begin = 0, .end = std::numeric_limits<RelearnTypes::step_type>::max(), .frequency = Config::synaptic_input_log_step };
+    utility::Interval<step_type> interval_network_log{ .begin = 0, .end = std::numeric_limits<RelearnTypes::step_type>::max(), .frequency = Config::network_log_step };
 
-    Interval interval_statistics_log{ 0, std::numeric_limits<RelearnTypes::step_type>::max(), Config::statistics_log_step };
-    Interval interval_histogram_log{ 0, std::numeric_limits<RelearnTypes::step_type>::max(), Config::histogram_log_step };
+    utility::Interval<step_type> interval_statistics_log{ .begin = 0, .end = std::numeric_limits<RelearnTypes::step_type>::max(), .frequency = Config::statistics_log_step };
 
     double percentage_initially_fired{ 0.0 };
 
-    bool area_monitor_enabled{ false };
-    bool area_monitor_connectivity{ true };
+    bool group_monitor_enabled{ false };
+    bool group_monitor_connectivity{ true };
 
     double accept_criterion{ 0.0 };
 
+    RelearnTypes::AlgorithmConfigs algorithms{};
+    RelearnTypes::AlgorithmIndexWithNeuronsType indices_and_neurons{};
+
     AlgorithmEnum algorithm_enum{};
 
-    int64_t total_synapse_creations{ 0 };
-    int64_t total_synapse_deletions{ 0 };
+    std::int64_t total_synapse_creations{ 0 };
+    std::int64_t total_synapse_deletions{ 0 };
 
-    int64_t delta_synapse_creations{ 0 };
-    int64_t delta_synapse_deletions{ 0 };
+    std::int64_t delta_synapse_creations{ 0 };
+    std::int64_t delta_synapse_deletions{ 0 };
 
     step_type step{ 1 };
 };

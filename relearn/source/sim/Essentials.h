@@ -33,14 +33,8 @@ public:
      */
     template <typename T>
     void insert(description_type description, T value) {
-        using T_type = std::decay_t<T>;
-
-        if constexpr (std::is_same_v<T_type, value_type>) {
-            dictionary[std::move(description)] = std::move(value);
-        } else if constexpr (std::is_same_v<T_type, const char*>) {
-            dictionary[std::move(description)] = std::string(value);
-        } else if constexpr (std::is_same_v<T_type, char*>) {
-            dictionary[std::move(description)] = std::string(value);
+        if constexpr (std::is_constructible_v<std::string, T>) {
+            dictionary[std::move(description)] = std::string(std::move(value));
         } else {
             dictionary[std::move(description)] = std::to_string(value);
         }
@@ -56,6 +50,14 @@ public:
         for (const auto& [key, value] : dictionary) {
             out << key << ": " << value << '\n';
         }
+    }
+
+    /**
+     * Return the underlying key-value map of the essentials
+     * @return The key-value map
+     */
+    [[nodiscard]] const std::map<description_type , value_type >& as_map() const {
+        return dictionary;
     }
 
 private:

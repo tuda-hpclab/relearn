@@ -11,25 +11,28 @@
  */
 
 #include "RelearnException.h"
-#include "util/ranges/Functional.hpp"
+
+#include "cpp-utility/ranges/Functional.hpp"
+
+#include <fmt/ostream.h>
+#include <range/v3/view/iota.hpp>
+#include <range/v3/view/transform.hpp>
 
 #include <compare>
 #include <concepts>
 #include <cstdint>
 #include <ostream>
 #include <type_traits>
-#include <vector>
 
-#include <fmt/ostream.h>
-#include <range/v3/view/iota.hpp>
-#include <range/v3/view/transform.hpp>
+template <typename U>
+class TaggedIDTest;
 
 namespace detail {
 template <std::integral T>
-[[nodiscard]] inline constexpr T get_max_size(const std::size_t& bit_count) {
-    std::size_t res{ 1 };
+[[nodiscard]] constexpr T get_max_size(const std::size_t& bit_count) {
+    auto res = std::size_t{ 1 };
 
-    for (std::size_t i = 0; i < bit_count - std::size_t{ 1 }; ++i) {
+    for (auto i = std::size_t{ 0 }; i < bit_count - std::size_t{ 1 }; ++i) {
         res <<= 1U;
         ++res;
     }
@@ -59,7 +62,7 @@ class NeuronID {
 public:
     using value_type = std::uint64_t;
     static constexpr auto num_flags = 2;
-    static constexpr auto id_bit_count = sizeof(value_type) * 8 - num_flags;
+    static constexpr auto id_bit_count = (sizeof(value_type) * 8) - num_flags;
     using limits = detail::TaggedIDNumericalLimitsUnsigned<value_type, id_bit_count>;
 
     /**
@@ -84,47 +87,68 @@ public:
      * @param hijacked_value The offset in the RMA window/index of the branch node
      * @return constexpr NeuronID virtual id
      */
-    [[nodiscard]] static constexpr NeuronID virtual_id(std::integral auto hijacked_value) noexcept {
+    [[nodiscard]] static constexpr NeuronID virtual_id(const std::integral auto hijacked_value) noexcept {
         return NeuronID{ true, hijacked_value };
     }
 
     /**
-     * @brief Create a vector of NeuronIDs within the range [begin, end)
+     * @brief Create a range of NeuronIDs within the range [begin, end)
      *
-     * @param begin begin of the vector
-     * @param end end of the vector
-     * @return vector of NeuronIDs
+     * @param begin begin of the range
+     * @param end end of the range
+     * @return range of NeuronIDs
      */
     [[nodiscard]] static auto range(const value_type begin, const value_type end) {
-        return ranges::views::iota(begin, end) | ranges::views::transform(construct<NeuronID>);
+        return ranges::views::iota(begin, end) | ranges::views::transform(utility::construct<NeuronID>);
     }
 
     /**
-     * @brief Create a vector of local NeuronIDs within the range [0, size)
+     * @brief Create a range of NeuronIDs within the range [begin, end)
      *
-     * @param size size of the vector
-     * @return vector of NeuronIDs
+     * @param begin begin of the range
+     * @param end end of the range
+     * @return range of NeuronIDs
+     */
+    [[nodiscard]] static auto range(const NeuronID begin, const NeuronID end) {
+        return range(begin.get_neuron_id(), end.get_neuron_id());
+    }
+
+    /**
+     * @brief Create a range of local NeuronIDs within the range [0, size)
+     *
+     * @param size size of the range
+     * @return range of NeuronIDs
      */
     [[nodiscard]] static auto range(const value_type size) {
         return range(0U, size);
     }
 
     /**
-     * @brief Create a vector of NeuronIDs within the range [begin, end) but as ids of type value_type
+     * @brief Create a range of local NeuronIDs within the range [0, size)
      *
-     * @param begin begin of the vector
-     * @param end end of the vector
-     * @return vector of NeuronIDs of type value_type
+     * @param size size of the range
+     * @return range of NeuronIDs
+     */
+    [[nodiscard]] static auto range(const NeuronID size) {
+        return range(0U, size.get_neuron_id());
+    }
+
+    /**
+     * @brief Create a range of NeuronIDs within the range [begin, end) but as ids of type value_type
+     *
+     * @param begin begin of the range
+     * @param end end of the range
+     * @return range of NeuronIDs of type value_type
      */
     [[nodiscard]] static auto range_id(const value_type begin, const value_type end) {
         return ranges::views::iota(begin, end);
     }
 
     /**
-     * @brief Create a vector of local NeuronIDs within the range [0, size) but as ids of type value_type
+     * @brief Create a range of local NeuronIDs within the range [0, size) but as ids of type value_type
      *
-     * @param size size of the vector
-     * @return vector of NeuronIDs of type value_type
+     * @param size size of the range
+     * @return range of NeuronIDs of type value_type
      */
     [[nodiscard]] static auto range_id(const value_type size) {
         return range_id(0U, size);
@@ -134,7 +158,7 @@ public:
      * @brief Construct a new NeuronID object where the flag is_initialized is false
      *
      */
-    NeuronID() = default;
+    constexpr NeuronID() = default;
 
     /**
      * @brief Construct a new initialized NeuronID object with the given id
@@ -143,7 +167,7 @@ public:
      */
     constexpr explicit NeuronID(const std::integral auto id) noexcept
         : is_initialized_{ true }
-        , id_{ static_cast<value_type>(id) } {
+        , id_{ (static_cast<value_type>(id) & 0x3FFFFFFFFFFFFFFF) } {
     }
 
     /**
@@ -155,7 +179,7 @@ public:
     constexpr explicit NeuronID(const bool is_virtual, const std::integral auto id) noexcept
         : is_initialized_{ true }
         , is_virtual_{ is_virtual }
-        , id_{ static_cast<value_type>(id) } {
+        , id_{ (static_cast<value_type>(id) & 0x3FFFFFFFFFFFFFFF) } {
     }
 
     constexpr NeuronID(const NeuronID&) noexcept = default;
@@ -163,8 +187,6 @@ public:
 
     constexpr NeuronID(NeuronID&&) noexcept = default;
     constexpr NeuronID& operator=(NeuronID&&) noexcept = default;
-
-    constexpr bool operator==(const NeuronID&) const noexcept = default;
 
     constexpr ~NeuronID() = default;
 
@@ -229,11 +251,11 @@ public:
     }
 
     /**
-     * @brief Check if the id is local
+     * @brief Check if there is an actual id in here
      *
-     * @return true iff the id is local
+     * @return true iff the id is valid
      */
-    [[nodiscard]] constexpr bool is_local() const noexcept {
+    [[nodiscard]] constexpr bool is_actual_id() const noexcept {
         return is_initialized_ && !is_virtual_;
     }
 
@@ -245,9 +267,33 @@ public:
      */
     [[nodiscard]] friend constexpr std::strong_ordering operator<=>(const NeuronID&, const NeuronID&) noexcept = default;
 
+    /**
+     * @brief Returns the hash_value of the neuron ID *this. Is a perfect hash function
+     * @return The hash value
+     */
+    [[nodiscard]] constexpr std::size_t hash_value() const noexcept {
+        // The size of the stored value inside NeuronID has two bits less than value_type
+
+        constexpr auto max = std::numeric_limits<std::size_t>::max();
+        if (!is_initialized()) {
+            // All bits are set
+            return max;
+        }
+
+        if (is_virtual()) {
+            // Shift the RMA offset by +1 and subtract from max by using XOR
+            // The highest bit is set, but some others are not
+            const auto offset = get_rma_offset();
+            const auto hash_value = max ^ (offset + 1);
+            return hash_value;
+        }
+
+        // The highest bit is cleared, but some are set
+        return get_neuron_id();
+    }
+
 private:
     // the ordering of members is important for the defaulted <=> comparison
-
     bool is_initialized_ : 1 = false;
     bool is_virtual_ : 1 = false;
     value_type id_ : id_bit_count = 0;
@@ -264,7 +310,7 @@ private:
  * - i (default): id only   -> 123456
  * - s: small               -> 00:123456
  * - m: medium              -> i0v0:123456
- * - l: large               -> initialized: bool, virtual: bool:123456
+ * - l: large               -> initialized: bool, virtual: bool, id: 123456
  *
  * The id can be formatted with the appropriate
  * formatting for its type.
@@ -309,7 +355,7 @@ public:
         case 'l':
             fmt::format_to(
                 ctx.out(),
-                "initialized: {:5}, virtual: {:5}, id: ",
+                "initialized: {}, virtual: {}, id: ",
                 id.is_initialized(), id.is_virtual());
             break;
         default:
@@ -318,14 +364,15 @@ public:
         }
 
         using type = typename NeuronID::value_type;
+        constexpr static auto offset = type{ 10000000000000000000ULL };
 
-        type id_ = 0;
+        auto id_ = type{ 0 };
 
         if (!id.is_initialized()) {
             id_ = std::numeric_limits<type>::max();
         } else if (id.is_virtual()) {
-            id_ = std::numeric_limits<type>::max() - 1;
-        } else if (id.is_local()) {
+            id_ = offset + id.get_rma_offset();
+        } else if (id.is_actual_id()) {
             id_ = id.get_neuron_id();
         } else {
             RelearnException::fail("Format of neuron id failed!");
@@ -342,31 +389,23 @@ inline std::ostream& operator<<(std::ostream& os, const NeuronID& id) {
     return os << fmt::format("{}", id);
 }
 
+/**
+ * @brief Returns the hash_value of the neuron ID. Is a perfect hash function.
+ * @param neuron_id The neuron id, can be virtual, can be unitialized
+ * @return The hash value
+ */
+[[nodiscard]] constexpr std::size_t hash_value(const NeuronID neuron_id) noexcept {
+    return neuron_id.hash_value();
+}
+
 namespace std {
 template <>
 struct hash<NeuronID> {
     using argument_type = NeuronID;
     using result_type = std::size_t;
 
-    result_type operator()(const argument_type& neuron_id) const {
-        // The size of the stored value inside NeuronID has two bits less than value_type
-
-        constexpr auto max = std::numeric_limits<result_type>::max();
-        if (!neuron_id.is_initialized()) {
-            // All bits are set
-            return max;
-        }
-
-        if (neuron_id.is_virtual()) {
-            // Shift the RMA offset by +1 and subtract from max by using XOR
-            // The highest bit is set, but some others are not
-            const auto offset = neuron_id.get_rma_offset();
-            const auto hash = max ^ result_type(offset + 1);
-            return hash;
-        }
-
-        // The highest bit is cleared, but some are set
-        return neuron_id.get_neuron_id();
+    result_type operator()(const argument_type& neuron_id) const noexcept {
+        return neuron_id.hash_value();
     }
 };
 } // namespace std

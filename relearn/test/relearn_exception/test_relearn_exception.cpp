@@ -12,13 +12,27 @@
 
 #include "util/RelearnException.h"
 
-#include <string>
+#include "mpi-wrapper/MPIInfo.h"
+#include "mpi-wrapper/MPIRank.h"
 
-TEST_F(RelearnExceptionTest, testFail) {
+#include <gtest/gtest.h>
+
+#include <iostream>
+
+TEST_F(RelearnExceptionTest, testException) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     RelearnException::hide_messages = false;
 
-    const std::string message = "sadflhbcn\nkow97430921*:)�\" $SDMFSL ";
-    ASSERT_THROW(RelearnException::fail(message), RelearnException);
+    using namespace std::string_literals;
+    const auto message = "sadflhbcn\nkow97430921*:)§\" $SDMFSL "s;
+    ASSERT_THROW_NO_PRINT(RelearnException::fail(message), RelearnException);
 
     try {
         RelearnException::fail(message);
@@ -31,12 +45,21 @@ TEST_F(RelearnExceptionTest, testFail) {
 }
 
 TEST_F(RelearnExceptionTest, testCheck) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     RelearnException::hide_messages = false;
 
-    const std::string message = "sadflhbcn\nkow97430921*:)�\" $SDMFSL ";
+    using namespace std::string_literals;
+    const auto message = "sadflhbcn\nkow97430921*:)§\" $SDMFSL "s;
 
     ASSERT_NO_THROW(RelearnException::check(true, message));
-    ASSERT_THROW(RelearnException::check(false, message), RelearnException);
+    ASSERT_THROW_NO_PRINT(RelearnException::check(false, message), RelearnException);
 
     try {
         RelearnException::check(false, message);
@@ -49,10 +72,19 @@ TEST_F(RelearnExceptionTest, testCheck) {
 }
 
 TEST_F(RelearnExceptionTest, testFormatting) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     RelearnException::hide_messages = false;
 
-    const std::string message = "This is the first value: {} and this the second: {}\n";
-    const std::string expected_message = "This is the first value: 123456 and this the second: false\n";
+    using namespace std::string_literals;
+    const auto message = "This is the first value: {} and this the second: {}\n"s;
+    const auto expected_message = "This is the first value: 123456 and this the second: false\n"s;
 
     try {
         RelearnException::fail(message, 123456, false);
@@ -65,6 +97,14 @@ TEST_F(RelearnExceptionTest, testFormatting) {
 }
 
 TEST_F(RelearnExceptionTest, testFormattingWrongNumberArguments) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     ASSERT_ANY_THROW(RelearnException::fail("{}"));
     ASSERT_ANY_THROW(RelearnException::fail("{} {}", 2));
     ASSERT_ANY_THROW(RelearnException::fail("{}", 4.2, false));

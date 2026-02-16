@@ -11,9 +11,13 @@
  */
 
 #include "Types.h"
+
 #include "io/LogFiles.h"
 #include "io/parser/IntervalParser.h"
-#include "util/Interval.h"
+
+#include "cpp-utility/Interval.hpp"
+
+#include "mpi-wrapper/MPIRank.h"
 
 #include <algorithm>
 #include <functional>
@@ -44,17 +48,21 @@ public:
      * @param intervals The intervals that specify if an event shall occur
      * @return A std::function object that maps the current step to true or false, indicating if the event shall occur
      */
-    [[nodiscard]] static std::function<bool(RelearnTypes::step_type)> generate_step_check_function(std::vector<Interval> intervals) noexcept {
-        const auto intervals_intersect = Interval::check_intervals_for_intersection(intervals);
+    [[nodiscard]] static std::function<bool(RelearnTypes::step_type)> generate_step_check_function(std::vector<utility::Interval<RelearnTypes::step_type>> intervals) noexcept {
+        const auto intervals_intersect = utility::Interval<RelearnTypes::step_type>::check_intervals_for_intersection(intervals);
         if (intervals_intersect) {
-            LogFiles::print_message_rank(MPIRank::root_rank(), "The intervals for the step parser intersected, discarding all.");
+            LogFiles::print_message_rank(mpiPP::MPIRank::root_rank(), "The intervals for the step parser intersected, discarding all.");
             return {};
         }
 
-        std::ranges::sort(intervals, std::less{}, &Interval::begin);
+        const auto comparison = [](const utility::Interval<RelearnTypes::step_type>& first, const utility::Interval<RelearnTypes::step_type>& second) noexcept -> bool {
+            return first.begin < second.begin;
+        };
 
-        auto step_check_function = [intervals = std::move(intervals)](RelearnTypes::step_type step) noexcept -> bool {
-            return std::ranges::any_of(intervals, [step](const Interval& interval) { return interval.hits_step(step); });
+        std::ranges::sort(intervals, comparison);
+
+        const auto step_check_function = [intervals = std::move(intervals)](RelearnTypes::step_type step) noexcept -> bool {
+            return std::ranges::any_of(intervals, [step](const utility::Interval<RelearnTypes::step_type>& interval) { return interval.hits_step(step); });
         };
 
         return step_check_function;

@@ -10,17 +10,21 @@
  *
  */
 
-#include <fmt/core.h>
 #include <fmt/ostream.h>
+
 #include <ostream>
+#include <string>
 
 /**
  * This enum is used to differentiate between the algorithms which can be used for creating synapses
  */
-enum class AlgorithmEnum {
+enum class AlgorithmEnum : std::uint8_t {
     Naive,
     BarnesHut,
     BarnesHutInverted,
+    BarnesHutLocationAware,
+    FastMultipoleMethod,
+    CombinedAlgorithms,
 };
 
 /**
@@ -28,12 +32,28 @@ enum class AlgorithmEnum {
  * @param algorithm_enum The specified algorithm
  * @return True iff the specified algorithm implements the Barnes-Hut algorithm
  */
-constexpr inline bool is_barnes_hut(const AlgorithmEnum algorithm_enum) {
+[[nodiscard]] constexpr bool is_barnes_hut(const AlgorithmEnum algorithm_enum) {
     return algorithm_enum == AlgorithmEnum::BarnesHut
-        || algorithm_enum == AlgorithmEnum::BarnesHutInverted;
+           || algorithm_enum == AlgorithmEnum::BarnesHutInverted
+           || algorithm_enum == AlgorithmEnum::BarnesHutLocationAware
+        ;
 }
 
-inline std::string stringify(const AlgorithmEnum& algorithm_enum) {
+/**
+ * @brief Checks if the specified algorithm actually implements the Fast Multipole Method
+ * @param algorithm_enum The specified algorithm
+ * @return True iff the specified algorithm implements the Fast Multipole Method
+ */
+[[nodiscard]] constexpr bool is_fast_multipole_method(const AlgorithmEnum algorithm_enum) {
+    return algorithm_enum == AlgorithmEnum::FastMultipoleMethod;
+}
+
+/**
+ * @brief Returns a string representation of the algorithm enum
+ * @param algorithm_enum The value to print
+ * @return The string representation
+ */
+[[nodiscard]] inline std::string stringify(const AlgorithmEnum& algorithm_enum) {
     switch (algorithm_enum) {
     case AlgorithmEnum::Naive:
         return "Naive";
@@ -41,10 +61,18 @@ inline std::string stringify(const AlgorithmEnum& algorithm_enum) {
         return "BarnesHut";
     case AlgorithmEnum::BarnesHutInverted:
         return "BarnesHutInverted";
+    case AlgorithmEnum::BarnesHutLocationAware:
+        return "BarnesHutLocationAware";
+    case AlgorithmEnum::FastMultipoleMethod:
+        return "FastMultipoleMethod";
+    case AlgorithmEnum::CombinedAlgorithms:
+        return "CombinedAlgorithms";
+
     default:
         return "";
     }
 }
+
 /**
  * @brief Pretty-prints the algorithm to the chosen stream
  * @param out The stream to which to print the algorithm
@@ -56,4 +84,4 @@ inline std::ostream& operator<<(std::ostream& out, const AlgorithmEnum& algorith
 }
 
 template <>
-struct fmt::formatter<AlgorithmEnum> : fmt::ostream_formatter { };
+struct fmt::formatter<AlgorithmEnum> : ostream_formatter { };

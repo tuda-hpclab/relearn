@@ -10,138 +10,81 @@
 
 #include "test_misc.h"
 
-#include "adapter/neuron_id/NeuronIdAdapter.h"
-
 #include "neurons/NeuronsExtraInfo.h"
-#include "util/Utility.h"
+#include "neurons/enums/UpdateStatus.h"
+#include "util/Accumulate.h"
+#include "util/File.h"
+#include "util/NeuronID.h"
+#include "util/RelearnException.h"
 #include "util/shuffle/shuffle.h"
 
+#include "mpi-wrapper/MPIInfo.h"
+#include "mpi-wrapper/MPIRank.h"
+
+#include "factory/neuron_id/neuron_id_factory.h"
+#include "factory/random/random_factory.h"
+
+#include <gtest/gtest.h>
+
+#include <range/v3/range/conversion.hpp>
 #include <range/v3/view/concat.hpp>
 #include <range/v3/view/indices.hpp>
 #include <range/v3/view/iota.hpp>
 #include <range/v3/view/repeat_n.hpp>
 
-TEST_F(MiscTest, testNumberDigitsInt) {
-    using integer_type = int;
-
-    for (const auto val : ranges::views::iota(integer_type{ 0 }, integer_type{ 10 })) {
-        ASSERT_EQ(1, Util::num_digits(val));
-    }
-
-    for (auto i = 0; i < 10; i++) {
-        const auto val = RandomAdapter::get_random_integer<integer_type>(10, 99, mt);
-        ASSERT_EQ(2, Util::num_digits(val));
-    }
-
-    for (auto i = 0; i < 10; i++) {
-        const auto val = RandomAdapter::get_random_integer<integer_type>(100, 999, mt);
-        ASSERT_EQ(3, Util::num_digits(val));
-    }
-
-    for (auto i = 0; i < 10; i++) {
-        const auto val = RandomAdapter::get_random_integer<integer_type>(1000, 9999, mt);
-        ASSERT_EQ(4, Util::num_digits(val));
-    }
-
-    for (auto i = 0; i < 10; i++) {
-        const auto val = RandomAdapter::get_random_integer<integer_type>(10000, 99999, mt);
-        ASSERT_EQ(5, Util::num_digits(val));
-    }
-
-    for (auto i = 0; i < 10; i++) {
-        const auto val = RandomAdapter::get_random_integer<integer_type>(100000, 999999, mt);
-        ASSERT_EQ(6, Util::num_digits(val));
-    }
-}
-
-TEST_F(MiscTest, testNumberDigitsUnsignedInt) {
-    using integer_type = unsigned int;
-
-    for (const auto val : ranges::views::iota(integer_type{ 0 }, integer_type{ 10 })) {
-        ASSERT_EQ(1, Util::num_digits(val));
-    }
-
-    for (auto i = 0; i < 10; i++) {
-        const auto val = RandomAdapter::get_random_integer<integer_type>(10, 99, mt);
-        ASSERT_EQ(2, Util::num_digits(val));
-    }
-
-    for (auto i = 0; i < 10; i++) {
-        const auto val = RandomAdapter::get_random_integer<integer_type>(100, 999, mt);
-        ASSERT_EQ(3, Util::num_digits(val));
-    }
-
-    for (auto i = 0; i < 10; i++) {
-        const auto val = RandomAdapter::get_random_integer<integer_type>(1000, 9999, mt);
-        ASSERT_EQ(4, Util::num_digits(val));
-    }
-
-    for (auto i = 0; i < 10; i++) {
-        const auto val = RandomAdapter::get_random_integer<integer_type>(10000, 99999, mt);
-        ASSERT_EQ(5, Util::num_digits(val));
-    }
-
-    for (auto i = 0; i < 10; i++) {
-        const auto val = RandomAdapter::get_random_integer<integer_type>(100000, 999999, mt);
-        ASSERT_EQ(6, Util::num_digits(val));
-    }
-}
-
-TEST_F(MiscTest, testFactorial) {
-    constexpr auto fac0 = Util::factorial(0ULL);
-    constexpr auto fac1 = Util::factorial(1ULL);
-    constexpr auto fac2 = Util::factorial(2ULL);
-    constexpr auto fac3 = Util::factorial(3ULL);
-    constexpr auto fac4 = Util::factorial(4ULL);
-    constexpr auto fac5 = Util::factorial(5ULL);
-    constexpr auto fac6 = Util::factorial(6ULL);
-    constexpr auto fac7 = Util::factorial(7ULL);
-    constexpr auto fac8 = Util::factorial(8ULL);
-    constexpr auto fac9 = Util::factorial(9ULL);
-    constexpr auto fac10 = Util::factorial(10ULL);
-    constexpr auto fac11 = Util::factorial(11ULL);
-    constexpr auto fac12 = Util::factorial(12ULL);
-    constexpr auto fac13 = Util::factorial(13ULL);
-    constexpr auto fac14 = Util::factorial(14ULL);
-    constexpr auto fac15 = Util::factorial(15ULL);
-
-    ASSERT_EQ(fac0, 1ULL);
-    ASSERT_EQ(fac1, 1ULL);
-    ASSERT_EQ(fac2, 2ULL);
-    ASSERT_EQ(fac3, 6ULL);
-    ASSERT_EQ(fac4, 24ULL);
-    ASSERT_EQ(fac5, 120ULL);
-    ASSERT_EQ(fac6, 720ULL);
-    ASSERT_EQ(fac7, 5040ULL);
-    ASSERT_EQ(fac8, 40320ULL);
-    ASSERT_EQ(fac9, 362880ULL);
-    ASSERT_EQ(fac10, 3628800ULL);
-    ASSERT_EQ(fac11, 39916800ULL);
-    ASSERT_EQ(fac12, 479001600ULL);
-    ASSERT_EQ(fac13, 6227020800ULL);
-    ASSERT_EQ(fac14, 87178291200ULL);
-    ASSERT_EQ(fac15, 1307674368000ULL);
-}
+#include <algorithm>
+#include <cstddef>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <limits>
+#include <memory>
+#include <span>
+#include <vector>
 
 TEST_F(MiscTest, testMinMaxAccEmpty) {
-    ASSERT_THROW(auto val = Util::min_max_acc(std::span<const double>{}, {}), RelearnException);
-    ASSERT_THROW(auto val = Util::min_max_acc(std::span<const float>{}, {}), RelearnException);
-    ASSERT_THROW(auto val = Util::min_max_acc(std::span<const int>{}, {}), RelearnException);
-    ASSERT_THROW(auto val = Util::min_max_acc(std::span<const size_t>{}, {}), RelearnException);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    ASSERT_THROW_NO_PRINT(std::ignore = Util::min_max_acc(std::span<const double>{}, {}), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = Util::min_max_acc(std::span<const float>{}, {}), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = Util::min_max_acc(std::span<const int>{}, {}), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = Util::min_max_acc(std::span<const std::size_t>{}, {}), RelearnException);
 }
 
 TEST_F(MiscTest, testMinMaxAccSizeMismatch) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     const auto num_neurons = 3;
     const auto extra_infos = std::make_shared<NeuronsExtraInfo>();
     extra_infos->init(num_neurons);
 
-    ASSERT_THROW(auto val = Util::min_max_acc(std::span<const double>{ { 4.0, 1.2 } }, extra_infos), RelearnException);
-    ASSERT_THROW(auto val = Util::min_max_acc(std::span<const float>{ { 0.8f } }, extra_infos), RelearnException);
-    ASSERT_THROW(auto val = Util::min_max_acc(std::span<const int>{ { 5, -4, 8, -6, 9 } }, extra_infos), RelearnException);
-    ASSERT_THROW(auto val = Util::min_max_acc(std::span<const size_t>{ { 10, 422, 5223, 554315 } }, extra_infos), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = Util::min_max_acc(std::span<const double>{ { 4.0, 1.2 } }, extra_infos->get_disable_flags()), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = Util::min_max_acc(std::span<const float>{ { 0.8F } }, extra_infos->get_disable_flags()), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = Util::min_max_acc(std::span<const int>{ { 5, -4, 8, -6, 9 } }, extra_infos->get_disable_flags()), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = Util::min_max_acc(std::span<const std::size_t>{ { 10, 422, 5223, 554315 } }, extra_infos->get_disable_flags()), RelearnException);
 }
 
 TEST_F(MiscTest, testMinMaxAccSizeAllDisabled) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     const auto num_neurons = 3;
     const auto extra_infos = std::make_shared<NeuronsExtraInfo>();
     extra_infos->init(num_neurons);
@@ -149,31 +92,59 @@ TEST_F(MiscTest, testMinMaxAccSizeAllDisabled) {
     const auto disabled_neurons = NeuronID::range(num_neurons) | ranges::to_vector;
     extra_infos->set_disabled_neurons(disabled_neurons);
 
-    ASSERT_THROW(auto val = Util::min_max_acc(std::span<const double>{ { 4.0, 1.2, 5.2 } }, extra_infos), RelearnException);
-    ASSERT_THROW(auto val = Util::min_max_acc(std::span<const float>{ { 0.8f, -1.6f, 65423.8f } }, extra_infos), RelearnException);
-    ASSERT_THROW(auto val = Util::min_max_acc(std::span<const int>{ { 5, -4, 8 } }, extra_infos), RelearnException);
-    ASSERT_THROW(auto val = Util::min_max_acc(std::span<const size_t>{ { 10, 422, 5223 } }, extra_infos), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = Util::min_max_acc(std::span<const double>{ { 4.0, 1.2, 5.2 } }, extra_infos->get_disable_flags()), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = Util::min_max_acc(std::span<const float>{ { 0.8F, -1.6F, 65423.8F } }, extra_infos->get_disable_flags()), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = Util::min_max_acc(std::span<const int>{ { 5, -4, 8 } }, extra_infos->get_disable_flags()), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = Util::min_max_acc(std::span<const std::size_t>{ { 10, 422, 5223 } }, extra_infos->get_disable_flags()), RelearnException);
+}
+
+TEST_F(MiscTest, testMinMaxAccSizeAllStatic) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto update_status = std::vector<UpdateStatus>(3, UpdateStatus::Static);
+
+    ASSERT_THROW_NO_PRINT(std::ignore = Util::min_max_acc(std::span<const double>{ { 4.0, 1.2, 5.2 } }, update_status), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = Util::min_max_acc(std::span<const float>{ { 0.8F, -1.6F, 65423.8F } }, update_status), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = Util::min_max_acc(std::span<const int>{ { 5, -4, 8 } }, update_status), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = Util::min_max_acc(std::span<const std::size_t>{ { 10, 422, 5223 } }, update_status), RelearnException);
 }
 
 TEST_F(MiscTest, testMinMaxAccDouble) {
-    const auto number_enabled = NeuronIdAdapter::get_random_number_neurons(mt);
-    const auto number_disabled = NeuronIdAdapter::get_random_number_neurons(mt);
-    const auto number_static = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto number_enabled = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_disabled = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_static = NeuronIdFactory::get_random_number_neurons(mt);
 
     const auto number_values = number_enabled + number_disabled + number_static;
 
+    const auto num_enabled = static_cast<std::ptrdiff_t>(number_enabled);
+    const auto num_disabled = static_cast<std::ptrdiff_t>(number_disabled);
+    const auto num_static = static_cast<std::ptrdiff_t>(number_values - (number_disabled + number_enabled));
+
     const auto update_status = ranges::views::concat(
-                                   ranges::views::repeat_n(UpdateStatus::Enabled, number_enabled),
-                                   ranges::views::repeat_n(UpdateStatus::Disabled, number_disabled),
-                                   ranges::views::repeat_n(UpdateStatus::Static,
-                                       number_values - (number_disabled + number_enabled)))
-        | ranges::to_vector | actions::shuffle(mt);
+                                   ranges::views::repeat_n(UpdateStatus::Enabled, num_enabled),
+                                   ranges::views::repeat_n(UpdateStatus::Disabled, num_disabled),
+                                   ranges::views::repeat_n(UpdateStatus::Static, num_static))
+                               | ranges::to_vector | actions::shuffle(mt);
 
     const auto extra_infos = std::make_shared<NeuronsExtraInfo>();
     extra_infos->init(number_values);
 
-    std::vector<NeuronID> disabled_neurons{};
-    std::vector<NeuronID> static_neurons{};
+    auto disabled_neurons = std::vector<NeuronID>{};
+    auto static_neurons = std::vector<NeuronID>{};
     for (const auto& neuron_id : NeuronID::range(number_values)) {
         const auto& us = update_status[neuron_id.get_neuron_id()];
         if (us == UpdateStatus::Static) {
@@ -186,7 +157,7 @@ TEST_F(MiscTest, testMinMaxAccDouble) {
     extra_infos->set_disabled_neurons(disabled_neurons);
     extra_infos->set_static_neurons(static_neurons);
 
-    std::vector<double> values{};
+    auto values = std::vector<double>{};
     values.reserve(number_values);
 
     auto min = std::numeric_limits<double>::max();
@@ -194,7 +165,7 @@ TEST_F(MiscTest, testMinMaxAccDouble) {
     auto sum = 0.0;
 
     for (auto i : ranges::views::indices(number_values)) {
-        const auto random_value = RandomAdapter::get_random_double<double>(-100000.0, 100000.0, mt);
+        const auto random_value = RandomFactory::get_random_double<double>(-100000.0, 100000.0, mt);
 
         if (update_status[i] == UpdateStatus::Enabled) {
             min = std::min(min, random_value);
@@ -205,7 +176,7 @@ TEST_F(MiscTest, testMinMaxAccDouble) {
         values.emplace_back(random_value);
     }
 
-    const auto [minimum, maximum, accumulated, num] = Util::min_max_acc(std::span<const double>{ values }, extra_infos);
+    const auto [minimum, maximum, accumulated, num] = Util::min_max_acc(std::span<const double>{ values }, extra_infos->get_disable_flags());
 
     ASSERT_EQ(minimum, min);
     ASSERT_EQ(maximum, max);
@@ -214,28 +185,35 @@ TEST_F(MiscTest, testMinMaxAccDouble) {
 }
 
 TEST_F(MiscTest, testMinMaxAccSizet) {
-    const auto number_enabled = NeuronIdAdapter::get_random_number_neurons(mt);
-    const auto number_disabled = NeuronIdAdapter::get_random_number_neurons(mt);
-    const auto number_static = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto number_enabled = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_disabled = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_static = NeuronIdFactory::get_random_number_neurons(mt);
 
     const auto number_values = number_enabled + number_disabled + number_static;
 
     const auto update_status = ranges::views::concat(
-                                   ranges::views::repeat_n(UpdateStatus::Enabled, number_enabled),
-                                   ranges::views::repeat_n(UpdateStatus::Disabled, number_disabled),
-                                   ranges::views::repeat_n(UpdateStatus::Static,
-                                       number_values - (number_disabled + number_enabled)))
-        | ranges::to_vector | actions::shuffle(mt);
+                                   ranges::views::repeat_n(UpdateStatus::Enabled, static_cast<std::ptrdiff_t>(number_enabled)),
+                                   ranges::views::repeat_n(UpdateStatus::Disabled, static_cast<std::ptrdiff_t>(number_disabled)),
+                                   ranges::views::repeat_n(UpdateStatus::Static, static_cast<std::ptrdiff_t>(number_static)))
+                               | ranges::to_vector | actions::shuffle(mt);
 
-    std::vector<size_t> values{};
+    auto values = std::vector<std::size_t>{};
     values.reserve(number_values);
 
-    auto min = std::numeric_limits<size_t>::max();
-    auto max = std::numeric_limits<size_t>::min();
-    auto sum = size_t(0);
+    auto min = std::numeric_limits<std::size_t>::max();
+    auto max = std::numeric_limits<std::size_t>::min();
+    auto sum = std::size_t{ 0 };
 
     for (const auto i : ranges::views::indices(number_values)) {
-        const auto random_value = RandomAdapter::get_random_integer<size_t>(std::numeric_limits<size_t>::min(), std::numeric_limits<size_t>::max(), mt);
+        const auto random_value = RandomFactory::get_random_integer<std::size_t>(std::numeric_limits<std::size_t>::min(), std::numeric_limits<std::size_t>::max(), mt);
 
         if (update_status[i] == UpdateStatus::Enabled) {
             min = std::min(min, random_value);
@@ -249,8 +227,8 @@ TEST_F(MiscTest, testMinMaxAccSizet) {
     const auto extra_infos = std::make_shared<NeuronsExtraInfo>();
     extra_infos->init(number_values);
 
-    std::vector<NeuronID> disabled_neurons{};
-    std::vector<NeuronID> static_neurons{};
+    auto disabled_neurons = std::vector<NeuronID>{};
+    auto static_neurons = std::vector<NeuronID>{};
     for (const auto& neuron_id : NeuronID::range(number_values)) {
         const auto& us = update_status[neuron_id.get_neuron_id()];
         if (us == UpdateStatus::Static) {
@@ -263,10 +241,72 @@ TEST_F(MiscTest, testMinMaxAccSizet) {
     extra_infos->set_disabled_neurons(disabled_neurons);
     extra_infos->set_static_neurons(static_neurons);
 
-    const auto [minimum, maximum, accumulated, num] = Util::min_max_acc(std::span<const size_t>{ values }, extra_infos);
+    const auto [minimum, maximum, accumulated, num] = Util::min_max_acc(std::span<const std::size_t>{ values }, extra_infos->get_disable_flags());
 
     ASSERT_EQ(minimum, min);
     ASSERT_EQ(maximum, max);
     ASSERT_EQ(sum, accumulated);
     ASSERT_EQ(number_enabled, num);
+}
+
+TEST_F(MiscTest, testFindFileForRank) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto write_to_file = [](auto path) {
+        auto of = std::ofstream{ path };
+        of << "# Hello";
+    };
+
+    const auto* const expected_path1 = "./hello002.txt";
+    const auto* const expected_path2 = "./test0.txt";
+    const auto* const expected_path3 = "./0";
+    const auto* const expected_path4 = "./step_100000_rank_19201.txt";
+
+    write_to_file(expected_path1);
+    write_to_file(expected_path2);
+    write_to_file(expected_path3);
+    write_to_file(expected_path4);
+
+    const auto directory = std::filesystem::path{ "." };
+
+    const auto path1 = Util::find_file_for_rank(directory, mpiPP::MPIRank{ 2 }, "hello", ".txt");
+    const auto path2 = Util::find_file_for_rank(directory, mpiPP::MPIRank{ 0 }, "test", ".txt");
+    const auto path3 = Util::find_file_for_rank(directory, mpiPP::MPIRank{ 0 }, "", "");
+    const auto path4 = Util::find_file_for_rank(directory, mpiPP::MPIRank{ 19201 }, "step_100000_rank_", ".txt");
+
+    ASSERT_EQ(path1, std::filesystem::path(expected_path1));
+    ASSERT_EQ(path2, std::filesystem::path(expected_path2));
+    ASSERT_EQ(path3, std::filesystem::path(expected_path3));
+    ASSERT_EQ(path4, std::filesystem::path(expected_path4));
+
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(directory, mpiPP::MPIRank::uninitialized_rank(), "hello", ".txt"), RelearnException);
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(directory, mpiPP::MPIRank::uninitialized_rank(), "test", ".txt"), RelearnException);
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(directory, mpiPP::MPIRank::uninitialized_rank(), "", ""), RelearnException);
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(directory, mpiPP::MPIRank::uninitialized_rank(), "step_100000_rank_", ".txt"), RelearnException);
+
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(directory, mpiPP::MPIRank{ 0 }, "hello", ".txt"), RelearnException);
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(directory, mpiPP::MPIRank{ 1 }, "test", ".txt"), RelearnException);
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(directory, mpiPP::MPIRank{ 4 }, "", ""), RelearnException);
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(directory, mpiPP::MPIRank{ 52 }, "step_100000_rank_", ".txt"), RelearnException);
+
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(directory, mpiPP::MPIRank{ 2 }, "test", ".txt"), RelearnException);
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(directory, mpiPP::MPIRank{ 0 }, "hello", ".txt"), RelearnException);
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(directory, mpiPP::MPIRank{ 0 }, "test", ""), RelearnException);
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(directory, mpiPP::MPIRank{ 19201 }, "rank_", ".txt"), RelearnException);
+
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(directory, mpiPP::MPIRank{ 2 }, "hello", ".temp"), RelearnException);
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(directory, mpiPP::MPIRank{ 0 }, "test", ".tmp"), RelearnException);
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(directory, mpiPP::MPIRank{ 0 }, "", ".t"), RelearnException);
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(directory, mpiPP::MPIRank{ 19201 }, "step_100000_rank_", ".text"), RelearnException);
+
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(std::filesystem::path(".."), mpiPP::MPIRank{ 2 }, "hello", ".txt"), RelearnException);
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(std::filesystem::path(".."), mpiPP::MPIRank{ 0 }, "test", ".txt"), RelearnException);
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(std::filesystem::path(".."), mpiPP::MPIRank{ 0 }, "", ""), RelearnException);
+    ASSERT_THROW_NO_PRINT(Util::find_file_for_rank(std::filesystem::path(".."), mpiPP::MPIRank{ 19201 }, "step_100000_rank_", ".txt"), RelearnException);
 }

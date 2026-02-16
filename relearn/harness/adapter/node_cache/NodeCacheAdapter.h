@@ -10,20 +10,6 @@
  *
  */
 
-#include "algorithm/Cells.h"
-#include "structure/NodeCache.h"
-
 class NodeCacheAdapter {
 public:
-    static void set_node_cache_testing_purposes() {
-        NodeCache<BarnesHutCell>::is_already_downloaded = true;
-        NodeCache<BarnesHutInvertedCell>::is_already_downloaded = true;
-        NodeCache<NaiveCell>::is_already_downloaded = true;
-    }
-
-    static void reset_node_cache_testing_purposes() {
-        NodeCache<BarnesHutCell>::is_already_downloaded = false;
-        NodeCache<BarnesHutInvertedCell>::is_already_downloaded = false;
-        NodeCache<NaiveCell>::is_already_downloaded = false;
-    }
 };

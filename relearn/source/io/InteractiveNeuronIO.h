@@ -11,18 +11,20 @@
  */
 
 #include "Types.h"
-#include "neurons/helper/RankNeuronId.h"
-#include "util/MPIRank.h"
+#include "Types2.h"
+
 #include "util/NeuronID.h"
+
+#include "mpi-wrapper/MPIRank.h"
 
 #include <cstdint>
 #include <filesystem>
 #include <functional>
-#include <string>
+#include <memory>
 #include <utility>
 #include <vector>
 
-class LocalAreaTranslator;
+class LocalGroupTranslator;
 
 /**
  * This class provides a static interface to load interrupts from files,
@@ -43,10 +45,11 @@ public:
      *      {e, d, c} local_neuron_id*
      *      Only lines starting with e are processed
      * @param path_to_file The path to the interrupts file
+     * @param my_rank The current MPI rank
      * @exception Throws a RelearnException if opening the file fails
      * @return A collection of pairs: (<simulation step>, <all neurons that should be enabled in the simulation step>)
      */
-    [[nodiscard]] static std::vector<std::pair<step_type, std::vector<NeuronID>>> load_enable_interrupts(const std::filesystem::path& path_to_file, MPIRank my_rank);
+    [[nodiscard]] static std::vector<std::pair<step_type, std::vector<NeuronID>>> load_enable_interrupts(const std::filesystem::path& path_to_file, mpiPP::MPIRank my_rank);
 
     /**
      * @brief Reads the file specified by the path and extracts all disable-interrupts.
@@ -57,10 +60,11 @@ public:
      *      {e, d, c} local_neuron_id*
      *      Only lines starting with d are processed
      * @param path_to_file The path to the interrupts file
+     * @param my_rank The current MPI rank
      * @exception Throws a RelearnException if opening the file fails
      * @return A collection of pairs: (<simulation step>, <all neurons that should be disabled in the simulation step>)
      */
-    [[nodiscard]] static std::vector<std::pair<step_type, std::vector<NeuronID>>> load_disable_interrupts(const std::filesystem::path& path_to_file, MPIRank my_rank);
+    [[nodiscard]] static std::vector<std::pair<step_type, std::vector<NeuronID>>> load_disable_interrupts(const std::filesystem::path& path_to_file, mpiPP::MPIRank my_rank);
 
     /**
      * @brief Reads the file specified by the path and extracts all creation-interrupts.
@@ -76,8 +80,6 @@ public:
      */
     [[nodiscard]] static std::vector<std::pair<step_type, number_neurons_type>> load_creation_interrupts(const std::filesystem::path& path_to_file);
 
-    [[nodiscard]] static std::vector<NeuronID> load_neuron_monitors(const std::filesystem::path& path_to_file, const std::shared_ptr<LocalAreaTranslator>& local_area_translator, const MPIRank& my_rank);
-
     /**
      * @brief Reads the file specified by the path and extracts als stimulus-interrupts for the given mpi rank.
      *      A stimulus-interrupt should provide additional background activity to a neuron in a stimulation step.
@@ -85,13 +87,13 @@ public:
      *      # <some comment>
      *      or
      *      <interval_description> <stimulus intensity> <neuron_id>*
-     *      A neuron id must have the format: <rank>:<local_neuron_id> or must be an area name
+     *      A neuron id must have the format: <rank>:<local_neuron_id> or must be an group name
      * @param path_to_file The path to the stimulus interrupts file
      * @param my_rank The mpi rank of the current process, must be initialized
-     * @param local_area_translator Translates between the local area id on the current mpi rank and its area name
+     * @param local_group_translator Translates between the local group id on the current mpi rank and its group name
      * @exception Throws a RelearnException if opening the file fails or my_rank is not initialized
      * @return A function that specified for a given simulation step and a given neuron id, how much background it receives
      */
     [[nodiscard]] static RelearnTypes::stimuli_function_type load_stimulus_interrupts(
-        const std::filesystem::path& path_to_file, MPIRank my_rank, std::shared_ptr<LocalAreaTranslator> local_area_translator);
+        const std::filesystem::path& path_to_file, mpiPP::MPIRank my_rank, const std::shared_ptr<LocalGroupTranslator>& local_group_translator);
 };

@@ -10,45 +10,130 @@
  *
  */
 
-#include "algorithm/Internal/ExchangingAlgorithm.h"
-
 #include "Types.h"
+#include "Types3.h"
+
+#include "algorithm/Algorithm.h"
+#include "algorithm/AlgorithmEnum.h"
+#include "algorithm/CombinedAlgorithmsInternal/RequestEnums.h"
+#include "algorithm/Internal/ExchangingAlgorithm.h"
+#include "algorithm/Internal/OctreeAlgorithm.h"
+#include "algorithm/Internal/octree/NodeCache.h"
 #include "algorithm/NaiveInternal/NaiveCell.h"
-#include "neurons/enums/SignalType.h"
+#include "neurons/enums/SynapticElementType.h"
 #include "neurons/helper/RankNeuronId.h"
 #include "neurons/helper/SynapseCreationRequests.h"
-#include "structure/OctreeNode.h"
+#include "structure/SpaceFillingCurve.h"
+#include "util/NeuronID.h"
 #include "util/RelearnException.h"
-#include "util/Vec3.h"
 
 #include <memory>
 #include <optional>
 #include <tuple>
+#include <utility>
 #include <vector>
 
-class NeuronsExtraInfo;
 template <typename T>
-class OctreeImplementation;
-class SynapticElements;
+class OctreeNode;
 
 /**
  * This class represents the implementation of the trivial O(n^2) algorithm.
- * It is strongly tied to Octree, and might perform MPI communication via NodeCache::download_children()
+ * It is strongly tied to Octree, and might perform MPI communication via NodeCache::get_children()
  */
-class Naive : public ForwardAlgorithm<SynapseCreationRequest, SynapseCreationResponse, NaiveCell> {
+class Naive : public ForwardAlgorithm<SynapseCreationRequest, SynapseCreationResponse>, private OctreeAlgorithm<NaiveCell> {
 public:
     using AdditionalCellAttributes = NaiveCell;
-    using position_type = typename RelearnTypes::position_type;
-    using counter_type = typename RelearnTypes::counter_type;
+    using position_type = RelearnTypes::position_type;
+    using counter_type = RelearnTypes::counter_type;
+    using number_neurons_type = RelearnTypes::number_neurons_type;
 
     /**
      * @brief Constructs a new instance with the given octree
-     * @param octree The octree on which the algorithm is to be performed, not null
-     * @exception Throws a RelearnException if octree is nullptr
+     * @param bounding_box The bounding box to use in the octree
+     * @param _space_filling_curve The space-filling curve to use, not nullptr
+     * @exception Throws a RelearnException if _space_filling_curve is nullptr
      */
-    explicit Naive(const std::shared_ptr<OctreeImplementation<NaiveCell>>& octree)
-        : ForwardAlgorithm(octree) { }
+    Naive(const RelearnTypes::bounding_box_type& bounding_box, std::shared_ptr<SpaceFillingCurve> _space_filling_curve)
+        : ForwardAlgorithm()
+        , OctreeAlgorithm(bounding_box, std::move(_space_filling_curve)) { }
 
+    virtual ~Naive() = default;
+
+    /**
+     * @brief Sets the extra infos for the neurons. They hold the positions and update flags for the neurons.
+     * @param infos The extra infos, not empty
+     * @exception throws a RelearnException if infos is empty
+     */
+    void set_neuron_extra_infos(std::shared_ptr<NeuronsExtraInfo> infos) override {
+        ForwardAlgorithm::set_neuron_extra_infos(infos);
+        OctreeAlgorithm::set_neuron_extra_infos(infos);
+    }
+
+    /**
+     * @brief Initializes the algorithm to include number_neurons many local neurons.
+     * @param number_neurons The number of local neurons to store in this class
+     */
+    void init(const number_neurons_type number_neurons) override {
+        OctreeAlgorithm::init(number_neurons);
+    }
+
+    /**
+     * @brief Creates new neurons and adds those to the local portion.
+     * @param creation_count The number of local neurons that should be added
+     */
+    void create_neurons(const number_neurons_type creation_count) override {
+        OctreeAlgorithm::create_neurons(creation_count);
+    }
+
+    /**
+     * @brief Performs all required steps to disable all neurons that are specified.
+     *      Disables incrementally, i.e., previously disabled neurons are not enabled.
+     * @param neuron_ids The local neuron ids that should be disabled
+     * @exception Throws a RelearnException if a specified id is too large
+     */
+    void disable_neurons(const std::span<const NeuronID> neuron_ids) override {
+        OctreeAlgorithm::disable_neurons(neuron_ids);
+    }
+
+    /**
+     * @brief Updates the octree according to the necessities of the algorithm. Updates only those neurons for which the extra infos specify so.
+     *      May perform communication via MPI
+     * @param signal_types The signal types of the neurons
+     * @param vacant_axons The vacant axons
+     * @param vacant_excitatory_dendrites The vacant excitatory dendrites
+     * @param vacant_inhibitory_dendrites The vacant inhibitory dendrites
+     * @exception Can throw a RelearnException
+     */
+    void prepare_update_connectivity(const std::span<const SignalType> signal_types,
+                                     const std::span<const unsigned int> vacant_axons,
+                                     const std::span<const unsigned int> vacant_excitatory_dendrites,
+                                     const std::span<const unsigned int> vacant_inhibitory_dendrites) override {
+        OctreeAlgorithm::update_tree(signal_types, vacant_axons, vacant_excitatory_dendrites, vacant_inhibitory_dendrites);
+    }
+
+    /**
+     * @brief Returns the octree that is used by this algorithm
+     */
+    [[nodiscard]] const std::unique_ptr<Octree<AdditionalCellAttributes>>& get_octree() {
+        return OctreeAlgorithm::get_octree();
+    }
+
+    /**
+     * @brief Records the memory footprint of the current object
+     * @param footprint Where to store the current footprint
+     */
+    void record_memory_footprint(const std::unique_ptr<utility::MemoryFootprint>& footprint) override {
+        const auto my_footprint = sizeof(*this) - sizeof(ForwardAlgorithm<SynapseCreationRequest, SynapseCreationResponse>);
+        footprint->emplace("Naive", my_footprint);
+
+        ForwardAlgorithm<SynapseCreationRequest, SynapseCreationResponse>::record_memory_footprint(footprint);
+    }
+
+    [[nodiscard]] std::tuple<Algorithm::ResultType, RequestTypeEnum, DirectionEnum> find_target_neurons_for_combined_algorithms(const std::vector<NeuronID>& neuron_ids) override;
+
+    [[nodiscard]] AlgorithmEnum get_algorithm_type() const override {
+        return AlgorithmEnum::Naive;
+    }
 protected:
     /**
      * @brief Returns a collection of proposed synapse creations for each neuron with vacant axons
@@ -56,7 +141,7 @@ protected:
      * @exception Can throw a RelearnException
      * @return Returns a map, indicating for every MPI rank all requests that are made from this rank. Does not send those requests to the other MPI ranks.
      */
-    [[nodiscard]] CommunicationMap<SynapseCreationRequest> find_target_neurons(number_neurons_type number_neurons) override;
+    [[nodiscard]] RelearnTypes::comm_map_creation<SynapseCreationRequest> find_target_neurons(number_neurons_type number_neurons) override;
 
     /**
      * @brief Processes all incoming requests from the MPI ranks locally, and prepares the responses
@@ -64,8 +149,8 @@ protected:
      * @exception Can throw a RelearnException
      * @return A pair of (1) The responses to each request and (2) another pair of (a) all local synapses and (b) all distant synapses to the local rank
      */
-    [[nodiscard]] std::pair<CommunicationMap<SynapseCreationResponse>, std::pair<PlasticLocalSynapses, PlasticDistantInSynapses>>
-    process_requests(const CommunicationMap<SynapseCreationRequest>& creation_requests) override;
+    [[nodiscard]] std::pair<RelearnTypes::comm_map_creation<SynapseCreationResponse>, std::pair<PlasticLocalSynapses, PlasticDistantInSynapses>>
+    process_requests(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests) override;
 
     /**
      * @brief Processes all incoming responses from the MPI ranks locally
@@ -74,20 +159,21 @@ protected:
      * @exception Can throw a RelearnException
      * @return All synapses from this MPI rank to other MPI ranks
      */
-    [[nodiscard]] PlasticDistantOutSynapses process_responses(const CommunicationMap<SynapseCreationRequest>& creation_requests,
-        const CommunicationMap<SynapseCreationResponse>& creation_responses) override;
+    [[nodiscard]] PlasticDistantOutSynapses process_responses(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests,
+                                                              const RelearnTypes::comm_map_creation<SynapseCreationResponse>& creation_responses) override;
 
 private:
     /**
      * @brief Returns an optional RankNeuronId that the algorithm determined for the given source neuron. No actual request is made.
-     *      Might perform MPI communication via NodeCache::download_children()
+     *      Might perform MPI communication via NodeCache::get_children()
      * @param src_neuron_id The neuron's id that wants to connect. Is used to disallow autapses (connections to itself)
      * @param axon_position The neuron's position that wants to connect. Is used in probability computations
      * @param dendrite_type_needed The signal type that is searched.
      * @return If the algorithm didn't find a matching neuron, the return value is empty.
      *      If the algorithm found a matching neuron, it's id and MPI rank are returned.
      */
-    [[nodiscard]] std::optional<RankNeuronId> find_target_neuron(const NeuronID& src_neuron_id, const position_type& axon_position, SignalType dendrite_type_needed);
+    [[nodiscard]] std::optional<RankNeuronId> find_target_neuron(
+        const NodeCache<NaiveCell>& cache, const NeuronID& src_neuron_id, const position_type& axon_position, SignalType dendrite_type_needed);
 
     [[nodiscard]] static std::tuple<bool, bool> acceptance_criterion_test(
         const position_type& axon_position,
@@ -95,6 +181,7 @@ private:
         SignalType dendrite_type_needed);
 
     [[nodiscard]] static std::vector<OctreeNode<NaiveCell>*> get_nodes_for_interval(
+        const NodeCache<NaiveCell>& cache,
         const position_type& axon_position,
         OctreeNode<NaiveCell>* root,
         SignalType dendrite_type_needed);

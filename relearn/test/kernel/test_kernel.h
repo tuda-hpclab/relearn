@@ -17,3 +17,15 @@ class KernelTest : public RelearnTest {
 
 class ProbabilityKernelTest : public RelearnTest {
 };
+
+class GammaKernelTest : public RelearnTest {
+};
+
+class GaussianKernelTest : public RelearnTest {
+};
+
+class LinearKernelTest : public RelearnTest {
+};
+
+class WeibullKernelTest : public RelearnTest {
+};

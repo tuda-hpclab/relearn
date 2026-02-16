@@ -10,14 +10,35 @@
 
 #include "test_timers.h"
 
-#include "adapter/random/RandomAdapter.h"
-#include "adapter/timers/TimersAdapter.h"
-
+#include "sim/Essentials.h"
 #include "util/Timers.h"
 
+#include "mpi-wrapper/MPIInfo.h"
+#include "mpi-wrapper/MPIRank.h"
+
+#include "adapter/timers/TimersAdapter.h"
+
+#include "factory/random/random_factory.h"
+
+#include <gtest/gtest.h>
+
+#include <functional>
+#include <iostream>
 #include <thread>
+#include <tuple>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 TEST_F(TimersTest, testReset) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     const auto region = TimersAdapter::get_random_timer_region(mt);
     Timers::reset_elapsed(region);
 
@@ -26,6 +47,14 @@ TEST_F(TimersTest, testReset) {
 }
 
 TEST_F(TimersTest, testStartStop) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     using namespace std::chrono_literals;
 
     const auto region = TimersAdapter::get_random_timer_region(mt);
@@ -40,20 +69,28 @@ TEST_F(TimersTest, testStartStop) {
 }
 
 TEST_F(TimersTest, testMultipleStartStop) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     using namespace std::chrono_literals;
 
     const auto region = TimersAdapter::get_random_timer_region(mt);
     Timers::reset_elapsed(region);
 
-    const auto outer_iterations = RandomAdapter::get_random_integer<unsigned int>(2, 10, mt);
+    const auto outer_iterations = RandomFactory::get_random_integer<unsigned int>(2, 10, mt);
 
     for (auto outer = 0U; outer < outer_iterations; outer++) {
-        const auto start_iterations = RandomAdapter::get_random_integer<unsigned int>(2, 10, mt);
+        const auto start_iterations = RandomFactory::get_random_integer<unsigned int>(2, 10, mt);
         for (auto start = 0U; start < start_iterations; start++) {
             Timers::start(region);
         }
 
-        const auto end_iterations = RandomAdapter::get_random_integer<unsigned int>(2, 10, mt);
+        const auto end_iterations = RandomFactory::get_random_integer<unsigned int>(2, 10, mt);
         for (auto end = 0U; end < end_iterations; end++) {
             Timers::stop(region);
         }
@@ -64,6 +101,14 @@ TEST_F(TimersTest, testMultipleStartStop) {
 }
 
 TEST_F(TimersTest, testResetZero) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     using namespace std::chrono_literals;
 
     const auto region = TimersAdapter::get_random_timer_region(mt);
@@ -81,6 +126,14 @@ TEST_F(TimersTest, testResetZero) {
 }
 
 TEST_F(TimersTest, testResetZero2) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     using namespace std::chrono_literals;
 
     const auto region = TimersAdapter::get_random_timer_region(mt);
@@ -97,6 +150,14 @@ TEST_F(TimersTest, testResetZero2) {
 }
 
 TEST_F(TimersTest, testAdd) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     using namespace std::chrono_literals;
 
     const auto region = TimersAdapter::get_random_timer_region(mt);
@@ -116,6 +177,14 @@ TEST_F(TimersTest, testAdd) {
 }
 
 TEST_F(TimersTest, testAdd2) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     using namespace std::chrono_literals;
 
     const auto region = TimersAdapter::get_random_timer_region(mt);
@@ -134,6 +203,14 @@ TEST_F(TimersTest, testAdd2) {
 }
 
 TEST_F(TimersTest, testNonInterference) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     using namespace std::chrono_literals;
 
     auto get_two_timers = [this]() {
@@ -182,5 +259,57 @@ TEST_F(TimersTest, testNonInterference) {
 }
 
 TEST_F(TimersTest, testNoThrowWallTime) {
-    ASSERT_NO_THROW(auto val = Timers::wall_clock_time());
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    ASSERT_NO_THROW(std::ignore = Timers::wall_clock_time());
+}
+
+TEST_F(TimersTest, testPrintNoThrow) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    auto essentials = std::make_unique<Essentials>();
+
+    auto ss = std::stringstream{};
+    essentials->print(ss);
+
+    ASSERT_EQ(ss.str().size(), 0);
+
+    ASSERT_NO_THROW(Timers::print_human_readable(essentials));
+    ASSERT_NO_THROW(Timers::print_json());
+    ASSERT_NO_THROW(Timers::print_extrap(1, 1));
+    essentials->print(ss);
+
+    ASSERT_GT(ss.str().size(), 0);
+}
+
+TEST_F(TimersTest, testHierarchy) {
+    const auto root = root_timer;
+
+    std::function<std::vector<TimerRegion>(TimerHierarchy)> walk;
+
+    walk = [&walk](const auto& n) -> std::vector<TimerRegion> {
+        auto flat_childs = std::vector{ n.timer_region };
+        for (const auto& child : n.children) {
+            const auto res = walk(child);
+            std::copy(res.cbegin(), res.cend(), std::back_inserter(flat_childs));
+        }
+        return flat_childs;
+    };
+
+    const auto& flat_childs = walk(root);
+    const auto child_set = std::unordered_set<TimerRegion>{ flat_childs.begin(), flat_childs.end() };
+    ASSERT_EQ(child_set.size(), flat_childs.size());
+    ASSERT_EQ(child_set.size(), NUMBER_TIMERS);
 }

@@ -15,7 +15,6 @@
 #include "util/shuffle/shuffle.h"
 
 #include <boost/container_hash/hash.hpp>
-#include <boost/random/mersenne_twister.hpp>
 #include <boost/random/normal_distribution.hpp>
 #include <boost/random/uniform_int_distribution.hpp>
 #include <boost/random/uniform_real_distribution.hpp>
@@ -24,8 +23,10 @@
 #include <range/v3/range_fwd.hpp>
 #include <range/v3/view/subrange.hpp>
 
+#include <algorithm>
 #include <array>
 #include <random>
+#include <type_traits>
 #include <vector>
 
 #ifdef _OPENMP
@@ -48,7 +49,7 @@ using lincong = std::minstd_rand;
 /**
  * This enum allows a type safe differentiation between the types that require access to random numbers.
  */
-enum class RandomHolderKey : char {
+enum class RandomHolderKey : unsigned char {
     Algorithm = 0,
     Partition = 1,
     Subdomain = 2,
@@ -58,11 +59,12 @@ enum class RandomHolderKey : char {
     NeuronsExtraInformation = 6,
     Connector = 7,
     BackgroundActivity = 8,
+    FiringStatusApproximator = 9,
 };
 
-constexpr size_t NUMBER_RANDOM_HOLDER_KEYS = 9;
+constexpr std::size_t NUMBER_RANDOM_HOLDER_KEYS = 10;
 
-enum class RNGType {
+enum class RNGType : std::uint8_t {
     Mersenne,
     Fast,
 };
@@ -85,8 +87,9 @@ public:
     template <typename integer_type>
     static integer_type get_random_uniform_integer(const RandomHolderKey key, const integer_type lower_inclusive, const integer_type upper_inclusive) {
         RelearnException::check(lower_inclusive <= upper_inclusive,
-            "RandomHolder::get_random_uniform_integer: Random number from invalid interval [{}, {}] for key {}", lower_inclusive, upper_inclusive, static_cast<int>(key));
-        uniform_int_distribution<integer_type> uid(lower_inclusive, upper_inclusive);
+                                "RandomHolder::get_random_uniform_integer: Random number from invalid interval [{}, {}] for key {}", lower_inclusive, upper_inclusive, static_cast<unsigned int>(key));
+
+        const auto uid = uniform_int_distribution<integer_type>(lower_inclusive, upper_inclusive);
         auto& generator = get_generator(key);
         return uid(generator);
     }
@@ -99,16 +102,16 @@ public:
      * @exception Throws a RelearnException if number_indices > number_elements
      * @return The vector of indices in no particular order
      */
-    static std::vector<size_t> get_random_uniform_indices(const RandomHolderKey key, const size_t number_indices, const size_t number_elements) {
+    static std::vector<std::size_t> get_random_uniform_indices(const RandomHolderKey key, const std::size_t number_indices, const std::size_t number_elements) {
         RelearnException::check(number_indices <= number_elements, "RandomHolder::get_uniform_indices: Cannot get more indices than elements");
 
-        std::vector<size_t> drawn_indices{};
+        auto drawn_indices = std::vector<std::size_t>{};
         drawn_indices.reserve(number_indices);
 
-        for (auto i = size_t(0); i < number_indices; i++) {
-            auto random_number = get_random_uniform_integer(key, size_t(0), number_elements - 1);
+        for (auto i = std::size_t{ 0 }; i < number_indices; i++) {
+            auto random_number = get_random_uniform_integer(key, std::size_t{ 0 }, number_elements - 1);
             while (std::ranges::find(drawn_indices, random_number) != drawn_indices.end()) {
-                random_number = get_random_uniform_integer(key, size_t(0), number_elements - 1);
+                random_number = get_random_uniform_integer(key, std::size_t{ 0 }, number_elements - 1);
             }
 
             drawn_indices.emplace_back(random_number);
@@ -127,8 +130,9 @@ public:
      * @return A normally distributed double with specified mean and standard deviation
      */
     static double get_random_normal_double(const RandomHolderKey key, const double mean, const double stddev) {
-        RelearnException::check(0.0 < stddev, "RandomHolder::get_random_normal_double: Random number with invalid standard deviation {} for key {}", stddev, static_cast<int>(key));
-        normal_distribution<double> nd(mean, stddev);
+        RelearnException::check(0.0 <= stddev, "RandomHolder::get_random_normal_double: Random number with invalid standard deviation {} for key {}", stddev, static_cast<int>(key));
+
+        auto nd = normal_distribution<double>(mean, stddev);
         auto& generator = get_generator(key);
         return nd(generator);
     }
@@ -144,9 +148,10 @@ public:
      */
     static double get_random_uniform_double(const RandomHolderKey key, const double lower_inclusive, const double upper_exclusive) {
         RelearnException::check(lower_inclusive < upper_exclusive,
-            "RandomHolder::get_random_uniform_double: Random number from invalid interval [{}, {}) for key {}", lower_inclusive, upper_exclusive, static_cast<int>(key));
+                                "RandomHolder::get_random_uniform_double: Random number from invalid interval [{}, {}) for key {}", lower_inclusive, upper_exclusive, static_cast<unsigned int>(key));
         RelearnException::check(upper_exclusive <= std::numeric_limits<double>::max(), "RandomHolder::get_random_uniform_double: upper_exclusive was inf");
-        uniform_real_distribution<double> dist(lower_inclusive, upper_exclusive);
+
+        const auto dist = uniform_real_distribution<double>(lower_inclusive, upper_exclusive);
         auto& generator = get_generator(key);
         return dist(generator);
     }
@@ -165,8 +170,9 @@ public:
     template <typename IteratorType>
         requires ranges::output_iterator<IteratorType, double>
     static void fill(const RandomHolderKey key, const IteratorType begin, const IteratorType end, const double lower_inclusive, const double upper_exclusive) {
-        RelearnException::check(lower_inclusive < upper_exclusive, "RandomHolder::fill: Random number from invalid interval [{}, {}) for key {}", lower_inclusive, upper_exclusive, static_cast<int>(key));
-        uniform_real_distribution<double> urd(lower_inclusive, upper_exclusive);
+        RelearnException::check(lower_inclusive < upper_exclusive, "RandomHolder::fill: Random number from invalid interval [{}, {}) for key {}", lower_inclusive, upper_exclusive, static_cast<unsigned int>(key));
+
+        auto urd = uniform_real_distribution<double>(lower_inclusive, upper_exclusive);
         auto& generator = get_generator(key);
 
         ranges::generate(ranges::subrange{ begin, end }, [&generator, &urd]() { return urd(generator); });
@@ -184,6 +190,7 @@ public:
      */
     template <typename RangeType>
         requires ranges::output_range<RangeType, double>
+    // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
     static void fill(const RandomHolderKey key, RangeType&& range, const double lower_inclusive, const double upper_exclusive) {
         fill(key, ranges::begin(range), ranges::end(range), lower_inclusive, upper_exclusive);
     }
@@ -236,7 +243,7 @@ public:
             const auto thread_id = omp_get_thread_num();
             auto& generator = get_generator(key);
 
-            std::size_t current_seed = seed;
+            auto current_seed = seed;
             boost::hash_combine(current_seed, thread_id);
             generator.seed(static_cast<unsigned int>(current_seed));
         }
@@ -264,7 +271,7 @@ private:
 
     static mt19937& get_generator(const RandomHolderKey key) {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-        return random_number_generators[static_cast<int>(key)];
+        return random_number_generators[static_cast<std::underlying_type_t<RandomHolderKey>>(key)];
     }
 
     thread_local static inline std::array<mt19937, NUMBER_RANDOM_HOLDER_KEYS> random_number_generators{};

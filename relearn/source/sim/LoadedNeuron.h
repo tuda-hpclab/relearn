@@ -12,23 +12,19 @@
 
 #include "Types.h"
 
-#include "neurons/enums/SignalType.h"
-
-#include <cstdint>
-#include <string>
+#include "neurons/enums/SynapticElementType.h"
+#include "util/NeuronID.h"
 
 /**
  * This struct represents a neuron loaded from a file. It is made up of:
  * (1) Its position
  * (2) Its id
  * (3) Its signal type
- * (4) Its area name
  */
 struct LoadedNeuron {
     RelearnTypes::position_type pos{ 0 };
     NeuronID id{ NeuronID::uninitialized_id() };
     SignalType signal_type{ SignalType::Excitatory };
-    RelearnTypes::area_id area_id{ 0 };
 };
 
 /**

@@ -10,14 +10,30 @@
 
 #include "test_synapse_deletion_request.h"
 
-#include "adapter/neurons/NeuronTypesAdapter.h"
-#include "adapter/neuron_id/NeuronIdAdapter.h"
-#include "adapter/neurons/NeuronTypesAdapter.h"
-
+#include "neurons/enums/SynapticElementType.h"
 #include "neurons/helper/SynapseDeletionRequests.h"
+#include "util/RelearnException.h"
+
+#include "mpi-wrapper/MPIInfo.h"
+#include "mpi-wrapper/MPIRank.h"
+
+#include "factory/neuron_id/neuron_id_factory.h"
+#include "factory/neuron_types/neuron_types_factory.h"
+
+#include <gtest/gtest.h>
+
+#include <iostream>
 
 TEST_F(SynapseDeletionTest, testDefaultConstructor) {
-    SynapseDeletionRequest sdr{};
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto sdr = SynapseDeletionRequest{};
 
     const auto& affected_neuron_id = sdr.get_affected_neuron_id();
     const auto& initiator_neuron_id = sdr.get_initiator_neuron_id();
@@ -32,12 +48,20 @@ TEST_F(SynapseDeletionTest, testDefaultConstructor) {
 }
 
 TEST_F(SynapseDeletionTest, testConstructor) {
-    const auto& golden_affected_neuron_id = NeuronIdAdapter::get_random_neuron_id(10000, mt);
-    const auto& golden_initiator_neuron_id = NeuronIdAdapter::get_random_neuron_id(10000, mt);
-    const auto& golden_initiator_element_type = NeuronTypesAdapter::get_random_element_type(mt);
-    const auto& golden_signal_type = NeuronTypesAdapter::get_random_signal_type(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    SynapseDeletionRequest sdr{ golden_initiator_neuron_id, golden_affected_neuron_id, golden_initiator_element_type, golden_signal_type };
+        return;
+    }
+
+    const auto& golden_affected_neuron_id = NeuronIdFactory::get_random_neuron_id(10000, mt);
+    const auto& golden_initiator_neuron_id = NeuronIdFactory::get_random_neuron_id(10000, mt);
+    const auto& golden_initiator_element_type = NeuronTypesFactory::get_random_element_type(mt);
+    const auto& golden_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
+
+    const auto sdr = SynapseDeletionRequest{ golden_initiator_neuron_id, golden_affected_neuron_id, golden_initiator_element_type, golden_signal_type };
 
     const auto& affected_neuron_id = sdr.get_affected_neuron_id();
     const auto& initiator_neuron_id = sdr.get_initiator_neuron_id();
@@ -52,31 +76,47 @@ TEST_F(SynapseDeletionTest, testConstructor) {
 }
 
 TEST_F(SynapseDeletionTest, testConstructorException) {
-    const auto& golden_initiator_element_type = NeuronTypesAdapter::get_random_element_type(mt);
-    const auto& golden_signal_type = NeuronTypesAdapter::get_random_signal_type(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    const auto& dummy_neuron_id = NeuronIdAdapter::get_random_neuron_id(10000, mt);
+        return;
+    }
 
-    ASSERT_THROW(SynapseDeletionRequest sdr(NeuronID::virtual_id(), dummy_neuron_id, golden_initiator_element_type, golden_signal_type), RelearnException);
-    ASSERT_THROW(SynapseDeletionRequest sdr(NeuronID::uninitialized_id(), dummy_neuron_id, golden_initiator_element_type, golden_signal_type), RelearnException);
+    const auto& golden_initiator_element_type = NeuronTypesFactory::get_random_element_type(mt);
+    const auto& golden_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
 
-    ASSERT_THROW(SynapseDeletionRequest sdr(dummy_neuron_id, NeuronID::virtual_id(), golden_initiator_element_type, golden_signal_type), RelearnException);
-    ASSERT_THROW(SynapseDeletionRequest sdr(dummy_neuron_id, NeuronID::uninitialized_id(), golden_initiator_element_type, golden_signal_type), RelearnException);
+    const auto& dummy_neuron_id = NeuronIdFactory::get_random_neuron_id(10000, mt);
 
-    ASSERT_THROW(SynapseDeletionRequest sdr(NeuronID::virtual_id(), NeuronID::virtual_id(), golden_initiator_element_type, golden_signal_type), RelearnException);
-    ASSERT_THROW(SynapseDeletionRequest sdr(NeuronID::virtual_id(), NeuronID::uninitialized_id(), golden_initiator_element_type, golden_signal_type), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = SynapseDeletionRequest(NeuronID::virtual_id(), dummy_neuron_id, golden_initiator_element_type, golden_signal_type), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = SynapseDeletionRequest(NeuronID::uninitialized_id(), dummy_neuron_id, golden_initiator_element_type, golden_signal_type), RelearnException);
 
-    ASSERT_THROW(SynapseDeletionRequest sdr(NeuronID::uninitialized_id(), NeuronID::virtual_id(), golden_initiator_element_type, golden_signal_type), RelearnException);
-    ASSERT_THROW(SynapseDeletionRequest sdr(NeuronID::uninitialized_id(), NeuronID::uninitialized_id(), golden_initiator_element_type, golden_signal_type), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = SynapseDeletionRequest(dummy_neuron_id, NeuronID::virtual_id(), golden_initiator_element_type, golden_signal_type), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = SynapseDeletionRequest(dummy_neuron_id, NeuronID::uninitialized_id(), golden_initiator_element_type, golden_signal_type), RelearnException);
+
+    ASSERT_THROW_NO_PRINT(std::ignore = SynapseDeletionRequest(NeuronID::virtual_id(), NeuronID::virtual_id(), golden_initiator_element_type, golden_signal_type), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = SynapseDeletionRequest(NeuronID::virtual_id(), NeuronID::uninitialized_id(), golden_initiator_element_type, golden_signal_type), RelearnException);
+
+    ASSERT_THROW_NO_PRINT(std::ignore = SynapseDeletionRequest(NeuronID::uninitialized_id(), NeuronID::virtual_id(), golden_initiator_element_type, golden_signal_type), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = SynapseDeletionRequest(NeuronID::uninitialized_id(), NeuronID::uninitialized_id(), golden_initiator_element_type, golden_signal_type), RelearnException);
 }
 
 TEST_F(SynapseDeletionTest, testStructuredBinding) {
-    const auto& golden_affected_neuron_id = NeuronIdAdapter::get_random_neuron_id(10000, mt);
-    const auto& golden_initiator_neuron_id = NeuronIdAdapter::get_random_neuron_id(10000, mt);
-    const auto& golden_initiator_element_type = NeuronTypesAdapter::get_random_element_type(mt);
-    const auto& golden_signal_type = NeuronTypesAdapter::get_random_signal_type(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    SynapseDeletionRequest sdr{ golden_initiator_neuron_id, golden_affected_neuron_id, golden_initiator_element_type, golden_signal_type };
+        return;
+    }
+
+    const auto& golden_affected_neuron_id = NeuronIdFactory::get_random_neuron_id(10000, mt);
+    const auto& golden_initiator_neuron_id = NeuronIdFactory::get_random_neuron_id(10000, mt);
+    const auto& golden_initiator_element_type = NeuronTypesFactory::get_random_element_type(mt);
+    const auto& golden_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
+
+    const auto sdr = SynapseDeletionRequest{ golden_initiator_neuron_id, golden_affected_neuron_id, golden_initiator_element_type, golden_signal_type };
 
     const auto& [initiator_neuron_id, affected_neuron_id, initiator_element_type, signal_type] = sdr;
 

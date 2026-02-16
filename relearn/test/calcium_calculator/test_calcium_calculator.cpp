@@ -10,100 +10,175 @@
 
 #include "test_calcium_calculator.h"
 
-#include "adapter/neurons/NeuronTypesAdapter.h"
-#include "adapter/neuron_id/NeuronIdAdapter.h"
+#include "Types.h"
+
+#include "neurons/NeuronsExtraInfo.h"
+#include "neurons/calcium/AbsoluteDecayCalciumCalculator.h"
+#include "neurons/calcium/CalciumCalculator.h"
+#include "neurons/calcium/RelativeDecayCalciumCalculator.h"
+#include "neurons/enums/FiredStatus.h"
+#include "neurons/enums/UpdateStatus.h"
+#include "util/NeuronID.h"
+#include "util/RelearnException.h"
+
+#include "cpp-utility/Interval.hpp"
+#include "cpp-utility/data/vectorify.hpp"
+
+#include "mpi-wrapper/MPIInfo.h"
+#include "mpi-wrapper/MPIRank.h"
+
 #include "adapter/neurons/NeuronTypesAdapter.h"
 
-#include "neurons/CalciumCalculator.h"
-#include "neurons/NeuronsExtraInfo.h"
+#include "factory/calcium/calcium_factory.h"
+#include "factory/neuron_id/neuron_id_factory.h"
+#include "factory/neuron_types/neuron_types_factory.h"
+#include "factory/random/random_factory.h"
+
+#include <gtest/gtest.h>
+
+#include <fmt/core.h>
 #include <range/v3/range/conversion.hpp>
 
-TEST_F(CalciumCalculatorTest, testCalciumCalculatorConstructorNone) {
-    const auto decay_amount = RandomAdapter::get_random_double(-10000.0, 10000.0, mt);
-    const auto decay_step = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+#include <cmath>
+#include <iostream>
+#include <limits>
+#include <memory>
+#include <span>
+#include <vector>
 
-    ASSERT_NO_THROW(CalciumCalculator cc1(TargetCalciumDecay::None, 0.0, 0)) << 0.0 << ' ' << 0;
-    ASSERT_NO_THROW(CalciumCalculator cc2(TargetCalciumDecay::None, 0.0, decay_step)) << 0.0 << ' ' << decay_step;
-    ASSERT_NO_THROW(CalciumCalculator cc3(TargetCalciumDecay::None, decay_amount, 0)) << decay_amount << ' ' << 0;
-    ASSERT_NO_THROW(CalciumCalculator cc4(TargetCalciumDecay::None, decay_amount, decay_step)) << decay_amount << ' ' << decay_step;
+TEST_F(CalciumCalculatorTest, testCalciumCalculatorConstructorNone) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    ASSERT_NO_THROW(std::ignore = CalciumCalculator());
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorConstructorRelative) {
-    const auto decay_amount = RandomAdapter::get_random_double(std::nextafter(0.0, 1.0), 1.0, mt);
-    const auto decay_step = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    ASSERT_NO_THROW(CalciumCalculator cc1(TargetCalciumDecay::Relative, 0.0, 1000)) << 1.0 << ' ' << 1000;
-    ASSERT_NO_THROW(CalciumCalculator cc2(TargetCalciumDecay::Relative, 0.0, decay_step)) << 1.0 << ' ' << decay_step;
-    ASSERT_NO_THROW(CalciumCalculator cc3(TargetCalciumDecay::Relative, decay_amount, 1000)) << decay_amount << ' ' << 1000;
-    ASSERT_NO_THROW(CalciumCalculator cc4(TargetCalciumDecay::Relative, decay_amount, decay_step)) << decay_amount << ' ' << decay_step;
+        return;
+    }
+
+    const auto decay_amount = RandomFactory::get_random_double(std::nextafter(0.0, 1.0), 1.0, mt);
+    const auto decay_step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    auto decay_interval_1 = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = 1000 };
+    auto decay_interval_2 = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = decay_step };
+
+    ASSERT_NO_THROW(RelativeDecayCalciumCalculator cc1(0.1, decay_interval_1)) << 1.0 << ' ' << 1000;
+    ASSERT_NO_THROW(RelativeDecayCalciumCalculator cc2(0.1, decay_interval_2)) << 1.0 << ' ' << decay_step;
+    ASSERT_NO_THROW(RelativeDecayCalciumCalculator cc3(decay_amount, decay_interval_1)) << decay_amount << ' ' << 1000;
+    ASSERT_NO_THROW(RelativeDecayCalciumCalculator cc4(decay_amount, decay_interval_2)) << decay_amount << ' ' << decay_step;
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorConstructorAbsolute) {
-    const auto decay_amount = RandomAdapter::get_random_double(std::nextafter(0.0, 1.0), 1.0, mt);
-    const auto decay_step = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    ASSERT_NO_THROW(CalciumCalculator cc1(TargetCalciumDecay::Absolute, 1.0, 1000)) << 1.0 << ' ' << 1000;
-    ASSERT_NO_THROW(CalciumCalculator cc2(TargetCalciumDecay::Absolute, 1.0, decay_step)) << 1.0 << ' ' << decay_step;
-    ASSERT_NO_THROW(CalciumCalculator cc3(TargetCalciumDecay::Absolute, decay_amount, 1000)) << decay_amount << ' ' << 1000;
-    ASSERT_NO_THROW(CalciumCalculator cc4(TargetCalciumDecay::Absolute, decay_amount, decay_step)) << decay_amount << ' ' << decay_step;
+        return;
+    }
+
+    const auto decay_amount = RandomFactory::get_random_double(std::nextafter(0.0, 1.0), 1.0, mt);
+    const auto decay_step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    auto decay_interval_1 = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = 1000 };
+    auto decay_interval_2 = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = decay_step };
+
+    ASSERT_NO_THROW(AbsoluteDecayCalciumCalculator cc1(1.0, decay_interval_1)) << 1.0 << ' ' << 1000;
+    ASSERT_NO_THROW(AbsoluteDecayCalciumCalculator cc2(1.0, decay_interval_2)) << 1.0 << ' ' << decay_step;
+    ASSERT_NO_THROW(AbsoluteDecayCalciumCalculator cc3(decay_amount, decay_interval_1)) << decay_amount << ' ' << 1000;
+    ASSERT_NO_THROW(AbsoluteDecayCalciumCalculator cc4(decay_amount, decay_interval_2)) << decay_amount << ' ' << decay_step;
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorConstructorRelativeException) {
-    const auto decay_amount_low = RandomAdapter::get_random_double(-1000.0, std::nextafter(0.0, -1.0), mt);
-    const auto decay_amount_high = RandomAdapter::get_random_double(1.0, 1000.0, mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    ASSERT_THROW(CalciumCalculator cc1(TargetCalciumDecay::Relative, decay_amount_low, 1000), RelearnException) << decay_amount_low << ' ' << 1000;
-    ASSERT_THROW(CalciumCalculator cc2(TargetCalciumDecay::Relative, decay_amount_high, 1000), RelearnException) << decay_amount_high << ' ' << 1000;
-    ASSERT_THROW(CalciumCalculator cc2(TargetCalciumDecay::Relative, 1.0, 1000), RelearnException) << 0.0 << ' ' << 1000;
-    ASSERT_THROW(CalciumCalculator cc3(TargetCalciumDecay::Relative, 0.5, 0), RelearnException) << 0.5 << ' ' << 0;
+        return;
+    }
+
+    const auto decay_amount_low = RandomFactory::get_random_double(-1000.0, std::nextafter(0.0, -1.0), mt);
+    const auto decay_amount_high = RandomFactory::get_random_double(1.0, 1000.0, mt);
+
+    auto decay_interval_1 = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = 0 };
+    auto decay_interval_2 = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = 1000 };
+
+    ASSERT_THROW_NO_PRINT_MSG(RelativeDecayCalciumCalculator cc1(decay_amount_low, decay_interval_2), RelearnException, fmt::format("{} {}", decay_amount_low, 1000));
+    ASSERT_THROW_NO_PRINT_MSG(RelativeDecayCalciumCalculator cc2(decay_amount_high, decay_interval_2), RelearnException, fmt::format("{} {}", decay_amount_high, 1000));
+    ASSERT_THROW_NO_PRINT_MSG(RelativeDecayCalciumCalculator cc2(1.0, decay_interval_2), RelearnException, fmt::format("{} {}", 0.0, 1000));
+    ASSERT_THROW_NO_PRINT_MSG(RelativeDecayCalciumCalculator cc3(0.5, decay_interval_1), RelearnException, fmt::format("{} {}", 0.5, 0));
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorConstructorAbsoluteException) {
-    const auto decay_amount = RandomAdapter::get_random_double(-1000.0, std::nextafter(0.0, -1.0), mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    ASSERT_THROW(CalciumCalculator cc1(TargetCalciumDecay::Absolute, 0.5, 0), RelearnException) << 0.5 << ' ' << 0;
-    ASSERT_THROW(CalciumCalculator cc1(TargetCalciumDecay::Absolute, 0.0, 100), RelearnException) << 0.0 << ' ' << 100;
-    ASSERT_THROW(CalciumCalculator cc3(TargetCalciumDecay::Absolute, decay_amount, 100), RelearnException) << decay_amount << ' ' << 100;
+        return;
+    }
+
+    const auto decay_amount = RandomFactory::get_random_double(-1000.0, std::nextafter(0.0, -1.0), mt);
+
+    auto decay_interval_1 = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = 0 };
+    auto decay_interval_2 = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = 100 };
+
+    ASSERT_THROW_NO_PRINT_MSG(AbsoluteDecayCalciumCalculator cc1(0.5, decay_interval_1), RelearnException, fmt::format("{} {}", 0.5, 0));
+    ASSERT_THROW_NO_PRINT_MSG(AbsoluteDecayCalciumCalculator cc1(0.0, decay_interval_2), RelearnException, fmt::format("{} {}", 0.0, 100));
+    ASSERT_THROW_NO_PRINT_MSG(AbsoluteDecayCalciumCalculator cc3(decay_amount, decay_interval_2), RelearnException, fmt::format("{} {}", decay_amount, 100));
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorConstructurGetter) {
-    const auto decay_amount_relative = RandomAdapter::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
-    const auto decay_amount_absolute = RandomAdapter::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
-    const auto decay_step = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    boost::random::uniform_real_distribution<double> beta_distr(CalciumCalculator::min_beta, CalciumCalculator::max_beta);
-    boost::random::uniform_real_distribution<double> tau_C_distr(CalciumCalculator::min_tau_C, CalciumCalculator::max_tau_C);
-    boost::random::uniform_int_distribution<unsigned int> h_distr(CalciumCalculator::min_h, CalciumCalculator::max_h);
+        return;
+    }
 
-    CalciumCalculator cc1(TargetCalciumDecay::None, 0.0, 0);
-    CalciumCalculator cc2(TargetCalciumDecay::Relative, decay_amount_relative, decay_step);
-    CalciumCalculator cc3(TargetCalciumDecay::Absolute, decay_amount_absolute, decay_step);
+    const auto decay_amount_relative = RandomFactory::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
+    const auto decay_amount_absolute = RandomFactory::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
+    const auto decay_step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    auto decay_interval = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = decay_step };
 
-    ASSERT_EQ(cc1.get_decay_type(), TargetCalciumDecay::None);
-    ASSERT_EQ(cc2.get_decay_type(), TargetCalciumDecay::Relative);
-    ASSERT_EQ(cc3.get_decay_type(), TargetCalciumDecay::Absolute);
+    const auto cc2 = RelativeDecayCalciumCalculator(decay_amount_relative, decay_interval);
+    const auto cc3 = AbsoluteDecayCalciumCalculator(decay_amount_absolute, decay_interval);
 
-    ASSERT_EQ(cc1.get_decay_amount(), 0.0);
     ASSERT_EQ(cc2.get_decay_amount(), decay_amount_relative);
     ASSERT_EQ(cc3.get_decay_amount(), decay_amount_absolute);
 
-    ASSERT_EQ(cc1.get_decay_step(), 0);
-    ASSERT_EQ(cc2.get_decay_step(), decay_step);
-    ASSERT_EQ(cc3.get_decay_step(), decay_step);
+    ASSERT_EQ(cc2.get_decay_interval(), decay_interval);
+    ASSERT_EQ(cc3.get_decay_interval(), decay_interval);
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorGetterSetter) {
-    const auto decay_amount_relative = RandomAdapter::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
-    const auto decay_amount_absolute = RandomAdapter::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
-    const auto decay_step = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    boost::random::uniform_real_distribution<double> beta_distr(CalciumCalculator::min_beta, CalciumCalculator::max_beta);
-    boost::random::uniform_real_distribution<double> tau_C_distr(CalciumCalculator::min_tau_C, CalciumCalculator::max_tau_C);
-    boost::random::uniform_int_distribution<unsigned int> h_distr(CalciumCalculator::min_h, CalciumCalculator::max_h);
+        return;
+    }
 
-    CalciumCalculator cc1(TargetCalciumDecay::None, 0.0, 0);
-    CalciumCalculator cc2(TargetCalciumDecay::Relative, decay_amount_relative, decay_step);
-    CalciumCalculator cc3(TargetCalciumDecay::Absolute, decay_amount_absolute, decay_step);
+    const auto decay_amount_relative = RandomFactory::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
+    const auto decay_amount_absolute = RandomFactory::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
+    const auto decay_step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    auto decay_interval = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = decay_step };
+
+    auto cc1 = CalciumCalculator{};
+    auto cc2 = RelativeDecayCalciumCalculator(decay_amount_relative, decay_interval);
+    auto cc3 = AbsoluteDecayCalciumCalculator(decay_amount_absolute, decay_interval);
 
     ASSERT_EQ(cc1.get_beta(), CalciumCalculator::default_beta);
     ASSERT_EQ(cc1.get_tau_C(), CalciumCalculator::default_tau_C);
@@ -117,9 +192,9 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorGetterSetter) {
     ASSERT_EQ(cc3.get_tau_C(), CalciumCalculator::default_tau_C);
     ASSERT_EQ(cc3.get_h(), CalciumCalculator::default_h);
 
-    const auto beta1 = beta_distr(mt);
-    const auto tau_C1 = tau_C_distr(mt);
-    const auto h1 = h_distr(mt);
+    const auto beta1 = CalciumFactory::get_random_beta(mt);
+    const auto tau_C1 = CalciumFactory::get_random_tau_C(mt);
+    const auto h1 = CalciumFactory::get_random_h(mt);
 
     ASSERT_NO_THROW(cc1.set_beta(beta1));
     ASSERT_NO_THROW(cc1.set_tau_C(tau_C1));
@@ -145,9 +220,9 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorGetterSetter) {
     ASSERT_EQ(cc3.get_tau_C(), tau_C1);
     ASSERT_EQ(cc3.get_h(), h1);
 
-    const auto beta2 = beta_distr(mt);
-    const auto tau_C2 = tau_C_distr(mt);
-    const auto h2 = h_distr(mt);
+    const auto beta2 = CalciumFactory::get_random_beta(mt);
+    const auto tau_C2 = CalciumFactory::get_random_tau_C(mt);
+    const auto h2 = CalciumFactory::get_random_h(mt);
 
     ASSERT_NO_THROW(cc1.set_beta(beta2));
     ASSERT_NO_THROW(cc1.set_tau_C(tau_C2));
@@ -173,33 +248,30 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorGetterSetter) {
     ASSERT_EQ(cc3.get_tau_C(), tau_C2);
     ASSERT_EQ(cc3.get_h(), h2);
 
-    ASSERT_EQ(cc1.get_decay_type(), TargetCalciumDecay::None);
-    ASSERT_EQ(cc2.get_decay_type(), TargetCalciumDecay::Relative);
-    ASSERT_EQ(cc3.get_decay_type(), TargetCalciumDecay::Absolute);
-
-    ASSERT_EQ(cc1.get_decay_amount(), 0.0);
     ASSERT_EQ(cc2.get_decay_amount(), decay_amount_relative);
     ASSERT_EQ(cc3.get_decay_amount(), decay_amount_absolute);
 
-    ASSERT_EQ(cc1.get_decay_step(), 0);
-    ASSERT_EQ(cc2.get_decay_step(), decay_step);
-    ASSERT_EQ(cc3.get_decay_step(), decay_step);
+    ASSERT_EQ(cc2.get_decay_interval(), decay_interval);
+    ASSERT_EQ(cc3.get_decay_interval(), decay_interval);
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorGetterSetterException) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    const auto decay_amount_relative = RandomAdapter::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
-    const auto decay_amount_absolute = RandomAdapter::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
-    const auto decay_step
-        = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+        return;
+    }
 
-    boost::random::uniform_real_distribution<double> beta_distr(CalciumCalculator::min_beta, CalciumCalculator::max_beta);
-    boost::random::uniform_real_distribution<double> tau_C_distr(CalciumCalculator::min_tau_C, CalciumCalculator::max_tau_C);
-    boost::random::uniform_int_distribution<unsigned int> h_distr(CalciumCalculator::min_h, CalciumCalculator::max_h);
+    const auto decay_amount_relative = RandomFactory::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
+    const auto decay_amount_absolute = RandomFactory::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
+    const auto decay_step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    auto decay_interval = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = decay_step };
 
-    CalciumCalculator cc1(TargetCalciumDecay::None, 0.0, 0);
-    CalciumCalculator cc2(TargetCalciumDecay::Relative, decay_amount_relative, decay_step);
-    CalciumCalculator cc3(TargetCalciumDecay::Absolute, decay_amount_absolute, decay_step);
+    auto cc1 = CalciumCalculator{};
+    auto cc2 = RelativeDecayCalciumCalculator(decay_amount_relative, decay_interval);
+    auto cc3 = AbsoluteDecayCalciumCalculator(decay_amount_absolute, decay_interval);
 
     ASSERT_EQ(cc1.get_beta(), CalciumCalculator::default_beta);
     ASSERT_EQ(cc1.get_tau_C(), CalciumCalculator::default_tau_C);
@@ -213,9 +285,9 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorGetterSetterException) {
     ASSERT_EQ(cc3.get_tau_C(), CalciumCalculator::default_tau_C);
     ASSERT_EQ(cc3.get_h(), CalciumCalculator::default_h);
 
-    const auto beta1 = beta_distr(mt);
-    const auto tau_C1 = tau_C_distr(mt);
-    const auto h1 = h_distr(mt);
+    const auto beta1 = CalciumFactory::get_random_beta(mt);
+    const auto tau_C1 = CalciumFactory::get_random_tau_C(mt);
+    const auto h1 = CalciumFactory::get_random_h(mt);
 
     ASSERT_NO_THROW(cc1.set_beta(beta1));
     ASSERT_NO_THROW(cc1.set_tau_C(tau_C1));
@@ -241,9 +313,9 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorGetterSetterException) {
     ASSERT_EQ(cc3.get_tau_C(), tau_C1);
     ASSERT_EQ(cc3.get_h(), h1);
 
-    const auto beta2 = beta_distr(mt);
-    const auto tau_C2 = tau_C_distr(mt);
-    const auto h2 = h_distr(mt);
+    const auto beta2 = CalciumFactory::get_random_beta(mt);
+    const auto tau_C2 = CalciumFactory::get_random_tau_C(mt);
+    const auto h2 = CalciumFactory::get_random_h(mt);
 
     ASSERT_NO_THROW(cc1.set_beta(beta2));
     ASSERT_NO_THROW(cc1.set_tau_C(tau_C2));
@@ -269,23 +341,25 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorGetterSetterException) {
     ASSERT_EQ(cc3.get_tau_C(), tau_C2);
     ASSERT_EQ(cc3.get_h(), h2);
 
-    ASSERT_EQ(cc1.get_decay_type(), TargetCalciumDecay::None);
-    ASSERT_EQ(cc2.get_decay_type(), TargetCalciumDecay::Relative);
-    ASSERT_EQ(cc3.get_decay_type(), TargetCalciumDecay::Absolute);
-
-    ASSERT_EQ(cc1.get_decay_amount(), 0.0);
     ASSERT_EQ(cc2.get_decay_amount(), decay_amount_relative);
     ASSERT_EQ(cc3.get_decay_amount(), decay_amount_absolute);
 
-    ASSERT_EQ(cc1.get_decay_step(), 0);
-    ASSERT_EQ(cc2.get_decay_step(), decay_step);
-    ASSERT_EQ(cc3.get_decay_step(), decay_step);
+    ASSERT_EQ(cc2.get_decay_interval(), decay_interval);
+    ASSERT_EQ(cc3.get_decay_interval(), decay_interval);
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorInitialTargetCalcium) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    auto initiator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    const auto initiator = [number_neurons](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         if (v >= number_neurons) {
             return -1.0;
         }
@@ -293,7 +367,7 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorInitialTargetCalcium) {
         return static_cast<double>(v) / 7.342;
     };
 
-    auto calculator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+    const auto calculator = [number_neurons](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         if (v >= number_neurons) {
             return -1.0;
         }
@@ -301,22 +375,18 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorInitialTargetCalcium) {
         return static_cast<double>(v) * 5.98;
     };
 
-    const auto decay_amount_relative = RandomAdapter::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
-    const auto decay_amount_absolute = RandomAdapter::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
-    const auto decay_step
-        = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    const auto decay_amount_relative = RandomFactory::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
+    const auto decay_amount_absolute = RandomFactory::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
+    const auto decay_step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    auto decay_interval = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = decay_step };
 
-    boost::random::uniform_real_distribution<double> beta_distr(CalciumCalculator::min_beta, CalciumCalculator::max_beta);
-    boost::random::uniform_real_distribution<double> tau_C_distr(CalciumCalculator::min_tau_C, CalciumCalculator::max_tau_C);
-    boost::random::uniform_int_distribution<unsigned int> h_distr(CalciumCalculator::min_h, CalciumCalculator::max_h);
+    auto cc1 = CalciumCalculator{};
+    auto cc2 = RelativeDecayCalciumCalculator(decay_amount_relative, decay_interval);
+    auto cc3 = AbsoluteDecayCalciumCalculator(decay_amount_absolute, decay_interval);
 
-    CalciumCalculator cc1(TargetCalciumDecay::None, 0.0, 0);
-    CalciumCalculator cc2(TargetCalciumDecay::Relative, decay_amount_relative, decay_step);
-    CalciumCalculator cc3(TargetCalciumDecay::Absolute, decay_amount_absolute, decay_step);
-
-    const auto beta = beta_distr(mt);
-    const auto tau_C = tau_C_distr(mt);
-    const auto h = h_distr(mt);
+    const auto beta = CalciumFactory::get_random_beta(mt);
+    const auto tau_C = CalciumFactory::get_random_tau_C(mt);
+    const auto h = CalciumFactory::get_random_h(mt);
 
     cc1.set_beta(beta);
     cc1.set_tau_C(tau_C);
@@ -373,10 +443,18 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorInitialTargetCalcium) {
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorCreate) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
-    const auto number_created_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    auto initiator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_created_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    const auto initiator = [number_neurons](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         if (v >= number_neurons) {
             return -1.0;
         }
@@ -384,7 +462,7 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorCreate) {
         return static_cast<double>(v) / 7.342;
     };
 
-    auto calculator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+    const auto calculator = [number_neurons](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         if (v >= number_neurons) {
             return -1.0;
         }
@@ -392,7 +470,7 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorCreate) {
         return static_cast<double>(v) * 5.98;
     };
 
-    auto initiator_created = [number_neurons, number_created_neurons](MPIRank i, NeuronID::value_type v) {
+    const auto initiator_created = [number_neurons, number_created_neurons](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         if (v < number_neurons) {
             return -1.0;
         }
@@ -404,7 +482,7 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorCreate) {
         return static_cast<double>(v) / 1.52;
     };
 
-    auto calculator_created = [number_neurons, number_created_neurons](MPIRank i, NeuronID::value_type v) {
+    const auto calculator_created = [number_neurons, number_created_neurons](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         if (v < number_neurons) {
             return -1.0;
         }
@@ -416,22 +494,18 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorCreate) {
         return static_cast<double>(v) * 86.2;
     };
 
-    const auto decay_amount_relative = RandomAdapter::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
-    const auto decay_amount_absolute = RandomAdapter::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
-    const auto decay_step
-        = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    const auto decay_amount_relative = RandomFactory::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
+    const auto decay_amount_absolute = RandomFactory::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
+    const auto decay_step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    auto decay_interval = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = decay_step };
 
-    boost::random::uniform_real_distribution<double> beta_distr(CalciumCalculator::min_beta, CalciumCalculator::max_beta);
-    boost::random::uniform_real_distribution<double> tau_C_distr(CalciumCalculator::min_tau_C, CalciumCalculator::max_tau_C);
-    boost::random::uniform_int_distribution<unsigned int> h_distr(CalciumCalculator::min_h, CalciumCalculator::max_h);
+    auto cc1 = CalciumCalculator{};
+    auto cc2 = RelativeDecayCalciumCalculator(decay_amount_relative, decay_interval);
+    auto cc3 = AbsoluteDecayCalciumCalculator(decay_amount_absolute, decay_interval);
 
-    CalciumCalculator cc1(TargetCalciumDecay::None, 0.0, 0);
-    CalciumCalculator cc2(TargetCalciumDecay::Relative, decay_amount_relative, decay_step);
-    CalciumCalculator cc3(TargetCalciumDecay::Absolute, decay_amount_absolute, decay_step);
-
-    const auto beta = beta_distr(mt);
-    const auto tau_C = tau_C_distr(mt);
-    const auto h = h_distr(mt);
+    const auto beta = CalciumFactory::get_random_beta(mt);
+    const auto tau_C = CalciumFactory::get_random_tau_C(mt);
+    const auto h = CalciumFactory::get_random_h(mt);
 
     cc1.set_beta(beta);
     cc1.set_tau_C(tau_C);
@@ -515,9 +589,17 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorCreate) {
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorZeroNeurons) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    auto initiator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    const auto initiator = [number_neurons](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         if (v >= number_neurons) {
             return -1.0;
         }
@@ -525,7 +607,7 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorZeroNeurons) {
         return static_cast<double>(v) / 7.342;
     };
 
-    auto calculator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+    const auto calculator = [number_neurons](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         if (v >= number_neurons) {
             return -1.0;
         }
@@ -533,22 +615,18 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorZeroNeurons) {
         return static_cast<double>(v) * 5.98;
     };
 
-    const auto decay_amount_relative = RandomAdapter::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
-    const auto decay_amount_absolute = RandomAdapter::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
-    const auto decay_step
-        = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    const auto decay_amount_relative = RandomFactory::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
+    const auto decay_amount_absolute = RandomFactory::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
+    const auto decay_step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    auto decay_interval = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = decay_step };
 
-    boost::random::uniform_real_distribution<double> beta_distr(CalciumCalculator::min_beta, CalciumCalculator::max_beta);
-    boost::random::uniform_real_distribution<double> tau_C_distr(CalciumCalculator::min_tau_C, CalciumCalculator::max_tau_C);
-    boost::random::uniform_int_distribution<unsigned int> h_distr(CalciumCalculator::min_h, CalciumCalculator::max_h);
+    auto cc1 = CalciumCalculator{};
+    auto cc2 = RelativeDecayCalciumCalculator(decay_amount_relative, decay_interval);
+    auto cc3 = AbsoluteDecayCalciumCalculator(decay_amount_absolute, decay_interval);
 
-    CalciumCalculator cc1(TargetCalciumDecay::None, 0.0, 0);
-    CalciumCalculator cc2(TargetCalciumDecay::Relative, decay_amount_relative, decay_step);
-    CalciumCalculator cc3(TargetCalciumDecay::Absolute, decay_amount_absolute, decay_step);
-
-    const auto beta = beta_distr(mt);
-    const auto tau_C = tau_C_distr(mt);
-    const auto h = h_distr(mt);
+    const auto beta = CalciumFactory::get_random_beta(mt);
+    const auto tau_C = CalciumFactory::get_random_tau_C(mt);
+    const auto h = CalciumFactory::get_random_h(mt);
 
     cc1.set_beta(beta);
     cc1.set_tau_C(tau_C);
@@ -568,19 +646,27 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorZeroNeurons) {
     cc3.set_initial_calcium_calculator(initiator);
     cc3.set_target_calcium_calculator(calculator);
 
-    ASSERT_THROW(cc1.init(0), RelearnException);
-    ASSERT_THROW(cc2.init(0), RelearnException);
-    ASSERT_THROW(cc3.init(0), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc1.init(0), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc2.init(0), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc3.init(0), RelearnException);
 
-    ASSERT_THROW(cc1.create_neurons(0), RelearnException);
-    ASSERT_THROW(cc2.create_neurons(0), RelearnException);
-    ASSERT_THROW(cc3.create_neurons(0), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc1.create_neurons(0), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc2.create_neurons(0), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc3.create_neurons(0), RelearnException);
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorEmptyFunctions) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    auto initiator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    const auto initiator = [number_neurons](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         if (v >= number_neurons) {
             return -1.0;
         }
@@ -588,7 +674,7 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorEmptyFunctions) {
         return static_cast<double>(v) / 7.342;
     };
 
-    auto calculator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+    const auto calculator = [number_neurons](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         if (v >= number_neurons) {
             return -1.0;
         }
@@ -596,22 +682,18 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorEmptyFunctions) {
         return static_cast<double>(v) * 5.98;
     };
 
-    const auto decay_amount_relative = RandomAdapter::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
-    const auto decay_amount_absolute = RandomAdapter::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
-    const auto decay_step
-        = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    const auto decay_amount_relative = RandomFactory::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
+    const auto decay_amount_absolute = RandomFactory::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
+    const auto decay_step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    auto decay_interval = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = decay_step };
 
-    boost::random::uniform_real_distribution<double> beta_distr(CalciumCalculator::min_beta, CalciumCalculator::max_beta);
-    boost::random::uniform_real_distribution<double> tau_C_distr(CalciumCalculator::min_tau_C, CalciumCalculator::max_tau_C);
-    boost::random::uniform_int_distribution<unsigned int> h_distr(CalciumCalculator::min_h, CalciumCalculator::max_h);
+    auto cc1 = CalciumCalculator{};
+    auto cc2 = RelativeDecayCalciumCalculator(decay_amount_relative, decay_interval);
+    auto cc3 = AbsoluteDecayCalciumCalculator(decay_amount_absolute, decay_interval);
 
-    CalciumCalculator cc1(TargetCalciumDecay::None, 0.0, 0);
-    CalciumCalculator cc2(TargetCalciumDecay::Relative, decay_amount_relative, decay_step);
-    CalciumCalculator cc3(TargetCalciumDecay::Absolute, decay_amount_absolute, decay_step);
-
-    const auto beta = beta_distr(mt);
-    const auto tau_C = tau_C_distr(mt);
-    const auto h = h_distr(mt);
+    const auto beta = CalciumFactory::get_random_beta(mt);
+    const auto tau_C = CalciumFactory::get_random_tau_C(mt);
+    const auto h = CalciumFactory::get_random_h(mt);
 
     cc1.set_beta(beta);
     cc1.set_tau_C(tau_C);
@@ -625,25 +707,25 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorEmptyFunctions) {
     cc3.set_tau_C(tau_C);
     cc3.set_h(h);
 
-    ASSERT_THROW(cc1.init(number_neurons), RelearnException);
-    ASSERT_THROW(cc2.init(number_neurons), RelearnException);
-    ASSERT_THROW(cc3.init(number_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc1.init(number_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc2.init(number_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc3.init(number_neurons), RelearnException);
 
-    ASSERT_THROW(cc1.create_neurons(number_neurons), RelearnException);
-    ASSERT_THROW(cc2.create_neurons(number_neurons), RelearnException);
-    ASSERT_THROW(cc3.create_neurons(number_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc1.create_neurons(number_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc2.create_neurons(number_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc3.create_neurons(number_neurons), RelearnException);
 
     cc1.set_initial_calcium_calculator(initiator);
     cc2.set_initial_calcium_calculator(initiator);
     cc3.set_initial_calcium_calculator(initiator);
 
-    ASSERT_THROW(cc1.init(number_neurons), RelearnException);
-    ASSERT_THROW(cc2.init(number_neurons), RelearnException);
-    ASSERT_THROW(cc3.init(number_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc1.init(number_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc2.init(number_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc3.init(number_neurons), RelearnException);
 
-    ASSERT_THROW(cc1.create_neurons(number_neurons), RelearnException);
-    ASSERT_THROW(cc2.create_neurons(number_neurons), RelearnException);
-    ASSERT_THROW(cc3.create_neurons(number_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc1.create_neurons(number_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc2.create_neurons(number_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc3.create_neurons(number_neurons), RelearnException);
 
     cc1.set_initial_calcium_calculator({});
     cc2.set_initial_calcium_calculator({});
@@ -653,44 +735,48 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorEmptyFunctions) {
     cc2.set_target_calcium_calculator(calculator);
     cc3.set_target_calcium_calculator(calculator);
 
-    ASSERT_THROW(cc1.init(number_neurons), RelearnException);
-    ASSERT_THROW(cc2.init(number_neurons), RelearnException);
-    ASSERT_THROW(cc3.init(number_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc1.init(number_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc2.init(number_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc3.init(number_neurons), RelearnException);
 
-    ASSERT_THROW(cc1.create_neurons(number_neurons), RelearnException);
-    ASSERT_THROW(cc2.create_neurons(number_neurons), RelearnException);
-    ASSERT_THROW(cc3.create_neurons(number_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc1.create_neurons(number_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc2.create_neurons(number_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc3.create_neurons(number_neurons), RelearnException);
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateException) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    auto initiator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    const auto initiator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) / 7.342;
     };
 
-    auto calculator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+    const auto calculator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) * 5.98;
     };
 
-    const auto decay_amount_relative = RandomAdapter::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
-    const auto decay_amount_absolute = RandomAdapter::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
-    const auto decay_step
-        = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    const auto decay_amount_relative = RandomFactory::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
+    const auto decay_amount_absolute = RandomFactory::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
+    const auto decay_step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    auto decay_interval = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = decay_step };
 
-    boost::random::uniform_real_distribution<double> beta_distr(CalciumCalculator::min_beta, CalciumCalculator::max_beta);
-    boost::random::uniform_real_distribution<double> tau_C_distr(CalciumCalculator::min_tau_C, CalciumCalculator::max_tau_C);
-    boost::random::uniform_int_distribution<unsigned int> h_distr(CalciumCalculator::min_h, CalciumCalculator::max_h);
+    auto cc1 = CalciumCalculator{};
+    auto cc2 = RelativeDecayCalciumCalculator(decay_amount_relative, decay_interval);
+    auto cc3 = AbsoluteDecayCalciumCalculator(decay_amount_absolute, decay_interval);
 
-    CalciumCalculator cc1(TargetCalciumDecay::None, 0.0, 0);
-    CalciumCalculator cc2(TargetCalciumDecay::Relative, decay_amount_relative, decay_step);
-    CalciumCalculator cc3(TargetCalciumDecay::Absolute, decay_amount_absolute, decay_step);
+    const auto extra_info = std::make_shared<NeuronsExtraInfo>();
 
-    auto extra_info = std::make_shared<NeuronsExtraInfo>();
-
-    const auto beta = beta_distr(mt);
-    const auto tau_C = tau_C_distr(mt);
-    const auto h = h_distr(mt);
+    const auto beta = CalciumFactory::get_random_beta(mt);
+    const auto tau_C = CalciumFactory::get_random_tau_C(mt);
+    const auto h = CalciumFactory::get_random_h(mt);
 
     cc1.set_beta(beta);
     cc1.set_tau_C(tau_C);
@@ -713,57 +799,61 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateException) {
     cc3.set_target_calcium_calculator(calculator);
     cc3.set_extra_infos(extra_info);
 
-    const auto step = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    const auto step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
 
-    ASSERT_THROW(cc1.update_calcium(step, std::span<const FiredStatus>{ { FiredStatus::Fired } }), RelearnException);
-    ASSERT_THROW(cc2.update_calcium(step, std::span<const FiredStatus>{ { FiredStatus::Fired } }), RelearnException);
-    ASSERT_THROW(cc3.update_calcium(step, std::span<const FiredStatus>{ { FiredStatus::Fired } }), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc1.update_calcium(step, std::span<const FiredStatus>{ { FiredStatus::Fired } }), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc2.update_calcium(step, std::span<const FiredStatus>{ { FiredStatus::Fired } }), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc3.update_calcium(step, std::span<const FiredStatus>{ { FiredStatus::Fired } }), RelearnException);
 
-    const auto fired_size = NeuronIdAdapter::get_random_number_neurons(mt);
-    const auto update_size = NeuronIdAdapter::get_random_number_neurons(mt);
+    const auto fired_size = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto update_size = NeuronIdFactory::get_random_number_neurons(mt);
 
-    std::vector<FiredStatus> fired_status(fired_size);
+    const auto fired_status = std::vector<FiredStatus>(fired_size);
 
     extra_info->init(update_size == fired_size ? update_size + 1 : update_size);
 
-    ASSERT_THROW(cc1.update_calcium(step, {}), RelearnException);
-    ASSERT_THROW(cc2.update_calcium(step, {}), RelearnException);
-    ASSERT_THROW(cc3.update_calcium(step, {}), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc1.update_calcium(step, {}), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc2.update_calcium(step, {}), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc3.update_calcium(step, {}), RelearnException);
 
     ASSERT_NO_THROW(cc1.init(number_neurons));
     ASSERT_NO_THROW(cc2.init(number_neurons));
     ASSERT_NO_THROW(cc3.init(number_neurons));
 
-    ASSERT_THROW(cc1.update_calcium(0, fired_status), RelearnException);
-    ASSERT_THROW(cc1.update_calcium(step, fired_status), RelearnException);
-    ASSERT_THROW(cc2.update_calcium(0, fired_status), RelearnException);
-    ASSERT_THROW(cc2.update_calcium(step, fired_status), RelearnException);
-    ASSERT_THROW(cc3.update_calcium(0, fired_status), RelearnException);
-    ASSERT_THROW(cc3.update_calcium(step, fired_status), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc1.update_calcium(0, fired_status), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc1.update_calcium(step, fired_status), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc2.update_calcium(0, fired_status), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc2.update_calcium(step, fired_status), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc3.update_calcium(0, fired_status), RelearnException);
+    ASSERT_THROW_NO_PRINT(cc3.update_calcium(step, fired_status), RelearnException);
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateNoneDisabled) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    auto initiator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    const auto initiator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) / 7.342;
     };
 
-    auto calculator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+    const auto calculator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) * 5.98;
     };
 
-    boost::random::uniform_real_distribution<double> beta_distr(CalciumCalculator::min_beta, CalciumCalculator::max_beta);
-    boost::random::uniform_real_distribution<double> tau_C_distr(CalciumCalculator::min_tau_C, CalciumCalculator::max_tau_C);
-    boost::random::uniform_int_distribution<unsigned int> h_distr(CalciumCalculator::min_h, CalciumCalculator::max_h);
+    auto cc = CalciumCalculator{};
 
-    CalciumCalculator cc(TargetCalciumDecay::None, 0.0, 0);
+    const auto beta = CalciumFactory::get_random_beta(mt);
+    const auto tau_C = CalciumFactory::get_random_tau_C(mt);
+    const auto h = CalciumFactory::get_random_h(mt);
 
-    const auto beta = beta_distr(mt);
-    const auto tau_C = tau_C_distr(mt);
-    const auto h = h_distr(mt);
-
-    auto extra_info = std::make_shared<NeuronsExtraInfo>();
+    const auto extra_info = std::make_shared<NeuronsExtraInfo>();
     extra_info->init(number_neurons);
 
     const auto neuron_ids = NeuronID::range(number_neurons) | ranges::to_vector;
@@ -778,11 +868,11 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateNoneDisabled) {
 
     ASSERT_NO_THROW(cc.init(number_neurons));
 
-    std::vector<FiredStatus> fired_status(number_neurons, FiredStatus::Inactive);
-    std::vector<FiredStatus> fired_status2(number_neurons, FiredStatus::Fired);
+    const auto fired_status = std::vector<FiredStatus>(number_neurons, FiredStatus::Inactive);
+    const auto fired_status2 = std::vector<FiredStatus>(number_neurons, FiredStatus::Fired);
 
-    const auto previous_calcium = vectorify_span(cc.get_calcium());
-    const auto previous_target = vectorify_span(cc.get_target_calcium());
+    const auto previous_calcium = utility::vectorify_span(cc.get_calcium());
+    const auto previous_target = utility::vectorify_span(cc.get_target_calcium());
 
     ASSERT_NO_THROW(cc.update_calcium(0, fired_status));
 
@@ -794,7 +884,7 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateNoneDisabled) {
         ASSERT_EQ(previous_target[neuron_id], now_target[neuron_id]);
     }
 
-    const auto step = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    const auto step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
 
     ASSERT_NO_THROW(cc.update_calcium(step, fired_status));
 
@@ -828,27 +918,31 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateNoneDisabled) {
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateNoneStep0) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    auto initiator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    const auto initiator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) / 7.342;
     };
 
-    auto calculator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+    const auto calculator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) * 5.98;
     };
 
-    boost::random::uniform_real_distribution<double> beta_distr(CalciumCalculator::min_beta, CalciumCalculator::max_beta);
-    boost::random::uniform_real_distribution<double> tau_C_distr(CalciumCalculator::min_tau_C, CalciumCalculator::max_tau_C);
-    boost::random::uniform_int_distribution<unsigned int> h_distr(CalciumCalculator::min_h, CalciumCalculator::max_h);
+    auto cc = CalciumCalculator{};
 
-    CalciumCalculator cc(TargetCalciumDecay::None, 0.0, 0);
+    const auto beta = CalciumFactory::get_random_beta(mt);
+    const auto tau_C = CalciumFactory::get_random_tau_C(mt);
+    const auto h = CalciumFactory::get_random_h(mt);
 
-    const auto beta = beta_distr(mt);
-    const auto tau_C = tau_C_distr(mt);
-    const auto h = h_distr(mt);
-
-    auto extra_info = std::make_shared<NeuronsExtraInfo>();
+    const auto extra_info = std::make_shared<NeuronsExtraInfo>();
     extra_info->init(number_neurons);
 
     cc.set_beta(beta);
@@ -860,12 +954,12 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateNoneStep0) {
 
     ASSERT_NO_THROW(cc.init(number_neurons));
 
-    const auto& fired_status = NeuronTypesAdapter::get_fired_status(number_neurons, mt);
+    const auto& fired_status = NeuronTypesFactory::get_fired_status(number_neurons, mt);
     NeuronTypesAdapter::disable_neurons(number_neurons, extra_info, mt);
     const auto update_status = extra_info->get_disable_flags();
 
-    const auto previous_calcium = vectorify_span(cc.get_calcium());
-    const auto previous_target = vectorify_span(cc.get_target_calcium());
+    const auto previous_calcium = utility::vectorify_span(cc.get_calcium());
+    const auto previous_target = utility::vectorify_span(cc.get_target_calcium());
 
     ASSERT_NO_THROW(cc.update_calcium(0, fired_status));
 
@@ -881,7 +975,7 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateNoneStep0) {
         }
 
         auto expected_calcium = previous_calcium[neuron_id];
-        auto update_value = fired_status[neuron_id] == FiredStatus::Fired ? beta : 0.0;
+        const auto update_value = fired_status[neuron_id] == FiredStatus::Fired ? beta : 0.0;
 
         for (auto i = 0U; i < h; i++) {
             expected_calcium = expected_calcium + (1.0 / h) * (expected_calcium / -tau_C + update_value);
@@ -894,29 +988,33 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateNoneStep0) {
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateNone) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    auto initiator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    const auto initiator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) / 7.342;
     };
 
-    auto calculator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+    const auto calculator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) * 5.98;
     };
 
-    boost::random::uniform_real_distribution<double> beta_distr(CalciumCalculator::min_beta, CalciumCalculator::max_beta);
-    boost::random::uniform_real_distribution<double> tau_C_distr(CalciumCalculator::min_tau_C, CalciumCalculator::max_tau_C);
-    boost::random::uniform_int_distribution<unsigned int> h_distr(CalciumCalculator::min_h, CalciumCalculator::max_h);
+    auto cc = CalciumCalculator{};
 
-    CalciumCalculator cc(TargetCalciumDecay::None, 0.0, 0);
+    const auto beta = CalciumFactory::get_random_beta(mt);
+    const auto tau_C = CalciumFactory::get_random_tau_C(mt);
+    const auto h = CalciumFactory::get_random_h(mt);
 
-    const auto beta = beta_distr(mt);
-    const auto tau_C = tau_C_distr(mt);
-    const auto h = h_distr(mt);
+    const auto step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
 
-    const auto step = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
-
-    auto extra_info = std::make_shared<NeuronsExtraInfo>();
+    const auto extra_info = std::make_shared<NeuronsExtraInfo>();
     extra_info->init(number_neurons);
 
     cc.set_beta(beta);
@@ -928,12 +1026,12 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateNone) {
 
     ASSERT_NO_THROW(cc.init(number_neurons));
 
-    const auto& fired_status = NeuronTypesAdapter::get_fired_status(number_neurons, mt);
+    const auto& fired_status = NeuronTypesFactory::get_fired_status(number_neurons, mt);
     NeuronTypesAdapter::disable_neurons(number_neurons, extra_info, mt);
     const auto update_status = extra_info->get_disable_flags();
 
-    const auto previous_calcium = vectorify_span(cc.get_calcium());
-    const auto previous_target = vectorify_span(cc.get_target_calcium());
+    const auto previous_calcium = utility::vectorify_span(cc.get_calcium());
+    const auto previous_target = utility::vectorify_span(cc.get_target_calcium());
 
     ASSERT_NO_THROW(cc.update_calcium(step, fired_status));
 
@@ -949,7 +1047,7 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateNone) {
         }
 
         auto expected_calcium = previous_calcium[neuron_id];
-        auto update_value = fired_status[neuron_id] == FiredStatus::Fired ? beta : 0.0;
+        const auto update_value = fired_status[neuron_id] == FiredStatus::Fired ? beta : 0.0;
 
         for (auto i = 0U; i < h; i++) {
             expected_calcium = expected_calcium + (1.0 / h) * (expected_calcium / -tau_C + update_value);
@@ -962,30 +1060,35 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateNone) {
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateRelativeDisabled) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    auto initiator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    const auto initiator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) / 7.342;
     };
 
-    auto calculator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+    const auto calculator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) * 5.98;
     };
 
-    const auto decay_amount_relative = RandomAdapter::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
-    const auto decay_step = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    const auto decay_amount_relative = RandomFactory::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
+    const auto decay_step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    auto decay_interval = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = decay_step };
 
-    boost::random::uniform_real_distribution<double> beta_distr(CalciumCalculator::min_beta, CalciumCalculator::max_beta);
-    boost::random::uniform_real_distribution<double> tau_C_distr(CalciumCalculator::min_tau_C, CalciumCalculator::max_tau_C);
-    boost::random::uniform_int_distribution<unsigned int> h_distr(CalciumCalculator::min_h, CalciumCalculator::max_h);
+    auto cc = RelativeDecayCalciumCalculator(decay_amount_relative, decay_interval);
 
-    CalciumCalculator cc(TargetCalciumDecay::Relative, decay_amount_relative, decay_step);
+    const auto beta = CalciumFactory::get_random_beta(mt);
+    const auto tau_C = CalciumFactory::get_random_tau_C(mt);
+    const auto h = CalciumFactory::get_random_h(mt);
 
-    const auto beta = beta_distr(mt);
-    const auto tau_C = tau_C_distr(mt);
-    const auto h = h_distr(mt);
-
-    auto extra_info = std::make_shared<NeuronsExtraInfo>();
+    const auto extra_info = std::make_shared<NeuronsExtraInfo>();
     extra_info->init(number_neurons);
 
     cc.set_beta(beta);
@@ -997,14 +1100,13 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateRelativeDisabled) {
 
     ASSERT_NO_THROW(cc.init(number_neurons));
 
-    std::vector<FiredStatus> fired_status(number_neurons, FiredStatus::Inactive);
-    std::vector<FiredStatus> fired_status2(number_neurons, FiredStatus::Fired);
+    const auto fired_status = std::vector<FiredStatus>(number_neurons, FiredStatus::Inactive);
+    const auto fired_status2 = std::vector<FiredStatus>(number_neurons, FiredStatus::Fired);
     const auto neuron_ids = NeuronID::range(number_neurons) | ranges::to_vector;
     extra_info->set_disabled_neurons(neuron_ids);
-    const auto update_status = extra_info->get_disable_flags();
 
-    const auto previous_calcium = vectorify_span(cc.get_calcium());
-    const auto previous_target = vectorify_span(cc.get_target_calcium());
+    const auto previous_calcium = utility::vectorify_span(cc.get_calcium());
+    const auto previous_target = utility::vectorify_span(cc.get_target_calcium());
 
     ASSERT_NO_THROW(cc.update_calcium(0, fired_status));
 
@@ -1016,7 +1118,7 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateRelativeDisabled) {
         ASSERT_EQ(previous_target[neuron_id], now_target[neuron_id]);
     }
 
-    const auto step = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    const auto step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
 
     ASSERT_NO_THROW(cc.update_calcium(step, fired_status));
 
@@ -1050,30 +1152,35 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateRelativeDisabled) {
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateRelativeStep0) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    auto initiator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    const auto initiator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) / 7.342;
     };
 
-    auto calculator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+    const auto calculator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) * 5.98;
     };
 
-    const auto decay_amount_relative = RandomAdapter::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
-    const auto decay_step = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    const auto decay_amount_relative = RandomFactory::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
+    const auto decay_step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    auto decay_interval = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = decay_step };
 
-    boost::random::uniform_real_distribution<double> beta_distr(CalciumCalculator::min_beta, CalciumCalculator::max_beta);
-    boost::random::uniform_real_distribution<double> tau_C_distr(CalciumCalculator::min_tau_C, CalciumCalculator::max_tau_C);
-    boost::random::uniform_int_distribution<unsigned int> h_distr(CalciumCalculator::min_h, CalciumCalculator::max_h);
+    auto cc = RelativeDecayCalciumCalculator(decay_amount_relative, decay_interval);
 
-    CalciumCalculator cc(TargetCalciumDecay::Relative, decay_amount_relative, decay_step);
+    const auto beta = CalciumFactory::get_random_beta(mt);
+    const auto tau_C = CalciumFactory::get_random_tau_C(mt);
+    const auto h = CalciumFactory::get_random_h(mt);
 
-    const auto beta = beta_distr(mt);
-    const auto tau_C = tau_C_distr(mt);
-    const auto h = h_distr(mt);
-
-    auto extra_info = std::make_shared<NeuronsExtraInfo>();
+    const auto extra_info = std::make_shared<NeuronsExtraInfo>();
     extra_info->init(number_neurons);
 
     cc.set_beta(beta);
@@ -1085,12 +1192,12 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateRelativeStep0) {
 
     ASSERT_NO_THROW(cc.init(number_neurons));
 
-    const auto& fired_status = NeuronTypesAdapter::get_fired_status(number_neurons, mt);
+    const auto& fired_status = NeuronTypesFactory::get_fired_status(number_neurons, mt);
     NeuronTypesAdapter::disable_neurons(number_neurons, extra_info, mt);
     const auto update_status = extra_info->get_disable_flags();
 
-    const auto previous_calcium = vectorify_span(cc.get_calcium());
-    const auto previous_target = vectorify_span(cc.get_target_calcium());
+    const auto previous_calcium = utility::vectorify_span(cc.get_calcium());
+    const auto previous_target = utility::vectorify_span(cc.get_target_calcium());
 
     ASSERT_NO_THROW(cc.update_calcium(0, fired_status));
 
@@ -1107,7 +1214,7 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateRelativeStep0) {
         ASSERT_NEAR(previous_target[neuron_id] * decay_amount_relative, now_target[neuron_id], eps);
 
         auto expected_calcium = previous_calcium[neuron_id];
-        auto update_value = fired_status[neuron_id] == FiredStatus::Fired ? beta : 0.0;
+        const auto update_value = fired_status[neuron_id] == FiredStatus::Fired ? beta : 0.0;
 
         for (auto i = 0U; i < h; i++) {
             expected_calcium = expected_calcium + (1.0 / h) * (expected_calcium / -tau_C + update_value);
@@ -1120,32 +1227,37 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateRelativeStep0) {
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateRelative) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    auto initiator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    const auto initiator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) / 7.342;
     };
 
-    auto calculator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+    const auto calculator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) * 5.98;
     };
 
-    const auto decay_amount_relative = RandomAdapter::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
-    const auto decay_step = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    const auto decay_amount_relative = RandomFactory::get_random_double(0.0, std::nextafter(1.0, 0.0), mt);
+    const auto decay_step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    auto decay_interval = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = decay_step };
 
-    boost::random::uniform_real_distribution<double> beta_distr(CalciumCalculator::min_beta, CalciumCalculator::max_beta);
-    boost::random::uniform_real_distribution<double> tau_C_distr(CalciumCalculator::min_tau_C, CalciumCalculator::max_tau_C);
-    boost::random::uniform_int_distribution<unsigned int> h_distr(CalciumCalculator::min_h, CalciumCalculator::max_h);
+    auto cc = RelativeDecayCalciumCalculator(decay_amount_relative, decay_interval);
 
-    CalciumCalculator cc(TargetCalciumDecay::Relative, decay_amount_relative, decay_step);
+    const auto beta = CalciumFactory::get_random_beta(mt);
+    const auto tau_C = CalciumFactory::get_random_tau_C(mt);
+    const auto h = CalciumFactory::get_random_h(mt);
 
-    const auto beta = beta_distr(mt);
-    const auto tau_C = tau_C_distr(mt);
-    const auto h = h_distr(mt);
+    const auto step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
 
-    const auto step = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
-
-    auto extra_info = std::make_shared<NeuronsExtraInfo>();
+    const auto extra_info = std::make_shared<NeuronsExtraInfo>();
     extra_info->init(number_neurons);
 
     cc.set_beta(beta);
@@ -1157,12 +1269,12 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateRelative) {
 
     ASSERT_NO_THROW(cc.init(number_neurons));
 
-    const auto& fired_status = NeuronTypesAdapter::get_fired_status(number_neurons, mt);
+    const auto& fired_status = NeuronTypesFactory::get_fired_status(number_neurons, mt);
     NeuronTypesAdapter::disable_neurons(number_neurons, extra_info, mt);
     const auto update_status = extra_info->get_disable_flags();
 
-    const auto previous_calcium = vectorify_span(cc.get_calcium());
-    const auto previous_target = vectorify_span(cc.get_target_calcium());
+    const auto previous_calcium = utility::vectorify_span(cc.get_calcium());
+    const auto previous_target = utility::vectorify_span(cc.get_target_calcium());
 
     ASSERT_NO_THROW(cc.update_calcium(step, fired_status));
 
@@ -1190,7 +1302,7 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateRelative) {
         }
 
         auto expected_calcium = previous_calcium[neuron_id];
-        auto update_value = fired_status[neuron_id] == FiredStatus::Fired ? beta : 0.0;
+        const auto update_value = fired_status[neuron_id] == FiredStatus::Fired ? beta : 0.0;
 
         for (auto i = 0U; i < h; i++) {
             expected_calcium = expected_calcium + (1.0 / h) * (expected_calcium / -tau_C + update_value);
@@ -1203,31 +1315,36 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateRelative) {
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateAbsoluteDisabled) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    auto initiator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    const auto initiator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) / 7.342;
     };
 
-    auto calculator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+    const auto calculator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) * 5.98;
     };
 
-    const auto decay_amount_absolute = RandomAdapter::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
+    const auto decay_amount_absolute = RandomFactory::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
     const auto decay_step
-        = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+        = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    auto decay_interval = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = decay_step };
 
-    boost::random::uniform_real_distribution<double> beta_distr(CalciumCalculator::min_beta, CalciumCalculator::max_beta);
-    boost::random::uniform_real_distribution<double> tau_C_distr(CalciumCalculator::min_tau_C, CalciumCalculator::max_tau_C);
-    boost::random::uniform_int_distribution<unsigned int> h_distr(CalciumCalculator::min_h, CalciumCalculator::max_h);
+    auto cc = AbsoluteDecayCalciumCalculator(decay_amount_absolute, decay_interval);
 
-    CalciumCalculator cc(TargetCalciumDecay::Absolute, decay_amount_absolute, decay_step);
+    const auto beta = CalciumFactory::get_random_beta(mt);
+    const auto tau_C = CalciumFactory::get_random_tau_C(mt);
+    const auto h = CalciumFactory::get_random_h(mt);
 
-    const auto beta = beta_distr(mt);
-    const auto tau_C = tau_C_distr(mt);
-    const auto h = h_distr(mt);
-
-    auto extra_info = std::make_shared<NeuronsExtraInfo>();
+    const auto extra_info = std::make_shared<NeuronsExtraInfo>();
     extra_info->init(number_neurons);
 
     cc.set_beta(beta);
@@ -1239,14 +1356,13 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateAbsoluteDisabled) {
 
     ASSERT_NO_THROW(cc.init(number_neurons));
 
-    std::vector<FiredStatus> fired_status(number_neurons, FiredStatus::Inactive);
-    std::vector<FiredStatus> fired_status2(number_neurons, FiredStatus::Fired);
+    const auto fired_status = std::vector<FiredStatus>(number_neurons, FiredStatus::Inactive);
+    const auto fired_status2 = std::vector<FiredStatus>(number_neurons, FiredStatus::Fired);
     const auto neuron_ids = NeuronID::range(number_neurons) | ranges::to_vector;
     extra_info->set_disabled_neurons(neuron_ids);
-    const auto update_status = extra_info->get_disable_flags();
 
-    const auto previous_calcium = vectorify_span(cc.get_calcium());
-    const auto previous_target = vectorify_span(cc.get_target_calcium());
+    const auto previous_calcium = utility::vectorify_span(cc.get_calcium());
+    const auto previous_target = utility::vectorify_span(cc.get_target_calcium());
 
     ASSERT_NO_THROW(cc.update_calcium(0, fired_status));
 
@@ -1258,7 +1374,7 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateAbsoluteDisabled) {
         ASSERT_EQ(previous_target[neuron_id], now_target[neuron_id]);
     }
 
-    const auto step = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    const auto step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
 
     ASSERT_NO_THROW(cc.update_calcium(step, fired_status));
 
@@ -1292,31 +1408,35 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateAbsoluteDisabled) {
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateAbsoluteStep0) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    auto initiator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    const auto initiator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) / 7.342;
     };
 
-    auto calculator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+    const auto calculator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) * 5.98;
     };
 
-    const auto decay_amount_absolute = RandomAdapter::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
-    const auto decay_step
-        = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    const auto decay_amount_absolute = RandomFactory::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
+    const auto decay_step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    auto decay_interval = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = decay_step };
 
-    boost::random::uniform_real_distribution<double> beta_distr(CalciumCalculator::min_beta, CalciumCalculator::max_beta);
-    boost::random::uniform_real_distribution<double> tau_C_distr(CalciumCalculator::min_tau_C, CalciumCalculator::max_tau_C);
-    boost::random::uniform_int_distribution<unsigned int> h_distr(CalciumCalculator::min_h, CalciumCalculator::max_h);
+    auto cc = AbsoluteDecayCalciumCalculator(decay_amount_absolute, decay_interval);
 
-    CalciumCalculator cc(TargetCalciumDecay::Absolute, decay_amount_absolute, decay_step);
+    const auto beta = CalciumFactory::get_random_beta(mt);
+    const auto tau_C = CalciumFactory::get_random_tau_C(mt);
+    const auto h = CalciumFactory::get_random_h(mt);
 
-    const auto beta = beta_distr(mt);
-    const auto tau_C = tau_C_distr(mt);
-    const auto h = h_distr(mt);
-
-    auto extra_info = std::make_shared<NeuronsExtraInfo>();
+    const auto extra_info = std::make_shared<NeuronsExtraInfo>();
     extra_info->init(number_neurons);
 
     cc.set_beta(beta);
@@ -1328,13 +1448,13 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateAbsoluteStep0) {
 
     ASSERT_NO_THROW(cc.init(number_neurons));
 
-    const auto& fired_status = NeuronTypesAdapter::get_fired_status(number_neurons, mt);
+    const auto& fired_status = NeuronTypesFactory::get_fired_status(number_neurons, mt);
     const auto neuron_ids = NeuronID::range(number_neurons) | ranges::to_vector;
     extra_info->set_disabled_neurons(neuron_ids);
     const auto update_status = extra_info->get_disable_flags();
 
-    const auto previous_calcium = vectorify_span(cc.get_calcium());
-    const auto previous_target = vectorify_span(cc.get_target_calcium());
+    const auto previous_calcium = utility::vectorify_span(cc.get_calcium());
+    const auto previous_target = utility::vectorify_span(cc.get_target_calcium());
 
     ASSERT_NO_THROW(cc.update_calcium(0, fired_status));
 
@@ -1351,7 +1471,7 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateAbsoluteStep0) {
         ASSERT_NEAR(previous_target[neuron_id] - decay_amount_absolute, now_target[neuron_id], eps);
 
         auto expected_calcium = previous_calcium[neuron_id];
-        auto update_value = fired_status[neuron_id] == FiredStatus::Fired ? beta : 0.0;
+        const auto update_value = fired_status[neuron_id] == FiredStatus::Fired ? beta : 0.0;
 
         for (auto i = 0U; i < h; i++) {
             expected_calcium = expected_calcium + (1.0 / h) * (expected_calcium / -tau_C + update_value);
@@ -1364,33 +1484,37 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateAbsoluteStep0) {
 }
 
 TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateAbsolute) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    auto initiator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    const auto initiator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) / 7.342;
     };
 
-    auto calculator = [number_neurons](MPIRank i, NeuronID::value_type v) {
+    const auto calculator = [](mpiPP::MPIRank /*i*/, NeuronID::value_type v) {
         return static_cast<double>(v) * 5.98;
     };
 
-    const auto decay_amount_absolute = RandomAdapter::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
-    const auto decay_step
-        = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    const auto decay_amount_absolute = RandomFactory::get_random_double(std::nextafter(0.0, 1.0), 1000.0, mt);
+    const auto decay_step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
+    auto decay_interval = utility::Interval<RelearnTypes::step_type>{ .begin = 0, .end = std::numeric_limits<utility::Interval<RelearnTypes::step_type>::step_type>::max(), .frequency = decay_step };
 
-    boost::random::uniform_real_distribution<double> beta_distr(CalciumCalculator::min_beta, CalciumCalculator::max_beta);
-    boost::random::uniform_real_distribution<double> tau_C_distr(CalciumCalculator::min_tau_C, CalciumCalculator::max_tau_C);
-    boost::random::uniform_int_distribution<unsigned int> h_distr(CalciumCalculator::min_h, CalciumCalculator::max_h);
+    auto cc = AbsoluteDecayCalciumCalculator(decay_amount_absolute, decay_interval);
 
-    CalciumCalculator cc(TargetCalciumDecay::Absolute, decay_amount_absolute, decay_step);
+    const auto beta = CalciumFactory::get_random_beta(mt);
+    const auto tau_C = CalciumFactory::get_random_tau_C(mt);
+    const auto h = CalciumFactory::get_random_h(mt);
 
-    const auto beta = beta_distr(mt);
-    const auto tau_C = tau_C_distr(mt);
-    const auto h = h_distr(mt);
+    const auto step = RandomFactory::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
 
-    const auto step = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, 10000000, mt);
-
-    auto extra_info = std::make_shared<NeuronsExtraInfo>();
+    const auto extra_info = std::make_shared<NeuronsExtraInfo>();
     extra_info->init(number_neurons);
 
     cc.set_beta(beta);
@@ -1402,13 +1526,13 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateAbsolute) {
 
     ASSERT_NO_THROW(cc.init(number_neurons));
 
-    const auto& fired_status = NeuronTypesAdapter::get_fired_status(number_neurons, mt);
+    const auto& fired_status = NeuronTypesFactory::get_fired_status(number_neurons, mt);
     const auto neuron_ids = NeuronID::range(number_neurons) | ranges::to_vector;
     extra_info->set_disabled_neurons(neuron_ids);
     const auto update_status = extra_info->get_disable_flags();
 
-    const auto previous_calcium = vectorify_span(cc.get_calcium());
-    const auto previous_target = vectorify_span(cc.get_target_calcium());
+    const auto previous_calcium = utility::vectorify_span(cc.get_calcium());
+    const auto previous_target = utility::vectorify_span(cc.get_target_calcium());
 
     ASSERT_NO_THROW(cc.update_calcium(step, fired_status));
 
@@ -1436,7 +1560,7 @@ TEST_F(CalciumCalculatorTest, testCalciumCalculatorUpdateAbsolute) {
         }
 
         auto expected_calcium = previous_calcium[neuron_id];
-        auto update_value = fired_status[neuron_id] == FiredStatus::Fired ? beta : 0.0;
+        const auto update_value = fired_status[neuron_id] == FiredStatus::Fired ? beta : 0.0;
 
         for (auto i = 0U; i < h; i++) {
             expected_calcium = expected_calcium + (1.0 / h) * (expected_calcium / -tau_C + update_value);

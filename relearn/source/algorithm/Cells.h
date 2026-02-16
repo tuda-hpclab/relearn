@@ -12,4 +12,5 @@
 
 #include "BarnesHutInternal/BarnesHutCell.h"
 #include "BarnesHutInternal/BarnesHutInvertedCell.h"
+#include "FMMInternal/FastMultipoleMethodCell.h"
 #include "NaiveInternal/NaiveCell.h"

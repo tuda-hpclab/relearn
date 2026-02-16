@@ -10,40 +10,40 @@
 
 #include "test_network_graph.h"
 
-#include "adapter/mpi/MpiRankAdapter.h"
-#include "adapter/network_graph/NetworkGraphAdapter.h"
-#include "adapter/neuron_id/NeuronIdAdapter.h"
 #include "Types.h"
-#include "adapter/mpi/MpiRankAdapter.h"
-#include "adapter/network_graph/NetworkGraphAdapter.h"
-#include "adapter/neuron_id/NeuronIdAdapter.h"
 
-#include "mpi/MPIWrapper.h"
 #include "neurons/NetworkGraph.h"
+#include "neurons/enums/SynapticElementType.h"
+#include "neurons/helper/RankNeuronId.h"
 #include "util/NeuronID.h"
-#include "util/ranges/Functional.hpp"
+#include "util/RelearnException.h"
 
-#include <cstddef>
-#include <map>
-#include <numeric>
-#include <random>
-#include <range/v3/functional/compose.hpp>
-#include <range/v3/range/traits.hpp>
-#include <sstream>
-#include <tuple>
-#include <utility>
-#include <vector>
+#include "mpi-wrapper/MPIInfo.h"
+#include "mpi-wrapper/MPIRank.h"
+
+#include "adapter/network_graph/NetworkGraphAdapter.h"
+
+#include "factory/mpi_rank/mpi_rank_factory.h"
+#include "factory/neuron_id/neuron_id_factory.h"
+#include "factory/synapses/synapses_factory.h"
 
 #include <gtest/gtest.h>
-#include <range/v3/algorithm/contains.hpp>
-#include <range/v3/numeric/accumulate.hpp>
-#include <range/v3/view/map.hpp>
+
+#include <algorithm>
+#include <iostream>
+#include <iterator>
+#include <map>
+#include <numeric>
+#include <tuple>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 void NetworkGraphTest::assert_local_plastic_empty(const NetworkGraph& network_graph) {
     const auto number_neurons = network_graph.get_number_neurons();
 
-    auto [all_local_in_edges, _1] = network_graph.get_all_local_in_edges();
-    auto [all_local_out_edges, _2] = network_graph.get_all_local_out_edges();
+    const auto& [all_local_in_edges, _1] = network_graph.get_all_local_in_edges();
+    const auto& [all_local_out_edges, _2] = network_graph.get_all_local_out_edges();
 
     for (const auto& neighborhood : all_local_in_edges) {
         ASSERT_TRUE(neighborhood.empty());
@@ -53,20 +53,20 @@ void NetworkGraphTest::assert_local_plastic_empty(const NetworkGraph& network_gr
         ASSERT_TRUE(neighborhood.empty());
     }
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
         const auto& [local_in_edges, _3] = network_graph.get_local_in_edges(neuron_id);
-        const auto& [all_local_out_edges, _4] = network_graph.get_local_out_edges(neuron_id);
+        const auto& [_all_local_out_edges, _4] = network_graph.get_local_out_edges(neuron_id);
 
         ASSERT_TRUE(local_in_edges.empty());
-        ASSERT_TRUE(all_local_out_edges.empty());
+        ASSERT_TRUE(_all_local_out_edges.empty());
     }
 }
 
 void NetworkGraphTest::assert_distant_plastic_empty(const NetworkGraph& network_graph) {
     const auto number_neurons = network_graph.get_number_neurons();
 
-    auto [all_distant_in_edges, _1] = network_graph.get_all_distant_in_edges();
-    auto [all_distant_out_edges, _2] = network_graph.get_all_distant_out_edges();
+    const auto& [all_distant_in_edges, _1] = network_graph.get_all_distant_in_edges();
+    const auto& [all_distant_out_edges, _2] = network_graph.get_all_distant_out_edges();
 
     for (const auto& neighborhood : all_distant_in_edges) {
         ASSERT_TRUE(neighborhood.empty());
@@ -76,7 +76,7 @@ void NetworkGraphTest::assert_distant_plastic_empty(const NetworkGraph& network_
         ASSERT_TRUE(neighborhood.empty());
     }
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
         const auto& [distant_in_edges, _3] = network_graph.get_distant_in_edges(neuron_id);
         const auto& [distant_out_edges, _4] = network_graph.get_distant_out_edges(neuron_id);
 
@@ -84,12 +84,19 @@ void NetworkGraphTest::assert_distant_plastic_empty(const NetworkGraph& network_
         ASSERT_TRUE(distant_out_edges.empty());
 
         const auto& incoming_excitatory_partners = network_graph.get_all_plastic_partners_incoming(neuron_id, SignalType::Excitatory);
-        const auto& incoming_inhibitory_partners = network_graph.get_all_plastic_partners_incoming(neuron_id, SignalType::Inhibitory);
-        const auto& outgoing_partners = network_graph.get_all_plastic_partners_outgoing(neuron_id);
+        for (const auto& [rank, _] : incoming_excitatory_partners) {
+            ASSERT_EQ(rank, network_graph.get_mpi_rank());
+        }
 
-        ASSERT_TRUE(incoming_excitatory_partners.empty());
-        ASSERT_TRUE(incoming_inhibitory_partners.empty());
-        ASSERT_TRUE(outgoing_partners.empty());
+        const auto& incoming_inhibitory_partners = network_graph.get_all_plastic_partners_incoming(neuron_id, SignalType::Inhibitory);
+        for (const auto& [rank, _] : incoming_inhibitory_partners) {
+            ASSERT_EQ(rank, network_graph.get_mpi_rank());
+        }
+
+        const auto& outgoing_partners = network_graph.get_all_plastic_partners_outgoing(neuron_id);
+        for (const auto& [rank, _] : outgoing_partners) {
+            ASSERT_EQ(rank, network_graph.get_mpi_rank());
+        }
     }
 }
 
@@ -99,7 +106,7 @@ void NetworkGraphTest::assert_plastic_empty(const NetworkGraph& network_graph) {
 
     const auto number_neurons = network_graph.get_number_neurons();
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
         const auto [number_excitatory_in_edges, _1] = network_graph.get_number_excitatory_in_edges(neuron_id);
         const auto [number_inhibitiry_in_edges, _2] = network_graph.get_number_inhibitory_in_edges(neuron_id);
         const auto [number_out_edges, _3] = network_graph.get_number_out_edges(neuron_id);
@@ -113,8 +120,8 @@ void NetworkGraphTest::assert_plastic_empty(const NetworkGraph& network_graph) {
 void NetworkGraphTest::assert_local_static_empty(const NetworkGraph& network_graph) {
     const auto number_neurons = network_graph.get_number_neurons();
 
-    auto [_1, all_local_in_edges] = network_graph.get_all_local_in_edges();
-    auto [_2, all_local_out_edges] = network_graph.get_all_local_out_edges();
+    const auto& [_1, all_local_in_edges] = network_graph.get_all_local_in_edges();
+    const auto& [_2, all_local_out_edges] = network_graph.get_all_local_out_edges();
 
     for (const auto& neighborhood : all_local_in_edges) {
         ASSERT_TRUE(neighborhood.empty());
@@ -124,20 +131,20 @@ void NetworkGraphTest::assert_local_static_empty(const NetworkGraph& network_gra
         ASSERT_TRUE(neighborhood.empty());
     }
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
         const auto& [_3, local_in_edges] = network_graph.get_local_in_edges(neuron_id);
-        const auto& [_4, all_local_out_edges] = network_graph.get_local_out_edges(neuron_id);
+        const auto& [_4, _all_local_out_edges] = network_graph.get_local_out_edges(neuron_id);
 
         ASSERT_TRUE(local_in_edges.empty());
-        ASSERT_TRUE(all_local_out_edges.empty());
+        ASSERT_TRUE(_all_local_out_edges.empty());
     }
 }
 
 void NetworkGraphTest::assert_distant_static_empty(const NetworkGraph& network_graph) {
     const auto number_neurons = network_graph.get_number_neurons();
 
-    auto [_1, all_distant_in_edges] = network_graph.get_all_distant_in_edges();
-    auto [_2, all_distant_out_edges] = network_graph.get_all_distant_out_edges();
+    const auto& [_1, all_distant_in_edges] = network_graph.get_all_distant_in_edges();
+    const auto& [_2, all_distant_out_edges] = network_graph.get_all_distant_out_edges();
 
     for (const auto& neighborhood : all_distant_in_edges) {
         ASSERT_TRUE(neighborhood.empty());
@@ -147,7 +154,7 @@ void NetworkGraphTest::assert_distant_static_empty(const NetworkGraph& network_g
         ASSERT_TRUE(neighborhood.empty());
     }
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
         const auto& [_3, distant_in_edges] = network_graph.get_distant_in_edges(neuron_id);
         const auto& [_4, distant_out_edges] = network_graph.get_distant_out_edges(neuron_id);
 
@@ -162,7 +169,7 @@ void NetworkGraphTest::assert_static_empty(const NetworkGraph& network_graph) {
 
     const auto number_neurons = network_graph.get_number_neurons();
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
         const auto [_1, number_excitatory_in_edges] = network_graph.get_number_excitatory_in_edges(neuron_id);
         const auto [_2, number_inhibitiry_in_edges] = network_graph.get_number_inhibitory_in_edges(neuron_id);
         const auto [_3, number_out_edges] = network_graph.get_number_out_edges(neuron_id);
@@ -177,26 +184,26 @@ void NetworkGraphTest::assert_plastic_size(const NetworkGraph& network_graph, Re
     const auto number_neurons = network_graph.get_number_neurons();
     ASSERT_EQ(number_neurons, expected_number_neurons);
 
-    auto [all_distant_in_edges, _1] = network_graph.get_all_distant_in_edges();
-    auto [all_distant_out_edges, _2] = network_graph.get_all_distant_out_edges();
-    auto [all_local_in_edges, _3] = network_graph.get_all_local_in_edges();
-    auto [all_local_out_edges, _4] = network_graph.get_all_local_out_edges();
+    const auto& [all_distant_in_edges, _1] = network_graph.get_all_distant_in_edges();
+    const auto& [all_distant_out_edges, _2] = network_graph.get_all_distant_out_edges();
+    const auto& [all_local_in_edges, _3] = network_graph.get_all_local_in_edges();
+    const auto& [all_local_out_edges, _4] = network_graph.get_all_local_out_edges();
 
     ASSERT_EQ(expected_number_neurons, all_distant_in_edges.size());
     ASSERT_EQ(expected_number_neurons, all_distant_out_edges.size());
     ASSERT_EQ(expected_number_neurons, all_local_in_edges.size());
     ASSERT_EQ(expected_number_neurons, all_local_out_edges.size());
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
-        ASSERT_NO_THROW(const auto& incoming_excitatory_partners = network_graph.get_all_plastic_partners_incoming(neuron_id, SignalType::Excitatory););
-        ASSERT_NO_THROW(const auto& incoming_inhibitory_partners = network_graph.get_all_plastic_partners_incoming(neuron_id, SignalType::Inhibitory););
-        ASSERT_NO_THROW(const auto& outgoing_partners = network_graph.get_all_plastic_partners_outgoing(neuron_id););
+    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+        ASSERT_NO_THROW(std::ignore = network_graph.get_all_plastic_partners_incoming(neuron_id, SignalType::Excitatory););
+        ASSERT_NO_THROW(std::ignore = network_graph.get_all_plastic_partners_incoming(neuron_id, SignalType::Inhibitory););
+        ASSERT_NO_THROW(std::ignore = network_graph.get_all_plastic_partners_outgoing(neuron_id););
     }
 
-    for (const auto neuron_id : NeuronID::range(number_neurons, number_neurons + number_neurons_out_of_scope)) {
-        ASSERT_THROW(const auto& incoming_excitatory_partners = network_graph.get_all_plastic_partners_incoming(neuron_id, SignalType::Excitatory);, RelearnException);
-        ASSERT_THROW(const auto& incoming_inhibitory_partners = network_graph.get_all_plastic_partners_incoming(neuron_id, SignalType::Inhibitory);, RelearnException);
-        ASSERT_THROW(const auto& outgoing_partners = network_graph.get_all_plastic_partners_outgoing(neuron_id);, RelearnException);
+    for (const auto neuron_id : NeuronID::range_id(number_neurons, number_neurons + number_neurons_out_of_scope)) {
+        ASSERT_THROW_NO_PRINT(std::ignore = network_graph.get_all_plastic_partners_incoming(neuron_id, SignalType::Excitatory);, RelearnException);
+        ASSERT_THROW_NO_PRINT(std::ignore = network_graph.get_all_plastic_partners_incoming(neuron_id, SignalType::Inhibitory);, RelearnException);
+        ASSERT_THROW_NO_PRINT(std::ignore = network_graph.get_all_plastic_partners_outgoing(neuron_id);, RelearnException);
     }
 }
 
@@ -204,10 +211,10 @@ void NetworkGraphTest::assert_static_size(const NetworkGraph& network_graph, Rel
     const auto number_neurons = network_graph.get_number_neurons();
     ASSERT_EQ(number_neurons, expected_number_neurons);
 
-    auto [_1, all_distant_in_edges] = network_graph.get_all_distant_in_edges();
-    auto [_2, all_distant_out_edges] = network_graph.get_all_distant_out_edges();
-    auto [_3, all_local_in_edges] = network_graph.get_all_local_in_edges();
-    auto [_4, all_local_out_edges] = network_graph.get_all_local_out_edges();
+    const auto& [_1, all_distant_in_edges] = network_graph.get_all_distant_in_edges();
+    const auto& [_2, all_distant_out_edges] = network_graph.get_all_distant_out_edges();
+    const auto& [_3, all_local_in_edges] = network_graph.get_all_local_in_edges();
+    const auto& [_4, all_local_out_edges] = network_graph.get_all_local_out_edges();
 
     ASSERT_EQ(expected_number_neurons, all_distant_in_edges.size());
     ASSERT_EQ(expected_number_neurons, all_distant_out_edges.size());
@@ -215,654 +222,1016 @@ void NetworkGraphTest::assert_static_size(const NetworkGraph& network_graph, Rel
     ASSERT_EQ(expected_number_neurons, all_local_out_edges.size());
 }
 
-TEST_F(NetworkGraphTest, testNetworkGraphConstructor) {
-    const auto rank = MPIRankAdapter::get_random_mpi_rank(mt);
+void NetworkGraphTest::assert_in_connectivity(const NetworkGraph& network_graph, const std::map<NeuronID, std::map<NeuronID, RelearnTypes::plastic_synapse_weight>>& incoming_edges,
+                                              const std::map<NeuronID, std::map<RankNeuronId, RelearnTypes::plastic_synapse_weight>>& distant_incoming_edges) {
+    const auto number_neurons = network_graph.get_number_neurons();
 
-    NetworkGraph ng(rank);
+    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+        const auto& golden_in_edges = incoming_edges.contains(neuron_id) ? incoming_edges.at(neuron_id) : std::map<NeuronID, RelearnTypes::plastic_synapse_weight>{};
 
-    ASSERT_EQ(ng.get_number_neurons(), 0);
-
-    assert_plastic_empty(ng);
-    assert_static_empty(ng);
-}
-
-TEST_F(NetworkGraphTest, testNetworkGraphConstructorException) {
-    ASSERT_THROW(NetworkGraph ng_exception(MPIRank::uninitialized_rank());, RelearnException);
-}
-
-TEST_F(NetworkGraphTest, testNetworkGraphInit) {
-    const auto rank = MPIRankAdapter::get_random_mpi_rank(mt);
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
-
-    NetworkGraph ng(rank);
-    ng.init(number_neurons);
-
-    assert_plastic_empty(ng);
-    assert_static_empty(ng);
-
-    assert_plastic_size(ng, number_neurons);
-    assert_static_size(ng, number_neurons);
-}
-
-TEST_F(NetworkGraphTest, testNetworkGraphInitException) {
-    const auto rank = MPIRankAdapter::get_random_mpi_rank(mt);
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
-
-    NetworkGraph ng(rank);
-
-    ASSERT_THROW(ng.init(0), RelearnException);
-
-    assert_plastic_empty(ng);
-    assert_static_empty(ng);
-
-    assert_plastic_size(ng, 0);
-    assert_static_size(ng, 0);
-
-    ng.init(number_neurons);
-
-    ASSERT_THROW(ng.init(0), RelearnException);
-    ASSERT_THROW(ng.init(number_neurons), RelearnException);
-
-    assert_plastic_empty(ng);
-    assert_static_empty(ng);
-
-    assert_plastic_size(ng, number_neurons);
-    assert_static_size(ng, number_neurons);
-}
-
-TEST_F(NetworkGraphTest, testNetworkGraphCreateNeurons) {
-    const auto rank = MPIRankAdapter::get_random_mpi_rank(mt);
-    const auto number_neurons_init = NeuronIdAdapter::get_random_number_neurons(mt);
-    const auto number_neurons_create = NeuronIdAdapter::get_random_number_neurons(mt);
-
-    const auto number_neurons = number_neurons_init + number_neurons_create;
-
-    NetworkGraph ng(rank);
-    ng.init(number_neurons_init);
-    ng.create_neurons(number_neurons_create);
-
-    assert_plastic_empty(ng);
-    assert_static_empty(ng);
-
-    assert_plastic_size(ng, number_neurons);
-    assert_static_size(ng, number_neurons);
-}
-
-TEST_F(NetworkGraphTest, testNetworkGraphCreateNeuronsException) {
-    const auto rank = MPIRankAdapter::get_random_mpi_rank(mt);
-    const auto number_neurons_init = NeuronIdAdapter::get_random_number_neurons(mt);
-    const auto number_neurons_create = NeuronIdAdapter::get_random_number_neurons(mt);
-
-    const auto number_neurons = number_neurons_init + number_neurons_create;
-
-    NetworkGraph ng(rank);
-
-    ASSERT_THROW(ng.create_neurons(0), RelearnException);
-
-    assert_plastic_empty(ng);
-    assert_static_empty(ng);
-
-    assert_plastic_size(ng, 0);
-    assert_static_size(ng, 0);
-
-    ASSERT_THROW(ng.create_neurons(number_neurons_create), RelearnException);
-
-    assert_plastic_empty(ng);
-    assert_static_empty(ng);
-
-    assert_plastic_size(ng, 0);
-    assert_static_size(ng, 0);
-
-    ASSERT_THROW(ng.create_neurons(0), RelearnException);
-
-    assert_plastic_empty(ng);
-    assert_static_empty(ng);
-
-    assert_plastic_size(ng, 0);
-    assert_static_size(ng, 0);
-
-    ng.init(number_neurons_init);
-
-    ASSERT_THROW(ng.create_neurons(0), RelearnException);
-
-    assert_plastic_empty(ng);
-    assert_static_empty(ng);
-
-    assert_plastic_size(ng, number_neurons_init);
-    assert_static_size(ng, number_neurons_init);
-
-    ng.create_neurons(number_neurons_create);
-
-    assert_plastic_empty(ng);
-    assert_static_empty(ng);
-
-    assert_plastic_size(ng, number_neurons);
-    assert_static_size(ng, number_neurons);
-
-    ASSERT_THROW(ng.create_neurons(0), RelearnException);
-
-    assert_plastic_empty(ng);
-    assert_static_empty(ng);
-
-    assert_plastic_size(ng, number_neurons);
-    assert_static_size(ng, number_neurons);
-}
-
-TEST_F(NetworkGraphTest, testNetworkGraphLocalEdges) {
-    const auto my_rank = MPIWrapper::get_my_rank();
-
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
-    const auto num_synapses = NetworkGraphAdapter::get_random_number_synapses(mt) + number_neurons;
-
-    NetworkGraph ng(MPIRank::root_rank());
-    ng.init(number_neurons);
-
-    std::map<NeuronID::value_type, std::map<NeuronID::value_type, RelearnTypes::plastic_synapse_weight>> incoming_edges{};
-    std::map<NeuronID::value_type, std::map<NeuronID::value_type, RelearnTypes::plastic_synapse_weight>> outgoing_edges{};
-
-    for (size_t synapse_id = 0; synapse_id < num_synapses; synapse_id++) {
-        const auto weight = NetworkGraphAdapter::get_random_plastic_synapse_weight(mt);
-        const auto source_id = NeuronIdAdapter::get_random_neuron_id(number_neurons, mt);
-        const auto target_id = NeuronIdAdapter::get_random_neuron_id(number_neurons, mt);
-
-        ng.add_synapse(PlasticLocalSynapse(target_id, source_id, weight));
-        incoming_edges[target_id.get_neuron_id()][source_id.get_neuron_id()] += weight;
-        outgoing_edges[source_id.get_neuron_id()][target_id.get_neuron_id()] += weight;
-    }
-
-    erase_empties(incoming_edges);
-    erase_empties(outgoing_edges);
-
-    for (auto neuron_id : NeuronID::range(number_neurons)) {
-        const auto& golden_in_edges = incoming_edges[neuron_id.get_neuron_id()];
-        const auto& golden_out_edges = outgoing_edges[neuron_id.get_neuron_id()];
-
-        const auto [exc_in_edges_count, _1] = ng.get_number_excitatory_in_edges(neuron_id);
-        const auto [inh_in_edges_count, _2] = ng.get_number_inhibitory_in_edges(neuron_id);
-        const auto [out_edges_count, _3] = ng.get_number_out_edges(neuron_id);
-
-        const auto golden_excitatory_in_edges_count = ranges::accumulate(
-            golden_in_edges
-                | ranges::views::values
-                | ranges::views::filter(greater_equal(0)),
-            ranges::range_value_t<decltype(golden_in_edges)>::second_type{ 0 });
-
-        const auto golden_inhibitory_in_edges_count = ranges::accumulate(
-            golden_in_edges
-                | ranges::views::values
-                | ranges::views::filter(less_equal(0))
-                | ranges::views::transform(as_abs),
-            ranges::range_value_t<decltype(golden_in_edges)>::second_type{ 0 });
-
-        const auto golden_out_edges_count = ranges::accumulate(
-            golden_out_edges
-                | ranges::views::values
-                | ranges::views::transform(as_abs),
-            ranges::range_value_t<decltype(golden_out_edges)>::second_type{ 0 });
-
-        ASSERT_EQ(exc_in_edges_count, golden_excitatory_in_edges_count);
-        ASSERT_EQ(inh_in_edges_count, golden_inhibitory_in_edges_count);
-        ASSERT_EQ(out_edges_count, golden_out_edges_count);
-
-        const auto& [local_in_edges, _4] = ng.get_local_in_edges(neuron_id);
-        const auto& [distant_in_edges, _5] = ng.get_distant_in_edges(neuron_id);
-        const auto& [local_out_edges, _6] = ng.get_local_out_edges(neuron_id);
-        const auto& [distant_out_edges, _7] = ng.get_distant_out_edges(neuron_id);
-
-        const auto golden_local_in_edges = incoming_edges[neuron_id.get_neuron_id()].size();
-        const auto golden_local_out_edges = outgoing_edges[neuron_id.get_neuron_id()].size();
-
-        ASSERT_EQ(local_in_edges.size(), golden_local_in_edges);
-        ASSERT_EQ(distant_in_edges.size(), 0);
-        ASSERT_EQ(local_out_edges.size(), golden_local_out_edges);
-        ASSERT_EQ(distant_out_edges.size(), 0);
+        const auto& [local_in_edges, _1] = network_graph.get_local_in_edges(neuron_id.get_neuron_id());
+        ASSERT_EQ(local_in_edges.size(), golden_in_edges.size());
 
         for (const auto& [other_neuron_id, weight] : local_in_edges) {
-            ASSERT_EQ(weight, incoming_edges[neuron_id.get_neuron_id()][other_neuron_id.get_neuron_id()]);
+            ASSERT_TRUE(golden_in_edges.contains(other_neuron_id));
+            ASSERT_EQ(weight, golden_in_edges.at(other_neuron_id));
         }
+
+        const auto& [all_local_in_edges, _2] = network_graph.get_all_local_in_edges();
+        ASSERT_EQ(all_local_in_edges[neuron_id.get_neuron_id()], local_in_edges);
+
+        const auto& golden_distant_in_edges = distant_incoming_edges.contains(neuron_id) ? distant_incoming_edges.at(neuron_id) : std::map<RankNeuronId, RelearnTypes::plastic_synapse_weight>{};
+
+        const auto& [distant_in_edges, _3] = network_graph.get_distant_in_edges(neuron_id.get_neuron_id());
+        ASSERT_EQ(golden_distant_in_edges.size(), golden_distant_in_edges.size());
+
+        for (const auto& [other_neuron_id, weight] : distant_in_edges) {
+            ASSERT_TRUE(golden_distant_in_edges.contains(other_neuron_id));
+            ASSERT_EQ(weight, golden_distant_in_edges.at(other_neuron_id));
+        }
+
+        const auto& [all_distant_in_edges, _4] = network_graph.get_all_distant_in_edges();
+        ASSERT_EQ(all_distant_in_edges[neuron_id.get_neuron_id()], distant_in_edges);
+
+        const auto [number_excitatory, _5] = network_graph.get_number_excitatory_in_edges(neuron_id.get_neuron_id());
+        const auto [number_inhibitory, _6] = network_graph.get_number_inhibitory_in_edges(neuron_id.get_neuron_id());
+
+        const auto excitatory_summer = [](const auto previous, const auto& p) {
+            if (p.second < 0) {
+                return previous;
+            }
+            return previous + p.second;
+        };
+
+        const auto inhibitory_summer = [](const auto previous, const auto& p) {
+            if (p.second > 0) {
+                return previous;
+            }
+            return previous + std::abs(p.second);
+        };
+
+        const auto golden_excitatory_in_edges_count = std::accumulate(golden_in_edges.cbegin(), golden_in_edges.cend(),
+                                                                      RelearnTypes::plastic_synapse_weight{ 0 }, excitatory_summer);
+
+        const auto golden_inhibitory_in_edges_count = std::accumulate(golden_in_edges.cbegin(), golden_in_edges.cend(),
+                                                                      RelearnTypes::plastic_synapse_weight{ 0 }, inhibitory_summer);
+
+        const auto golden_excitatory_distant_in_edges_count = std::accumulate(golden_distant_in_edges.cbegin(), golden_distant_in_edges.cend(),
+                                                                              RelearnTypes::plastic_synapse_weight{ 0 }, excitatory_summer);
+
+        const auto golden_inhibitory_distant_in_edges_count = std::accumulate(golden_distant_in_edges.cbegin(), golden_distant_in_edges.cend(),
+                                                                              RelearnTypes::plastic_synapse_weight{ 0 }, inhibitory_summer);
+
+        ASSERT_EQ(golden_excitatory_distant_in_edges_count + golden_excitatory_in_edges_count, number_excitatory);
+        ASSERT_EQ(golden_inhibitory_distant_in_edges_count + golden_inhibitory_in_edges_count, number_inhibitory);
+    }
+}
+
+void NetworkGraphTest::assert_out_connectivity(const NetworkGraph& network_graph, const std::map<NeuronID, std::map<NeuronID, RelearnTypes::plastic_synapse_weight>>& outgoing_edges,
+                                               const std::map<NeuronID, std::map<RankNeuronId, RelearnTypes::plastic_synapse_weight>>& distant_outgoing_edges) {
+    const auto number_neurons = network_graph.get_number_neurons();
+
+    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+        const auto& golden_out_edges = outgoing_edges.contains(neuron_id) ? outgoing_edges.at(neuron_id) : std::map<NeuronID, RelearnTypes::plastic_synapse_weight>{};
+
+        const auto& [local_out_edges, _1] = network_graph.get_local_out_edges(neuron_id.get_neuron_id());
+        ASSERT_EQ(local_out_edges.size(), golden_out_edges.size());
 
         for (const auto& [other_neuron_id, weight] : local_out_edges) {
-            ASSERT_EQ(weight, outgoing_edges[neuron_id.get_neuron_id()][other_neuron_id.get_neuron_id()]);
+            ASSERT_TRUE(golden_out_edges.contains(other_neuron_id));
+            ASSERT_EQ(weight, golden_out_edges.at(other_neuron_id));
         }
 
-        const auto& all_in_edges_excitatory = NetworkGraphAdapter::get_all_plastic_in_edges(ng, MPIRank::root_rank(), neuron_id, SignalType::Excitatory);
-        const auto& all_in_edges_inhibitory = NetworkGraphAdapter::get_all_plastic_in_edges(ng, MPIRank::root_rank(), neuron_id, SignalType::Inhibitory);
-        const auto& all_out_edges_excitatory = NetworkGraphAdapter::get_all_plastic_out_edges(ng, MPIRank::root_rank(), neuron_id, SignalType::Excitatory);
-        const auto& all_out_edges_inhibitory = NetworkGraphAdapter::get_all_plastic_out_edges(ng, MPIRank::root_rank(), neuron_id, SignalType::Inhibitory);
+        const auto& [all_local_out_edges, _2] = network_graph.get_all_local_out_edges();
+        ASSERT_EQ(all_local_out_edges[neuron_id.get_neuron_id()], local_out_edges);
 
-        ASSERT_EQ(all_in_edges_excitatory.size() + all_in_edges_inhibitory.size(), golden_local_in_edges);
-        ASSERT_EQ(all_out_edges_excitatory.size() + all_out_edges_inhibitory.size(), golden_local_out_edges);
+        const auto& golden_distant_out_edges = distant_outgoing_edges.contains(neuron_id) ? distant_outgoing_edges.at(neuron_id) : std::map<RankNeuronId, RelearnTypes::plastic_synapse_weight>{};
 
-        for (const auto& [rank_neuron_id, weight] : all_in_edges_excitatory) {
-            ASSERT_EQ(rank_neuron_id.get_rank(), my_rank);
-            ASSERT_EQ(weight, incoming_edges[neuron_id.get_neuron_id()][rank_neuron_id.get_neuron_id().get_neuron_id()]);
+        const auto& [distant_out_edges, _3] = network_graph.get_distant_out_edges(neuron_id.get_neuron_id());
+        ASSERT_EQ(golden_distant_out_edges.size(), golden_distant_out_edges.size());
+
+        for (const auto& [other_neuron_id, weight] : distant_out_edges) {
+            ASSERT_TRUE(golden_distant_out_edges.contains(other_neuron_id));
+            ASSERT_EQ(weight, golden_distant_out_edges.at(other_neuron_id));
         }
 
-        for (const auto& [rank_neuron_id, weight] : all_in_edges_inhibitory) {
-            ASSERT_EQ(rank_neuron_id.get_rank(), my_rank);
-            ASSERT_EQ(weight, incoming_edges[neuron_id.get_neuron_id()][rank_neuron_id.get_neuron_id().get_neuron_id()]);
-        }
+        const auto& [all_distant_out_edges, _4] = network_graph.get_all_distant_out_edges();
+        ASSERT_EQ(all_distant_out_edges[neuron_id.get_neuron_id()], distant_out_edges);
 
-        for (const auto& [rank_neuron_id, weight] : all_out_edges_excitatory) {
-            ASSERT_EQ(rank_neuron_id.get_rank(), my_rank);
-            ASSERT_EQ(weight, outgoing_edges[neuron_id.get_neuron_id()][rank_neuron_id.get_neuron_id().get_neuron_id()]);
-        }
+        const auto [number_edges, _5] = network_graph.get_number_out_edges(neuron_id.get_neuron_id());
 
-        for (const auto& [rank_neuron_id, weight] : all_out_edges_inhibitory) {
-            ASSERT_EQ(rank_neuron_id.get_rank(), my_rank);
-            ASSERT_EQ(weight, outgoing_edges[neuron_id.get_neuron_id()][rank_neuron_id.get_neuron_id().get_neuron_id()]);
-        }
+        const auto summer = [](const auto previous, const auto& p) {
+            return previous + std::abs(p.second);
+        };
 
-        const auto& in_edges = NetworkGraphAdapter::get_all_plastic_in_edges(ng, MPIRank::root_rank(), neuron_id);
-        const auto& out_edges = NetworkGraphAdapter::get_all_plastic_out_edges(ng, MPIRank::root_rank(), neuron_id);
+        const auto golden_excitatory_out_edges_count = std::accumulate(golden_out_edges.cbegin(), golden_out_edges.cend(),
+                                                                       RelearnTypes::plastic_synapse_weight{ 0 }, summer);
 
-        ASSERT_EQ(in_edges.size(), golden_local_in_edges);
-        ASSERT_EQ(out_edges.size(), golden_local_out_edges);
+        const auto golden_excitatory_distant_out_edges_count = std::accumulate(golden_distant_out_edges.cbegin(), golden_distant_out_edges.cend(),
+                                                                               RelearnTypes::plastic_synapse_weight{ 0 }, summer);
+
+        ASSERT_EQ(golden_excitatory_distant_out_edges_count + golden_excitatory_out_edges_count, number_edges);
     }
 }
 
-TEST_F(NetworkGraphTest, testNetworkGraphEdges) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
-    const auto number_synapses = NetworkGraphAdapter::get_random_number_synapses(mt) + number_neurons;
+void NetworkGraphTest::assert_in_connectivity(const NetworkGraph& network_graph, const std::map<NeuronID, std::map<NeuronID, RelearnTypes::static_synapse_weight>>& incoming_edges,
+                                              const std::map<NeuronID, std::map<RankNeuronId, RelearnTypes::static_synapse_weight>>& distant_incoming_edges) {
+    const auto number_neurons = network_graph.get_number_neurons();
 
-    NetworkGraph ng(MPIRank::root_rank());
-    ng.init(number_neurons);
+    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+        const auto& golden_in_edges = incoming_edges.contains(neuron_id) ? incoming_edges.at(neuron_id) : std::map<NeuronID, RelearnTypes::static_synapse_weight>{};
 
-    std::map<size_t, std::map<RankNeuronId, RelearnTypes::plastic_synapse_weight>> in_edges{};
-    std::map<size_t, std::map<RankNeuronId, RelearnTypes::plastic_synapse_weight>> out_edges{};
+        const auto& [_1, local_in_edges] = network_graph.get_local_in_edges(neuron_id.get_neuron_id());
+        ASSERT_EQ(local_in_edges.size(), golden_in_edges.size());
 
-    for (size_t edge_id = 0; edge_id < number_synapses; edge_id++) {
-        const auto other_rank = MPIRankAdapter::get_random_mpi_rank(32, MPIRank::root_rank(), mt);
-        const auto my_neuron_id = NeuronIdAdapter::get_random_neuron_id(number_neurons, mt);
-        const auto other_neuron_id = NeuronIdAdapter::get_random_neuron_id(number_neurons, mt);
+        for (const auto& [other_neuron_id, weight] : local_in_edges) {
+            ASSERT_TRUE(golden_in_edges.contains(other_neuron_id));
+            ASSERT_EQ(weight, golden_in_edges.at(other_neuron_id));
+        }
 
-        const RelearnTypes::plastic_synapse_weight weight = NetworkGraphAdapter::get_random_plastic_synapse_weight(mt);
-        const auto is_in_synapse = weight < 0;
+        const auto& [_2, all_local_in_edges] = network_graph.get_all_local_in_edges();
+        ASSERT_EQ(all_local_in_edges[neuron_id.get_neuron_id()], local_in_edges);
 
-        RankNeuronId my_id{ MPIRank::root_rank(), my_neuron_id };
-        RankNeuronId other_id{ other_rank, other_neuron_id };
+        const auto& golden_distant_in_edges = distant_incoming_edges.contains(neuron_id) ? distant_incoming_edges.at(neuron_id) : std::map<RankNeuronId, RelearnTypes::static_synapse_weight>{};
 
-        if (is_in_synapse) {
-            ng.add_synapse(PlasticDistantInSynapse(my_neuron_id, other_id, weight));
-            in_edges[my_neuron_id.get_neuron_id()][{ other_rank, other_neuron_id }] += weight;
+        const auto& [_3, distant_in_edges] = network_graph.get_distant_in_edges(neuron_id.get_neuron_id());
+        ASSERT_EQ(golden_distant_in_edges.size(), golden_distant_in_edges.size());
 
-            if (in_edges[my_neuron_id.get_neuron_id()][{ other_rank, other_neuron_id }] == 0) {
-                in_edges[my_neuron_id.get_neuron_id()].erase({ other_rank, other_neuron_id });
+        for (const auto& [other_neuron_id, weight] : distant_in_edges) {
+            ASSERT_TRUE(golden_distant_in_edges.contains(other_neuron_id));
+            ASSERT_EQ(weight, golden_distant_in_edges.at(other_neuron_id));
+        }
+
+        const auto& [_4, all_distant_in_edges] = network_graph.get_all_distant_in_edges();
+        ASSERT_EQ(all_distant_in_edges[neuron_id.get_neuron_id()], distant_in_edges);
+
+        const auto [_5, number_excitatory] = network_graph.get_number_excitatory_in_edges(neuron_id.get_neuron_id());
+        const auto [_6, number_inhibitory] = network_graph.get_number_inhibitory_in_edges(neuron_id.get_neuron_id());
+
+        const auto excitatory_summer = [](const auto previous, const auto& p) {
+            if (p.second < 0) {
+                return previous;
             }
-        } else {
-            ng.add_synapse(PlasticDistantOutSynapse(other_id, my_neuron_id, weight));
-            out_edges[my_neuron_id.get_neuron_id()][{ other_rank, other_neuron_id }] += weight;
+            return previous + p.second;
+        };
 
-            if (out_edges[my_neuron_id.get_neuron_id()][{ other_rank, other_neuron_id }] == 0) {
-                out_edges[my_neuron_id.get_neuron_id()].erase({ other_rank, other_neuron_id });
+        const auto inhibitory_summer = [](const auto previous, const auto& p) {
+            if (p.second > 0) {
+                return previous;
+            }
+            return previous + std::abs(p.second);
+        };
+
+        const auto golden_excitatory_in_edges_count = std::accumulate(golden_in_edges.cbegin(), golden_in_edges.cend(),
+                                                                      RelearnTypes::static_synapse_weight{ 0 }, excitatory_summer);
+
+        const auto golden_inhibitory_in_edges_count = std::accumulate(golden_in_edges.cbegin(), golden_in_edges.cend(),
+                                                                      RelearnTypes::static_synapse_weight{ 0 }, inhibitory_summer);
+
+        const auto golden_excitatory_distant_in_edges_count = std::accumulate(golden_distant_in_edges.cbegin(), golden_distant_in_edges.cend(),
+                                                                              RelearnTypes::static_synapse_weight{ 0 }, excitatory_summer);
+
+        const auto golden_inhibitory_distant_in_edges_count = std::accumulate(golden_distant_in_edges.cbegin(), golden_distant_in_edges.cend(),
+                                                                              RelearnTypes::static_synapse_weight{ 0 }, inhibitory_summer);
+
+        ASSERT_NEAR(golden_excitatory_distant_in_edges_count + golden_excitatory_in_edges_count, number_excitatory, eps);
+        ASSERT_NEAR(golden_inhibitory_distant_in_edges_count + golden_inhibitory_in_edges_count, number_inhibitory, eps);
+    }
+}
+
+void NetworkGraphTest::assert_out_connectivity(const NetworkGraph& network_graph, const std::map<NeuronID, std::map<NeuronID, RelearnTypes::static_synapse_weight>>& outgoing_edges,
+                                               const std::map<NeuronID, std::map<RankNeuronId, RelearnTypes::static_synapse_weight>>& distant_outgoing_edges) {
+    const auto number_neurons = network_graph.get_number_neurons();
+
+    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+        const auto& golden_out_edges = outgoing_edges.contains(neuron_id) ? outgoing_edges.at(neuron_id) : std::map<NeuronID, RelearnTypes::static_synapse_weight>{};
+
+        const auto& [_1, local_out_edges] = network_graph.get_local_out_edges(neuron_id.get_neuron_id());
+        ASSERT_EQ(local_out_edges.size(), golden_out_edges.size());
+
+        for (const auto& [other_neuron_id, weight] : local_out_edges) {
+            ASSERT_TRUE(golden_out_edges.contains(other_neuron_id));
+            ASSERT_EQ(weight, golden_out_edges.at(other_neuron_id));
+        }
+
+        const auto& [_2, all_local_out_edges] = network_graph.get_all_local_out_edges();
+        ASSERT_EQ(all_local_out_edges[neuron_id.get_neuron_id()], local_out_edges);
+
+        const auto& golden_distant_out_edges = distant_outgoing_edges.contains(neuron_id) ? distant_outgoing_edges.at(neuron_id) : std::map<RankNeuronId, RelearnTypes::static_synapse_weight>{};
+
+        const auto& [_3, distant_out_edges] = network_graph.get_distant_out_edges(neuron_id.get_neuron_id());
+        ASSERT_EQ(golden_distant_out_edges.size(), golden_distant_out_edges.size());
+
+        for (const auto& [other_neuron_id, weight] : distant_out_edges) {
+            ASSERT_TRUE(golden_distant_out_edges.contains(other_neuron_id));
+            ASSERT_EQ(weight, golden_distant_out_edges.at(other_neuron_id));
+        }
+
+        const auto& [_4, all_distant_out_edges] = network_graph.get_all_distant_out_edges();
+        ASSERT_EQ(all_distant_out_edges[neuron_id.get_neuron_id()], distant_out_edges);
+
+        const auto [_5, number_edges] = network_graph.get_number_out_edges(neuron_id.get_neuron_id());
+
+        const auto summer = [](const auto previous, const auto& p) {
+            return previous + std::abs(p.second);
+        };
+
+        const auto golden_excitatory_out_edges_count = std::accumulate(golden_out_edges.cbegin(), golden_out_edges.cend(),
+                                                                       RelearnTypes::static_synapse_weight{ 0 }, summer);
+
+        const auto golden_excitatory_distant_out_edges_count = std::accumulate(golden_distant_out_edges.cbegin(), golden_distant_out_edges.cend(),
+                                                                               RelearnTypes::static_synapse_weight{ 0 }, summer);
+
+        ASSERT_NEAR(golden_excitatory_distant_out_edges_count + golden_excitatory_out_edges_count, number_edges, eps);
+    }
+}
+
+TEST_F(NetworkGraphTest, testConstructor) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto rank = MPIRankFactory::get_random_mpi_rank(mt);
+
+    const auto network_graph = NetworkGraph(rank);
+
+    ASSERT_EQ(network_graph.get_number_neurons(), 0);
+    ASSERT_EQ(network_graph.get_mpi_rank(), rank);
+
+    assert_plastic_empty(network_graph);
+    assert_static_empty(network_graph);
+}
+
+TEST_F(NetworkGraphTest, testConstructorException) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    ASSERT_THROW_NO_PRINT(NetworkGraph ng_exception(mpiPP::MPIRank::uninitialized_rank());, RelearnException);
+}
+
+TEST_F(NetworkGraphTest, testInit) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto rank = MPIRankFactory::get_random_mpi_rank(mt);
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    auto network_graph = NetworkGraph(rank);
+    network_graph.init(number_neurons);
+
+    ASSERT_EQ(network_graph.get_mpi_rank(), rank);
+
+    assert_plastic_empty(network_graph);
+    assert_static_empty(network_graph);
+
+    assert_plastic_size(network_graph, number_neurons);
+    assert_static_size(network_graph, number_neurons);
+}
+
+TEST_F(NetworkGraphTest, testInitException) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto rank = MPIRankFactory::get_random_mpi_rank(mt);
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    auto network_graph = NetworkGraph(rank);
+
+    ASSERT_THROW_NO_PRINT(network_graph.init(0), RelearnException);
+
+    assert_plastic_empty(network_graph);
+    assert_static_empty(network_graph);
+
+    assert_plastic_size(network_graph, 0);
+    assert_static_size(network_graph, 0);
+
+    network_graph.init(number_neurons);
+
+    ASSERT_THROW_NO_PRINT(network_graph.init(0), RelearnException);
+    ASSERT_THROW_NO_PRINT(network_graph.init(number_neurons), RelearnException);
+
+    assert_plastic_empty(network_graph);
+    assert_static_empty(network_graph);
+
+    assert_plastic_size(network_graph, number_neurons);
+    assert_static_size(network_graph, number_neurons);
+
+    ASSERT_EQ(network_graph.get_mpi_rank(), rank);
+}
+
+TEST_F(NetworkGraphTest, testCreateNeurons) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto rank = MPIRankFactory::get_random_mpi_rank(mt);
+    const auto number_neurons_init = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_neurons_create = NeuronIdFactory::get_random_number_neurons(mt);
+
+    const auto number_neurons = number_neurons_init + number_neurons_create;
+
+    auto network_graph = NetworkGraph(rank);
+    network_graph.init(number_neurons_init);
+    network_graph.create_neurons(number_neurons_create);
+
+    assert_plastic_empty(network_graph);
+    assert_static_empty(network_graph);
+
+    assert_plastic_size(network_graph, number_neurons);
+    assert_static_size(network_graph, number_neurons);
+
+    ASSERT_EQ(network_graph.get_mpi_rank(), rank);
+}
+
+TEST_F(NetworkGraphTest, testCreateNeuronsException) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto rank = MPIRankFactory::get_random_mpi_rank(mt);
+    const auto number_neurons_init = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_neurons_create = NeuronIdFactory::get_random_number_neurons(mt);
+
+    const auto number_neurons = number_neurons_init + number_neurons_create;
+
+    auto network_graph = NetworkGraph(rank);
+
+    ASSERT_THROW_NO_PRINT(network_graph.create_neurons(0), RelearnException);
+
+    assert_plastic_empty(network_graph);
+    assert_static_empty(network_graph);
+
+    assert_plastic_size(network_graph, 0);
+    assert_static_size(network_graph, 0);
+
+    ASSERT_THROW_NO_PRINT(network_graph.create_neurons(number_neurons_create), RelearnException);
+
+    assert_plastic_empty(network_graph);
+    assert_static_empty(network_graph);
+
+    assert_plastic_size(network_graph, 0);
+    assert_static_size(network_graph, 0);
+
+    ASSERT_THROW_NO_PRINT(network_graph.create_neurons(0), RelearnException);
+
+    assert_plastic_empty(network_graph);
+    assert_static_empty(network_graph);
+
+    assert_plastic_size(network_graph, 0);
+    assert_static_size(network_graph, 0);
+
+    network_graph.init(number_neurons_init);
+
+    ASSERT_THROW_NO_PRINT(network_graph.create_neurons(0), RelearnException);
+
+    assert_plastic_empty(network_graph);
+    assert_static_empty(network_graph);
+
+    assert_plastic_size(network_graph, number_neurons_init);
+    assert_static_size(network_graph, number_neurons_init);
+
+    network_graph.create_neurons(number_neurons_create);
+
+    assert_plastic_empty(network_graph);
+    assert_static_empty(network_graph);
+
+    assert_plastic_size(network_graph, number_neurons);
+    assert_static_size(network_graph, number_neurons);
+
+    ASSERT_THROW_NO_PRINT(network_graph.create_neurons(0), RelearnException);
+
+    assert_plastic_empty(network_graph);
+    assert_static_empty(network_graph);
+
+    assert_plastic_size(network_graph, number_neurons);
+    assert_static_size(network_graph, number_neurons);
+
+    ASSERT_EQ(network_graph.get_mpi_rank(), rank);
+}
+
+TEST_F(NetworkGraphTest, testPlasticLocalSynapses) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_synapses = SynapsesFactory::get_random_number_synapses(mt);
+
+    auto network_graph = NetworkGraph(mpiPP::MPIRank::root_rank());
+    network_graph.init(number_neurons);
+
+    const auto local_synapses = SynapsesFactory::generate_plastic_local_synapses(number_neurons, number_synapses, mt);
+    for (const auto& synapse : local_synapses) {
+        network_graph.add_synapse(synapse);
+    }
+
+    const auto [incoming_edges, outgoing_edges] = NetworkGraphAdapter::transform_synapses(local_synapses);
+
+    assert_static_empty(network_graph);
+    assert_distant_plastic_empty(network_graph);
+
+    assert_in_connectivity(network_graph, incoming_edges, {});
+    assert_out_connectivity(network_graph, outgoing_edges, {});
+}
+
+TEST_F(NetworkGraphTest, testPlasticDistantInSynapses) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_foreign_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_synapses = SynapsesFactory::get_random_number_synapses(mt);
+
+    const auto number_ranks = MPIRankFactory::get_random_number_ranks(mt) + 1;
+
+    auto network_graph = NetworkGraph(mpiPP::MPIRank::root_rank(), number_ranks);
+    network_graph.init(number_neurons);
+
+    const auto distant_in_synapses = SynapsesFactory::generate_plastic_distant_in_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+    for (const auto& synapse : distant_in_synapses) {
+        network_graph.add_synapse(synapse);
+    }
+
+    const auto incoming_edges = NetworkGraphAdapter::transform_synapses(distant_in_synapses);
+
+    assert_static_empty(network_graph);
+    assert_local_plastic_empty(network_graph);
+
+    assert_out_connectivity(network_graph, std::map<NeuronID, std::map<NeuronID, RelearnTypes::plastic_synapse_weight>>{}, {});
+    assert_in_connectivity(network_graph, {}, incoming_edges);
+}
+
+TEST_F(NetworkGraphTest, testPlasticDistantOutSynapses) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_foreign_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_synapses = SynapsesFactory::get_random_number_synapses(mt);
+
+    const auto number_ranks = MPIRankFactory::get_random_number_ranks(mt) + 1;
+
+    auto network_graph = NetworkGraph(mpiPP::MPIRank::root_rank(), number_ranks);
+    network_graph.init(number_neurons);
+
+    const auto distant_out_synapses = SynapsesFactory::generate_plastic_distant_out_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+    for (const auto& synapse : distant_out_synapses) {
+        network_graph.add_synapse(synapse);
+    }
+
+    const auto outgoing_edges = NetworkGraphAdapter::transform_synapses(distant_out_synapses);
+
+    assert_static_empty(network_graph);
+    assert_local_plastic_empty(network_graph);
+
+    assert_out_connectivity(network_graph, {}, outgoing_edges);
+    assert_in_connectivity(network_graph, std::map<NeuronID, std::map<NeuronID, RelearnTypes::plastic_synapse_weight>>{}, {});
+}
+
+TEST_F(NetworkGraphTest, testStaticLocalSynapses) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_synapses = SynapsesFactory::get_random_number_synapses(mt);
+
+    auto network_graph = NetworkGraph(mpiPP::MPIRank::root_rank());
+    network_graph.init(number_neurons);
+
+    const auto local_synapses = SynapsesFactory::generate_static_local_synapses(number_neurons, number_synapses, mt);
+    for (const auto& synapse : local_synapses) {
+        network_graph.add_synapse(synapse);
+    }
+
+    const auto [incoming_edges, outgoing_edges] = NetworkGraphAdapter::transform_synapses(local_synapses);
+
+    assert_plastic_empty(network_graph);
+    assert_distant_static_empty(network_graph);
+
+    assert_in_connectivity(network_graph, incoming_edges, {});
+    assert_out_connectivity(network_graph, outgoing_edges, {});
+}
+
+TEST_F(NetworkGraphTest, testStaticDistantInSynapses) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_foreign_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_synapses = SynapsesFactory::get_random_number_synapses(mt);
+
+    const auto number_ranks = MPIRankFactory::get_random_number_ranks(mt) + 1;
+
+    auto network_graph = NetworkGraph(mpiPP::MPIRank::root_rank(), number_ranks);
+    network_graph.init(number_neurons);
+
+    const auto distant_in_synapses = SynapsesFactory::generate_static_distant_in_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+    for (const auto& synapse : distant_in_synapses) {
+        network_graph.add_synapse(synapse);
+    }
+
+    const auto incoming_edges = NetworkGraphAdapter::transform_synapses(distant_in_synapses);
+
+    assert_plastic_empty(network_graph);
+    assert_local_static_empty(network_graph);
+
+    assert_out_connectivity(network_graph, std::map<NeuronID, std::map<NeuronID, RelearnTypes::static_synapse_weight>>{}, {});
+    assert_in_connectivity(network_graph, {}, incoming_edges);
+}
+
+TEST_F(NetworkGraphTest, testStaticDistantOutSynapses) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_foreign_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_synapses = SynapsesFactory::get_random_number_synapses(mt);
+
+    const auto number_ranks = MPIRankFactory::get_random_number_ranks(mt) + 1;
+
+    auto network_graph = NetworkGraph(mpiPP::MPIRank::root_rank(), number_ranks);
+    network_graph.init(number_neurons);
+
+    const auto distant_out_synapses = SynapsesFactory::generate_static_distant_out_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+    for (const auto& synapse : distant_out_synapses) {
+        network_graph.add_synapse(synapse);
+    }
+
+    const auto outgoing_edges = NetworkGraphAdapter::transform_synapses(distant_out_synapses);
+
+    assert_plastic_empty(network_graph);
+    assert_local_static_empty(network_graph);
+
+    assert_out_connectivity(network_graph, {}, outgoing_edges);
+    assert_in_connectivity(network_graph, std::map<NeuronID, std::map<NeuronID, RelearnTypes::static_synapse_weight>>{}, {});
+}
+
+TEST_F(NetworkGraphTest, testPlasticAddSynapses) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_foreign_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_synapses = SynapsesFactory::get_random_number_synapses(mt);
+
+    const auto number_ranks = MPIRankFactory::get_random_number_ranks(mt) + 1;
+
+    auto network_graph = NetworkGraph(mpiPP::MPIRank::root_rank(), number_ranks);
+    network_graph.init(number_neurons);
+
+    const auto local_synapses = SynapsesFactory::generate_plastic_local_synapses(number_neurons, number_synapses, mt);
+    for (const auto& synapse : local_synapses) {
+        network_graph.add_synapse(synapse);
+    }
+
+    const auto [incoming_edges, outgoing_edges] = NetworkGraphAdapter::transform_synapses(local_synapses);
+
+    const auto distant_in_synapses = SynapsesFactory::generate_plastic_distant_in_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+    for (const auto& synapse : distant_in_synapses) {
+        network_graph.add_synapse(synapse);
+    }
+
+    const auto distant_incoming_edges = NetworkGraphAdapter::transform_synapses(distant_in_synapses);
+
+    const auto distant_out_synapses = SynapsesFactory::generate_plastic_distant_out_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+    for (const auto& synapse : distant_out_synapses) {
+        network_graph.add_synapse(synapse);
+    }
+
+    const auto distant_outgoing_edges = NetworkGraphAdapter::transform_synapses(distant_out_synapses);
+
+    assert_static_empty(network_graph);
+
+    assert_out_connectivity(network_graph, outgoing_edges, distant_outgoing_edges);
+    assert_in_connectivity(network_graph, incoming_edges, distant_incoming_edges);
+}
+
+TEST_F(NetworkGraphTest, testPlasticAddSynapsesException) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_foreign_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_synapses = SynapsesFactory::get_random_number_synapses(mt);
+
+    const auto number_ranks = MPIRankFactory::get_random_number_ranks(mt) + 1;
+
+    auto network_graph = NetworkGraph(mpiPP::MPIRank::root_rank(), number_ranks);
+    network_graph.init(number_neurons);
+
+    const auto local_synapses = SynapsesFactory::generate_plastic_local_synapses(number_neurons, number_synapses, mt);
+    for (const auto& synapse : local_synapses) {
+        network_graph.add_synapse(synapse);
+
+        const auto& [target, source, weight] = synapse;
+        ASSERT_THROW_NO_PRINT(network_graph.add_synapse(PlasticLocalSynapse(target, source, 0)), RelearnException);
+        ASSERT_THROW_NO_PRINT(network_graph.add_synapse(PlasticLocalSynapse(NeuronID(target.get_neuron_id() + number_neurons), source, weight)), RelearnException);
+        ASSERT_THROW_NO_PRINT(network_graph.add_synapse(PlasticLocalSynapse(target, NeuronID(source.get_neuron_id() + number_neurons), weight)), RelearnException);
+    }
+
+    const auto [incoming_edges, outgoing_edges] = NetworkGraphAdapter::transform_synapses(local_synapses);
+
+    const auto distant_in_synapses = SynapsesFactory::generate_plastic_distant_in_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+    for (const auto& synapse : distant_in_synapses) {
+        network_graph.add_synapse(synapse);
+
+        const auto& [target, source, weight] = synapse;
+        ASSERT_THROW_NO_PRINT(network_graph.add_synapse(PlasticDistantInSynapse(target, source, 0)), RelearnException);
+        ASSERT_THROW_NO_PRINT(network_graph.add_synapse(PlasticDistantInSynapse(NeuronID(target.get_neuron_id() + number_neurons), source, weight)), RelearnException);
+        ASSERT_THROW_NO_PRINT(network_graph.add_synapse(PlasticDistantInSynapse(target, RankNeuronId(mpiPP::MPIRank::root_rank(), source.get_neuron_id()), weight)), RelearnException);
+    }
+
+    const auto distant_incoming_edges = NetworkGraphAdapter::transform_synapses(distant_in_synapses);
+
+    const auto distant_out_synapses = SynapsesFactory::generate_plastic_distant_out_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+    for (const auto& synapse : distant_out_synapses) {
+        network_graph.add_synapse(synapse);
+
+        const auto& [target, source, weight] = synapse;
+        ASSERT_THROW_NO_PRINT(network_graph.add_synapse(PlasticDistantOutSynapse(target, source, 0)), RelearnException);
+        ASSERT_THROW_NO_PRINT(network_graph.add_synapse(PlasticDistantOutSynapse(RankNeuronId(mpiPP::MPIRank::root_rank(), target.get_neuron_id()), source, weight)), RelearnException);
+        ASSERT_THROW_NO_PRINT(network_graph.add_synapse(PlasticDistantOutSynapse(target, NeuronID(source.get_neuron_id() + number_neurons), weight)), RelearnException);
+    }
+
+    const auto distant_outgoing_edges = NetworkGraphAdapter::transform_synapses(distant_out_synapses);
+
+    assert_static_empty(network_graph);
+
+    assert_out_connectivity(network_graph, outgoing_edges, distant_outgoing_edges);
+    assert_in_connectivity(network_graph, incoming_edges, distant_incoming_edges);
+}
+
+TEST_F(NetworkGraphTest, testPlasticAddEdges) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_foreign_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_synapses = SynapsesFactory::get_random_number_synapses(mt);
+
+    const auto number_ranks = MPIRankFactory::get_random_number_ranks(mt) + 1;
+
+    auto network_graph = NetworkGraph(mpiPP::MPIRank::root_rank(), number_ranks);
+    network_graph.init(number_neurons);
+
+    const auto local_synapses = SynapsesFactory::generate_plastic_local_synapses(number_neurons, number_synapses, mt);
+    const auto [incoming_edges, outgoing_edges] = NetworkGraphAdapter::transform_synapses(local_synapses);
+
+    const auto distant_in_synapses = SynapsesFactory::generate_plastic_distant_in_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+    const auto distant_incoming_edges = NetworkGraphAdapter::transform_synapses(distant_in_synapses);
+
+    const auto distant_out_synapses = SynapsesFactory::generate_plastic_distant_out_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+    const auto distant_outgoing_edges = NetworkGraphAdapter::transform_synapses(distant_out_synapses);
+
+    network_graph.add_edges(local_synapses, distant_in_synapses, distant_out_synapses);
+
+    assert_static_empty(network_graph);
+
+    assert_out_connectivity(network_graph, outgoing_edges, distant_outgoing_edges);
+    assert_in_connectivity(network_graph, incoming_edges, distant_incoming_edges);
+}
+
+TEST_F(NetworkGraphTest, testStaticAddSynapses) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_foreign_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_synapses = SynapsesFactory::get_random_number_synapses(mt);
+
+    const auto number_ranks = MPIRankFactory::get_random_number_ranks(mt) + 1;
+
+    auto network_graph = NetworkGraph(mpiPP::MPIRank::root_rank(), number_ranks);
+    network_graph.init(number_neurons);
+
+    const auto local_synapses = SynapsesFactory::generate_static_local_synapses(number_neurons, number_synapses, mt);
+    for (const auto& synapse : local_synapses) {
+        network_graph.add_synapse(synapse);
+    }
+
+    const auto [incoming_edges, outgoing_edges] = NetworkGraphAdapter::transform_synapses(local_synapses);
+
+    const auto distant_in_synapses = SynapsesFactory::generate_static_distant_in_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+    for (const auto& synapse : distant_in_synapses) {
+        network_graph.add_synapse(synapse);
+    }
+
+    const auto distant_incoming_edges = NetworkGraphAdapter::transform_synapses(distant_in_synapses);
+
+    const auto distant_out_synapses = SynapsesFactory::generate_static_distant_out_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+    for (const auto& synapse : distant_out_synapses) {
+        network_graph.add_synapse(synapse);
+    }
+
+    const auto distant_outgoing_edges = NetworkGraphAdapter::transform_synapses(distant_out_synapses);
+
+    assert_plastic_empty(network_graph);
+
+    assert_out_connectivity(network_graph, outgoing_edges, distant_outgoing_edges);
+    assert_in_connectivity(network_graph, incoming_edges, distant_incoming_edges);
+}
+
+TEST_F(NetworkGraphTest, testStaticAddSynapsesException) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_foreign_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_synapses = SynapsesFactory::get_random_number_synapses(mt);
+
+    const auto number_ranks = MPIRankFactory::get_random_number_ranks(mt) + 1;
+
+    auto network_graph = NetworkGraph(mpiPP::MPIRank::root_rank(), number_ranks);
+    network_graph.init(number_neurons);
+
+    const auto local_synapses = SynapsesFactory::generate_static_local_synapses(number_neurons, number_synapses, mt);
+    for (const auto& synapse : local_synapses) {
+        network_graph.add_synapse(synapse);
+
+        const auto& [target, source, weight] = synapse;
+        ASSERT_THROW_NO_PRINT(network_graph.add_synapse(StaticLocalSynapse(target, source, 0)), RelearnException);
+        ASSERT_THROW_NO_PRINT(network_graph.add_synapse(StaticLocalSynapse(NeuronID(target.get_neuron_id() + number_neurons), source, weight)), RelearnException);
+        ASSERT_THROW_NO_PRINT(network_graph.add_synapse(StaticLocalSynapse(target, NeuronID(source.get_neuron_id() + number_neurons), weight)), RelearnException);
+    }
+
+    const auto [incoming_edges, outgoing_edges] = NetworkGraphAdapter::transform_synapses(local_synapses);
+
+    const auto distant_in_synapses = SynapsesFactory::generate_static_distant_in_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+    for (const auto& synapse : distant_in_synapses) {
+        network_graph.add_synapse(synapse);
+
+        const auto& [target, source, weight] = synapse;
+        ASSERT_THROW_NO_PRINT(network_graph.add_synapse(StaticDistantInSynapse(target, source, 0)), RelearnException);
+        ASSERT_THROW_NO_PRINT(network_graph.add_synapse(StaticDistantInSynapse(NeuronID(target.get_neuron_id() + number_neurons), source, weight)), RelearnException);
+        ASSERT_THROW_NO_PRINT(network_graph.add_synapse(StaticDistantInSynapse(target, RankNeuronId(mpiPP::MPIRank::root_rank(), source.get_neuron_id()), weight)), RelearnException);
+    }
+
+    const auto distant_incoming_edges = NetworkGraphAdapter::transform_synapses(distant_in_synapses);
+
+    const auto distant_out_synapses = SynapsesFactory::generate_static_distant_out_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+    for (const auto& synapse : distant_out_synapses) {
+        network_graph.add_synapse(synapse);
+
+        const auto& [target, source, weight] = synapse;
+        ASSERT_THROW_NO_PRINT(network_graph.add_synapse(StaticDistantOutSynapse(target, source, 0)), RelearnException);
+        ASSERT_THROW_NO_PRINT(network_graph.add_synapse(StaticDistantOutSynapse(RankNeuronId(mpiPP::MPIRank::root_rank(), target.get_neuron_id()), source, weight)), RelearnException);
+        ASSERT_THROW_NO_PRINT(network_graph.add_synapse(StaticDistantOutSynapse(target, NeuronID(source.get_neuron_id() + number_neurons), weight)), RelearnException);
+    }
+
+    const auto distant_outgoing_edges = NetworkGraphAdapter::transform_synapses(distant_out_synapses);
+
+    assert_plastic_empty(network_graph);
+
+    assert_out_connectivity(network_graph, outgoing_edges, distant_outgoing_edges);
+    assert_in_connectivity(network_graph, incoming_edges, distant_incoming_edges);
+}
+
+TEST_F(NetworkGraphTest, testStaticAddEdges) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_foreign_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_synapses = SynapsesFactory::get_random_number_synapses(mt);
+
+    const auto number_ranks = MPIRankFactory::get_random_number_ranks(mt) + 1;
+
+    auto network_graph = NetworkGraph(mpiPP::MPIRank::root_rank(), number_ranks);
+    network_graph.init(number_neurons);
+
+    const auto local_synapses = SynapsesFactory::generate_static_local_synapses(number_neurons, number_synapses, mt);
+    const auto [incoming_edges, outgoing_edges] = NetworkGraphAdapter::transform_synapses(local_synapses);
+
+    const auto distant_in_synapses = SynapsesFactory::generate_static_distant_in_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+    const auto distant_incoming_edges = NetworkGraphAdapter::transform_synapses(distant_in_synapses);
+
+    const auto distant_out_synapses = SynapsesFactory::generate_static_distant_out_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+    const auto distant_outgoing_edges = NetworkGraphAdapter::transform_synapses(distant_out_synapses);
+
+    network_graph.add_edges(local_synapses, distant_in_synapses, distant_out_synapses);
+
+    assert_plastic_empty(network_graph);
+
+    assert_out_connectivity(network_graph, outgoing_edges, distant_outgoing_edges);
+    assert_in_connectivity(network_graph, incoming_edges, distant_incoming_edges);
+}
+
+TEST_F(NetworkGraphTest, testSynapsesRemoval) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_synapses = SynapsesFactory::get_random_number_synapses(mt);
+
+    auto network_graph = NetworkGraph(mpiPP::MPIRank::root_rank());
+    network_graph.init(number_neurons);
+
+    const auto local_synapses = SynapsesFactory::generate_plastic_local_synapses(number_neurons, number_synapses, mt);
+    for (const auto& synapse : local_synapses) {
+        network_graph.add_synapse(synapse);
+    }
+
+    for (const auto& [target, source, weight] : local_synapses) {
+        network_graph.add_synapse(PlasticLocalSynapse(target, source, -weight));
+    }
+
+    assert_static_empty(network_graph);
+    assert_plastic_empty(network_graph);
+}
+
+TEST_F(NetworkGraphTest, testPlasticPartners) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_foreign_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto number_synapses = SynapsesFactory::get_random_number_synapses(mt);
+
+    const auto number_ranks = MPIRankFactory::get_random_number_ranks(mt) + 1;
+
+    auto network_graph = NetworkGraph(mpiPP::MPIRank::root_rank(), number_ranks);
+    network_graph.init(number_neurons);
+
+    const auto add_static_stuff = [&]() {
+        const auto local_synapses = SynapsesFactory::generate_static_local_synapses(number_neurons, number_synapses, mt);
+        for (const auto& synapse : local_synapses) {
+            network_graph.add_synapse(synapse);
+        }
+
+        const auto distant_in_synapses = SynapsesFactory::generate_static_distant_in_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+        for (const auto& synapse : distant_in_synapses) {
+            network_graph.add_synapse(synapse);
+        }
+
+        const auto distant_out_synapses = SynapsesFactory::generate_static_distant_out_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+        for (const auto& synapse : distant_out_synapses) {
+            network_graph.add_synapse(synapse);
+        }
+    };
+    add_static_stuff();
+
+    const auto local_synapses = SynapsesFactory::generate_plastic_local_synapses(number_neurons, number_synapses, mt);
+    for (const auto& synapse : local_synapses) {
+        network_graph.add_synapse(synapse);
+    }
+
+    auto [incoming_edges, outgoing_edges] = NetworkGraphAdapter::transform_synapses(local_synapses);
+
+    const auto distant_in_synapses = SynapsesFactory::generate_plastic_distant_in_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+    for (const auto& synapse : distant_in_synapses) {
+        network_graph.add_synapse(synapse);
+    }
+
+    auto distant_incoming_edges = NetworkGraphAdapter::transform_synapses(distant_in_synapses);
+
+    const auto distant_out_synapses = SynapsesFactory::generate_plastic_distant_out_synapses(number_neurons, number_synapses, number_ranks, number_foreign_neurons, mt);
+    for (const auto& synapse : distant_out_synapses) {
+        network_graph.add_synapse(synapse);
+    }
+
+    auto distant_outgoing_edges = NetworkGraphAdapter::transform_synapses(distant_out_synapses);
+
+    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+        const auto& expected_incoming = distant_incoming_edges[neuron_id];
+
+        auto expected_incoming_inhibitory = std::unordered_set<RankNeuronId>{};
+        for (const auto& [rni, weight] : expected_incoming) {
+            if (weight < 0) {
+                expected_incoming_inhibitory.emplace(rni);
             }
         }
-    }
-
-    for (auto neuron_id : NeuronID::range(number_neurons)) {
-        const auto [exc_in_edges_count_ng, _1] = ng.get_number_excitatory_in_edges(neuron_id);
-        const auto [inh_in_edges_count_ng, _2] = ng.get_number_inhibitory_in_edges(neuron_id);
-        const auto [out_edges_count_ng, _3] = ng.get_number_out_edges(neuron_id);
-
-        const auto& in_edges_ng = NetworkGraphAdapter::get_all_plastic_in_edges(ng, MPIRank::root_rank(), neuron_id);
-        const auto& out_edges_ng = NetworkGraphAdapter::get_all_plastic_out_edges(ng, MPIRank::root_rank(), neuron_id);
-
-        auto exc_in_edges_count_meta = 0;
-        auto inh_in_edges_count_meta = 0;
-        auto out_edges_count_meta = 0;
-
-        for (const auto& it : in_edges[neuron_id.get_neuron_id()]) {
-            if (it.second > 0) {
-                exc_in_edges_count_meta += it.second;
-            } else {
-                inh_in_edges_count_meta += -it.second;
+        for (const auto& [id, weight] : incoming_edges[neuron_id]) {
+            if (weight < 0) {
+                expected_incoming_inhibitory.emplace(mpiPP::MPIRank::root_rank(), id);
             }
         }
 
-        for (const auto& it : out_edges[neuron_id.get_neuron_id()]) {
-            out_edges_count_meta += std::abs(it.second);
+        auto expected_incoming_excitatory = std::unordered_set<RankNeuronId>{};
+        for (const auto& [rni, weight] : expected_incoming) {
+            if (weight > 0) {
+                expected_incoming_excitatory.emplace(rni);
+            }
         }
-
-        ASSERT_EQ(exc_in_edges_count_ng, exc_in_edges_count_meta);
-        ASSERT_EQ(inh_in_edges_count_ng, inh_in_edges_count_meta);
-        ASSERT_EQ(out_edges_count_ng, out_edges_count_meta);
-
-        for (const auto& [key, weight_meta] : in_edges[neuron_id.get_neuron_id()]) {
-            ASSERT_TRUE(ranges::contains(in_edges_ng, std::make_pair(key, weight_meta)));
-        }
-
-        for (const auto& [key, weight_meta] : out_edges[neuron_id.get_neuron_id()]) {
-            ASSERT_TRUE(ranges::contains(out_edges_ng, std::make_pair(key, weight_meta)));
-        }
-    }
-}
-
-TEST_F(NetworkGraphTest, testNetworkGraphEdges2) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
-    const auto number_synapses = NetworkGraphAdapter::get_random_number_synapses(mt) + number_neurons;
-
-    NetworkGraph ng_golden(MPIRank::root_rank());
-    ng_golden.init(number_neurons);
-
-    NetworkGraph ng(MPIRank::root_rank());
-    ng.init(number_neurons);
-
-    std::vector<PlasticLocalSynapse> local_synapses{};
-    std::vector<PlasticDistantInSynapse> distant_in_synapses{};
-    std::vector<PlasticDistantOutSynapse> distant_out_synapses{};
-
-    for (size_t edge_id = 0; edge_id < number_synapses; edge_id++) {
-        const auto other_rank = MPIRankAdapter::get_random_mpi_rank(32, MPIRank::root_rank(), mt);
-        const auto my_neuron_id = NeuronIdAdapter::get_random_neuron_id(number_neurons, mt);
-        const auto other_neuron_id = NeuronIdAdapter::get_random_neuron_id(number_neurons, mt);
-
-        const auto weight = NetworkGraphAdapter::get_random_plastic_synapse_weight(mt);
-        const auto is_in_synapse = weight < 0;
-
-        RankNeuronId my_id{ MPIRank::root_rank(), my_neuron_id };
-        RankNeuronId other_id{ other_rank, other_neuron_id };
-
-        if (is_in_synapse) {
-            ng_golden.add_synapse(PlasticDistantInSynapse(my_neuron_id, other_id, weight));
-            distant_in_synapses.emplace_back(my_neuron_id, other_id, weight);
-        } else {
-            ng_golden.add_synapse(PlasticDistantOutSynapse(other_id, my_neuron_id, weight));
-            distant_out_synapses.emplace_back(other_id, my_neuron_id, weight);
-        }
-    }
-
-    for (size_t synapse_id = 0; synapse_id < number_synapses; synapse_id++) {
-        const auto weight = NetworkGraphAdapter::get_random_plastic_synapse_weight(mt);
-        const auto source_id = NeuronIdAdapter::get_random_neuron_id(number_neurons, mt);
-        const auto target_id = NeuronIdAdapter::get_random_neuron_id(number_neurons, mt);
-
-        ng_golden.add_synapse(PlasticLocalSynapse(target_id, source_id, weight));
-        local_synapses.emplace_back(target_id, source_id, weight);
-    }
-
-    ng.add_edges(local_synapses, distant_in_synapses, distant_out_synapses);
-
-    for (auto neuron_id : NeuronID::range(number_neurons)) {
-        auto [local_in_golden_ref, _1] = ng_golden.get_local_in_edges(neuron_id);
-        auto [local_out_golden_ref, _2] = ng_golden.get_local_out_edges(neuron_id);
-        auto [distant_in_golden_ref, _3] = ng_golden.get_distant_in_edges(neuron_id);
-        auto [distant_out_golden_ref, _4] = ng_golden.get_distant_out_edges(neuron_id);
-
-        auto local_in_golden = local_in_golden_ref;
-        auto local_out_golden = local_out_golden_ref;
-        auto distant_in_golden = distant_in_golden_ref;
-        auto distant_out_golden = distant_out_golden_ref;
-
-        std::ranges::sort(local_in_golden);
-        std::ranges::sort(local_out_golden);
-        std::ranges::sort(distant_in_golden);
-        std::ranges::sort(distant_out_golden);
-
-        auto [local_in_ref, _5] = ng.get_local_in_edges(neuron_id);
-        auto [local_out_ref, _6] = ng.get_local_out_edges(neuron_id);
-        auto [distant_in_ref, _7] = ng.get_distant_in_edges(neuron_id);
-        auto [distant_out_ref, _8] = ng.get_distant_out_edges(neuron_id);
-
-        auto local_in = local_in_ref;
-        auto local_out = local_out_ref;
-        auto distant_in = distant_in_ref;
-        auto distant_out = distant_out_ref;
-
-        std::ranges::sort(local_in);
-        std::ranges::sort(local_out);
-        std::ranges::sort(distant_in);
-        std::ranges::sort(distant_out);
-
-        ASSERT_EQ(local_in_golden, local_in);
-        ASSERT_EQ(local_out_golden, local_out);
-        ASSERT_EQ(distant_in_golden, distant_in);
-        ASSERT_EQ(distant_out_golden, distant_out);
-    }
-}
-
-TEST_F(NetworkGraphTest, testNetworkGraphEdgesSplit) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
-    const auto num_edges = NetworkGraphAdapter::get_random_number_synapses(mt) + number_neurons;
-
-    NetworkGraph ng(MPIRank::root_rank());
-    ng.init(number_neurons);
-
-    for (size_t edge_id = 0; edge_id < num_edges; edge_id++) {
-        const auto other_rank = MPIRankAdapter::get_random_mpi_rank(32, MPIRank::root_rank(), mt);
-        const auto neuron_id = NeuronIdAdapter::get_random_neuron_id(number_neurons, mt);
-        const auto other_neuron_id = NeuronIdAdapter::get_random_neuron_id(number_neurons, mt);
-
-        const auto weight = NetworkGraphAdapter::get_random_plastic_synapse_weight(mt);
-        const auto is_in_synapse = weight < 0;
-
-        RankNeuronId my_id{ MPIRank::root_rank(), neuron_id };
-        RankNeuronId other_id{ other_rank, other_neuron_id };
-
-        if (is_in_synapse) {
-            ng.add_synapse(PlasticDistantInSynapse(neuron_id, other_id, weight));
-        } else {
-            ng.add_synapse(PlasticDistantOutSynapse(other_id, neuron_id, weight));
-        }
-    }
-
-    for (auto neuron_id : NeuronID::range(number_neurons)) {
-        const auto& in_edges_ng = NetworkGraphAdapter::get_all_plastic_in_edges(ng, MPIRank::root_rank(), neuron_id);
-        const auto& out_edges_ng = NetworkGraphAdapter::get_all_plastic_out_edges(ng, MPIRank::root_rank(), neuron_id);
-
-        auto in_edges_ng_ex = NetworkGraphAdapter::get_all_plastic_in_edges(ng, MPIRank::root_rank(), neuron_id, SignalType::Excitatory);
-        const auto& in_edges_ng_in = NetworkGraphAdapter::get_all_plastic_in_edges(ng, MPIRank::root_rank(), neuron_id, SignalType::Inhibitory);
-        const auto& out_edges_ng_ex = NetworkGraphAdapter::get_all_plastic_out_edges(ng, MPIRank::root_rank(), neuron_id, SignalType::Excitatory);
-        auto out_edges_ng_in = NetworkGraphAdapter::get_all_plastic_out_edges(ng, MPIRank::root_rank(), neuron_id, SignalType::Inhibitory);
-
-        ASSERT_EQ(in_edges_ng.size(), in_edges_ng_ex.size() + in_edges_ng_in.size());
-        ASSERT_EQ(out_edges_ng.size(), out_edges_ng_ex.size() + out_edges_ng_in.size());
-
-        for (const auto& [_, edge_val] : in_edges_ng) {
-            ASSERT_TRUE(edge_val < 0);
-        }
-
-        for (const auto& [_, edge_val] : out_edges_ng_in) {
-            ASSERT_TRUE(edge_val < 0);
-        }
-
-        for (const auto& [_, edge_val] : in_edges_ng_ex) {
-            ASSERT_TRUE(edge_val > 0);
-        }
-
-        for (const auto& [_, edge_val] : out_edges_ng_ex) {
-            ASSERT_TRUE(edge_val > 0);
-        }
-
-        for (const auto& val : in_edges_ng_in) {
-            in_edges_ng_ex.emplace_back(val);
-        }
-
-        for (const auto& val : out_edges_ng_ex) {
-            out_edges_ng_in.emplace_back(val);
-        }
-
-        ASSERT_EQ(in_edges_ng.size(), in_edges_ng_ex.size());
-        ASSERT_EQ(out_edges_ng.size(), out_edges_ng_ex.size());
-
-        for (const auto& [edge_key, edge_val] : in_edges_ng) {
-            ASSERT_TRUE(ranges::contains(in_edges_ng_ex, std::make_pair(edge_key, edge_val)));
-        }
-
-        for (const auto& [edge_key, edge_val] : out_edges_ng) {
-            ASSERT_TRUE(ranges::contains(out_edges_ng_ex, std::make_pair(edge_key, edge_val)));
-        }
-    }
-}
-
-TEST_F(NetworkGraphTest, testNetworkGraphEdgesRemoval) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
-    const auto num_edges = NetworkGraphAdapter::get_random_number_synapses(mt) + number_neurons;
-
-    NetworkGraph ng(MPIRank::root_rank());
-    ng.init(number_neurons);
-
-    std::vector<std::tuple<NeuronID, MPIRank, NeuronID, MPIRank, RelearnTypes::plastic_synapse_weight>> synapses(num_edges);
-
-    for (size_t edge_id = 0; edge_id < num_edges; edge_id++) {
-        const auto other_rank = MPIRankAdapter::get_random_mpi_rank(32, MPIRank::root_rank(), mt);
-        const auto neuron_id = NeuronIdAdapter::get_random_neuron_id(number_neurons, mt);
-        const auto other_neuron_id = NeuronIdAdapter::get_random_neuron_id(number_neurons, mt);
-
-        const auto weight = NetworkGraphAdapter::get_random_plastic_synapse_weight(mt);
-        const auto is_in_synapse = weight < 0;
-
-        RankNeuronId my_id{ MPIRank::root_rank(), neuron_id };
-        RankNeuronId other_id{ other_rank, other_neuron_id };
-
-        if (other_rank == MPIRank::root_rank()) {
-            ng.add_synapse(PlasticLocalSynapse(neuron_id, other_neuron_id, weight));
-            synapses[edge_id] = std::make_tuple(neuron_id, MPIRank::root_rank(), other_neuron_id, MPIRank::root_rank(), weight);
-            continue;
-        }
-
-        if (is_in_synapse) {
-            ng.add_synapse(PlasticDistantInSynapse(neuron_id, other_id, weight));
-            synapses[edge_id] = std::make_tuple(neuron_id, MPIRank::root_rank(), other_neuron_id, other_rank, weight);
-        } else {
-            ng.add_synapse(PlasticDistantOutSynapse(other_id, neuron_id, weight));
-            synapses[edge_id] = std::make_tuple(other_neuron_id, other_rank, neuron_id, MPIRank::root_rank(), weight);
-        }
-    }
-
-    shuffle(synapses, mt);
-
-    for (size_t edge_id = 0; edge_id < num_edges; edge_id++) {
-        const auto& current_synapse = synapses[edge_id];
-        const auto& [target_neuron_id, target_rank, source_neuron_id, source_rank, weight] = current_synapse;
-
-        RankNeuronId target_id{ target_rank, target_neuron_id };
-        RankNeuronId source_id{ source_rank, source_neuron_id };
-
-        if (source_rank == MPIRank::root_rank() && target_rank == MPIRank::root_rank()) {
-            ng.add_synapse(PlasticLocalSynapse(target_neuron_id, source_neuron_id, -weight));
-            continue;
-        }
-
-        if (source_rank == MPIRank::root_rank()) {
-            ng.add_synapse(PlasticDistantOutSynapse(target_id, source_neuron_id, -weight));
-            continue;
-        }
-
-        ng.add_synapse(PlasticDistantInSynapse(target_neuron_id, source_id, -weight));
-    }
-
-    for (auto neuron_id : NeuronID::range(number_neurons)) {
-        const auto [exc_in_edges_count_1, exc_in_edges_count_2] = ng.get_number_excitatory_in_edges(neuron_id);
-        const auto [inh_in_edges_count_1, inh_in_edges_count_2] = ng.get_number_inhibitory_in_edges(neuron_id);
-        const auto [out_edges_count_1, out_edges_count_2] = ng.get_number_out_edges(neuron_id);
-
-        ASSERT_EQ(exc_in_edges_count_1, 0);
-        ASSERT_EQ(inh_in_edges_count_1, 0);
-        ASSERT_EQ(out_edges_count_1, 0);
-        ASSERT_EQ(exc_in_edges_count_2, 0);
-        ASSERT_EQ(inh_in_edges_count_2, 0);
-        ASSERT_EQ(out_edges_count_2, 0);
-
-        const auto& in_edges = NetworkGraphAdapter::get_all_plastic_in_edges(ng, MPIRank::root_rank(), neuron_id);
-        const auto& out_edges = NetworkGraphAdapter::get_all_plastic_out_edges(ng, MPIRank::root_rank(), neuron_id);
-
-        ASSERT_EQ(in_edges.size(), 0);
-        ASSERT_EQ(out_edges.size(), 0);
-    }
-}
-
-TEST_F(NetworkGraphTest, testNetworkGraphCreate) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
-    const auto num_edges = NetworkGraphAdapter::get_random_number_synapses(mt) + number_neurons;
-
-    NetworkGraph ng(MPIRank::root_rank());
-    ng.init(number_neurons);
-
-    std::map<RankNeuronId, std::map<RankNeuronId, RelearnTypes::plastic_synapse_weight>> in_edges;
-    std::map<RankNeuronId, std::map<RankNeuronId, RelearnTypes::plastic_synapse_weight>> out_edges;
-
-    for (size_t edge_id = 0; edge_id < num_edges; edge_id++) {
-        const auto other_rank = MPIRankAdapter::get_random_mpi_rank(32, MPIRank::root_rank(), mt);
-        const auto neuron_id = NeuronIdAdapter::get_random_neuron_id(number_neurons, mt);
-        const auto other_neuron_id = NeuronIdAdapter::get_random_neuron_id(number_neurons, mt);
-
-        const auto weight = NetworkGraphAdapter::get_random_plastic_synapse_weight(mt);
-        const auto is_in_synapse = weight < 0;
-
-        RankNeuronId my_id{ MPIRank::root_rank(), neuron_id };
-        RankNeuronId other_id{ other_rank, other_neuron_id };
-
-        if (is_in_synapse) {
-            ng.add_synapse(PlasticDistantInSynapse(neuron_id, other_id, weight));
-            in_edges[my_id][other_id] += weight;
-        } else {
-            ng.add_synapse(PlasticDistantOutSynapse(other_id, neuron_id, weight));
-            out_edges[my_id][other_id] += weight;
-        }
-    }
-
-    const auto num_new_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
-    const auto num_new_edges = NetworkGraphAdapter::get_random_number_synapses(mt);
-
-    const auto total_number_neurons = number_neurons + num_new_neurons;
-    const auto total_num_edges = num_edges + num_new_edges;
-
-    ng.create_neurons(num_new_neurons);
-
-    for (size_t edge_id = num_edges; edge_id < total_num_edges; edge_id++) {
-        const auto other_rank = MPIRankAdapter::get_random_mpi_rank(32, MPIRank::root_rank(), mt);
-        const auto neuron_id = NeuronIdAdapter::get_random_neuron_id(number_neurons, mt);
-        const auto other_neuron_id = NeuronIdAdapter::get_random_neuron_id(number_neurons, mt);
-
-        const auto weight = NetworkGraphAdapter::get_random_plastic_synapse_weight(mt);
-        const auto is_in_synapse = weight < 0;
-
-        RankNeuronId my_id{ MPIRank::root_rank(), neuron_id };
-        RankNeuronId other_id{ other_rank, other_neuron_id };
-
-        if (is_in_synapse) {
-            ng.add_synapse(PlasticDistantInSynapse(neuron_id, other_id, weight));
-            in_edges[my_id][other_id] += weight;
-        } else {
-            ng.add_synapse(PlasticDistantOutSynapse(other_id, neuron_id, weight));
-            out_edges[my_id][other_id] += weight;
-        }
-    }
-
-    for (auto neuron_id : NeuronID::range(total_number_neurons)) {
-        const auto [exc_in_edges_count_ng, _1] = ng.get_number_excitatory_in_edges(neuron_id);
-        const auto [inh_in_edges_count_ng, _2] = ng.get_number_inhibitory_in_edges(neuron_id);
-        const auto [out_edges_count_ng, _3] = ng.get_number_out_edges(neuron_id);
-
-        const auto& in_edges_ng = NetworkGraphAdapter::get_all_plastic_in_edges(ng, MPIRank::root_rank(), neuron_id);
-        const auto& out_edges_ng = NetworkGraphAdapter::get_all_plastic_out_edges(ng, MPIRank::root_rank(), neuron_id);
-
-        auto exc_in_edges_count_meta = 0;
-        auto inh_in_edges_count_meta = 0;
-        auto out_edges_count_meta = 0;
-
-        for (const auto& it : in_edges[{ MPIRank::root_rank(), neuron_id }]) {
-            if (it.second > 0) {
-                exc_in_edges_count_meta += it.second;
-            } else {
-                inh_in_edges_count_meta += -it.second;
+        for (const auto& [id, weight] : incoming_edges[neuron_id]) {
+            if (weight > 0) {
+                expected_incoming_excitatory.emplace(mpiPP::MPIRank::root_rank(), id);
             }
         }
 
-        for (const auto& it : out_edges[{ MPIRank::root_rank(), neuron_id }]) {
-            out_edges_count_meta += std::abs(it.second);
-        }
+        const auto& actual_incoming_inhibitory = network_graph.get_all_plastic_partners_incoming(neuron_id.get_neuron_id(), SignalType::Inhibitory);
+        const auto& actual_incoming_excitatory = network_graph.get_all_plastic_partners_incoming(neuron_id.get_neuron_id(), SignalType::Excitatory);
 
-        ASSERT_EQ(exc_in_edges_count_ng, exc_in_edges_count_meta);
-        ASSERT_EQ(inh_in_edges_count_ng, inh_in_edges_count_meta);
-        ASSERT_EQ(out_edges_count_ng, out_edges_count_meta);
+        ASSERT_EQ(actual_incoming_inhibitory, expected_incoming_inhibitory);
+        ASSERT_EQ(actual_incoming_excitatory, expected_incoming_excitatory);
+    }
 
-        for (const auto& [key, weight_meta] : in_edges[{ MPIRank::root_rank(), neuron_id }]) {
-            ASSERT_TRUE(ranges::contains(in_edges_ng, std::make_pair(key, weight_meta)));
-        }
+    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+        const auto& expected_outgoing = distant_outgoing_edges[neuron_id];
+        auto expected_outgoing_unordered = std::unordered_set<RankNeuronId>{};
+        std::ranges::transform(expected_outgoing, std::inserter(expected_outgoing_unordered, expected_outgoing_unordered.begin()),
+                               [](const auto val) -> RankNeuronId { const auto [rni, _] = val; return rni; });
 
-        for (const auto& [key, weight_meta] : out_edges[{ MPIRank::root_rank(), neuron_id }]) {
-            ASSERT_TRUE(ranges::contains(out_edges_ng, std::make_pair(key, weight_meta)));
-        }
+        std::transform(outgoing_edges[neuron_id].begin(), outgoing_edges[neuron_id].end(), std::inserter(expected_outgoing_unordered, expected_outgoing_unordered.begin()),
+                       [](const auto val) -> RankNeuronId { const auto [id, _] = val; return RankNeuronId(mpiPP::MPIRank::root_rank(), id); });
+
+        const auto& actual_incoming = network_graph.get_all_plastic_partners_outgoing(neuron_id.get_neuron_id());
+
+        ASSERT_EQ(actual_incoming, expected_outgoing_unordered);
     }
 }

@@ -10,7 +10,7 @@
  *
  */
 
-#include "structure/BaseCell.h"
+#include "algorithm/Internal/octree/BaseCell.h"
 
 // For the inverted BH, we need the axons
 using BarnesHutInvertedCell = BaseCell<false, false, true, true>;

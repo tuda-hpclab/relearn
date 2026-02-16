@@ -10,30 +10,47 @@
 
 #include "test_random.h"
 
-#include "adapter/random/RandomAdapter.h"
-
 #include "util/Random.h"
+#include "util/RelearnException.h"
+
+#include "mpi-wrapper/MPIInfo.h"
+#include "mpi-wrapper/MPIRank.h"
+
+#include "factory/random/random_factory.h"
+
+#include <gtest/gtest.h>
 
 #include <range/v3/numeric/accumulate.hpp>
 #include <range/v3/range/conversion.hpp>
 
+#include <algorithm>
 #include <cmath>
-#include <numeric>
+#include <cstddef>
+#include <iostream>
 #include <unordered_set>
+#include <vector>
 
 TEST_F(RandomTest, testSeeding) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     RandomHolder::seed(RandomHolderKey::Partition, 1234);
 
-    std::vector<unsigned int> golden_numbers(1000);
-    for (auto i = 0; i < iterations; i++) {
+    auto golden_numbers = std::vector<unsigned int>(1000);
+    for (auto i = 0U; i < iterations; i++) {
         golden_numbers[i] = RandomHolder::get_random_uniform_integer<unsigned int>(RandomHolderKey::Partition, 0, 1000);
     }
 
-    for (auto it = 0; it < 5; it++) {
+    for (auto it = 0U; it < 5U; it++) {
         RandomHolder::seed(RandomHolderKey::Partition, 1234);
 
-        std::vector<unsigned int> repeated_numbers(1000);
-        for (auto i = 0; i < iterations; i++) {
+        auto repeated_numbers = std::vector<unsigned int>(1000);
+        for (auto i = 0U; i < iterations; i++) {
             repeated_numbers[i] = RandomHolder::get_random_uniform_integer<unsigned int>(RandomHolderKey::Partition, 0, 1000);
         }
 
@@ -42,18 +59,26 @@ TEST_F(RandomTest, testSeeding) {
 }
 
 TEST_F(RandomTest, testSeedingAll) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     RandomHolder::seed_all(1234);
 
-    std::vector<unsigned int> golden_numbers(1000);
-    for (auto i = 0; i < iterations; i++) {
+    auto golden_numbers = std::vector<unsigned int>(1000);
+    for (auto i = 0U; i < iterations; i++) {
         golden_numbers[i] = RandomHolder::get_random_uniform_integer<unsigned int>(RandomHolderKey::Partition, 0, 1000);
     }
 
-    for (auto it = 0; it < 5; it++) {
+    for (auto it = 0U; it < 5U; it++) {
         RandomHolder::seed(RandomHolderKey::Partition, 1234);
 
-        std::vector<unsigned int> repeated_numbers(1000);
-        for (auto i = 0; i < iterations; i++) {
+        auto repeated_numbers = std::vector<unsigned int>(1000);
+        for (auto i = 0U; i < iterations; i++) {
             repeated_numbers[i] = RandomHolder::get_random_uniform_integer<unsigned int>(RandomHolderKey::Partition, 0, 1000);
         }
 
@@ -62,10 +87,18 @@ TEST_F(RandomTest, testSeedingAll) {
 }
 
 TEST_F(RandomTest, testUniformIntegerRange) {
-    const auto lower_inclusive = RandomAdapter::get_random_integer<unsigned int>(0, 1000, mt);
-    const auto upper_inclusive = RandomAdapter::get_random_integer<unsigned int>(0, 1000, mt) + lower_inclusive;
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    for (auto i = 0; i < iterations; i++) {
+        return;
+    }
+
+    const auto lower_inclusive = RandomFactory::get_random_integer<unsigned int>(0, 1000, mt);
+    const auto upper_inclusive = RandomFactory::get_random_integer<unsigned int>(0, 1000, mt) + lower_inclusive;
+
+    for (auto i = 0U; i < iterations; i++) {
         const auto random_number = RandomHolder::get_random_uniform_integer(RandomHolderKey::Partition, lower_inclusive, upper_inclusive);
         ASSERT_LE(lower_inclusive, random_number);
         ASSERT_LE(random_number, upper_inclusive);
@@ -73,10 +106,18 @@ TEST_F(RandomTest, testUniformIntegerRange) {
 }
 
 TEST_F(RandomTest, testUniformIntegerMinimumRange) {
-    const auto lower_inclusive = RandomAdapter::get_random_integer<unsigned int>(0, 1000, mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto lower_inclusive = RandomFactory::get_random_integer<unsigned int>(0, 1000, mt);
     const auto upper_inclusive = lower_inclusive;
 
-    for (auto i = 0; i < iterations; i++) {
+    for (auto i = 0U; i < iterations; i++) {
         const auto random_number = RandomHolder::get_random_uniform_integer(RandomHolderKey::Partition, lower_inclusive, upper_inclusive);
         ASSERT_EQ(lower_inclusive, random_number);
     }
@@ -86,19 +127,35 @@ TEST_F(RandomTest, testUniformIntegerMinimumRange) {
 }
 
 TEST_F(RandomTest, testUniformIntegerException) {
-    const auto lower_inclusive = RandomAdapter::get_random_integer<unsigned int>(1001, 2000, mt);
-    const auto upper_inclusive = RandomAdapter::get_random_integer<unsigned int>(0, 1000, mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    for (auto i = 0; i < iterations; i++) {
-        ASSERT_THROW(const auto random_number = RandomHolder::get_random_uniform_integer(RandomHolderKey::Partition, lower_inclusive, upper_inclusive);, RelearnException);
+        return;
+    }
+
+    const auto lower_inclusive = RandomFactory::get_random_integer<unsigned int>(1001, 2000, mt);
+    const auto upper_inclusive = RandomFactory::get_random_integer<unsigned int>(0, 1000, mt);
+
+    for (auto i = 0U; i < iterations; i++) {
+        ASSERT_THROW_NO_PRINT(std::ignore = RandomHolder::get_random_uniform_integer(RandomHolderKey::Partition, lower_inclusive, upper_inclusive);, RelearnException);
     }
 }
 
 TEST_F(RandomTest, testUniformDoubleRange) {
-    const auto lower_inclusive = RandomAdapter::get_random_double<double>(0.0, 1000.0, mt);
-    const auto upper_exclusive = RandomAdapter::get_random_double<double>(0.0001, 1000.0, mt) + lower_inclusive;
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    for (auto i = 0; i < iterations; i++) {
+        return;
+    }
+
+    const auto lower_inclusive = RandomFactory::get_random_double<double>(0.0, 1000.0, mt);
+    const auto upper_exclusive = RandomFactory::get_random_double<double>(0.0001, 1000.0, mt) + lower_inclusive;
+
+    for (auto i = 0U; i < iterations; i++) {
         const auto random_number = RandomHolder::get_random_uniform_double(RandomHolderKey::Partition, lower_inclusive, upper_exclusive);
         ASSERT_LE(lower_inclusive, random_number);
         ASSERT_LT(random_number, upper_exclusive);
@@ -106,33 +163,57 @@ TEST_F(RandomTest, testUniformDoubleRange) {
 }
 
 TEST_F(RandomTest, testUniformDoubleMinimumRange) {
-    const auto lower_inclusive = RandomAdapter::get_random_double<double>(0.0, 1000.0, mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto lower_inclusive = RandomFactory::get_random_double<double>(0.0, 1000.0, mt);
     const auto upper_exclusive = std::nextafter(lower_inclusive, lower_inclusive * 2.0);
 
-    for (auto i = 0; i < iterations; i++) {
+    for (auto i = 0U; i < iterations; i++) {
         const auto random_number = RandomHolder::get_random_uniform_double(RandomHolderKey::Partition, lower_inclusive, upper_exclusive);
         ASSERT_EQ(lower_inclusive, random_number);
     }
 }
 
 TEST_F(RandomTest, testUniformDoubleException) {
-    const auto lower_inclusive = RandomAdapter::get_random_double<double>(1000.0001, 2000.0, mt);
-    const auto upper_exclusive = RandomAdapter::get_random_double<double>(0.0, 1000.0, mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    for (auto i = 0; i < iterations; i++) {
-        ASSERT_THROW(const auto random_number = RandomHolder::get_random_uniform_double(RandomHolderKey::Partition, lower_inclusive, upper_exclusive);, RelearnException);
+        return;
+    }
+
+    const auto lower_inclusive = RandomFactory::get_random_double<double>(1000.0001, 2000.0, mt);
+    const auto upper_exclusive = RandomFactory::get_random_double<double>(0.0, 1000.0, mt);
+
+    for (auto i = 0U; i < iterations; i++) {
+        ASSERT_THROW_NO_PRINT(std::ignore = RandomHolder::get_random_uniform_double(RandomHolderKey::Partition, lower_inclusive, upper_exclusive);, RelearnException);
     }
 }
 
 TEST_F(RandomTest, testUniformIndices) {
-    const auto number_indices = RandomAdapter::get_random_integer<size_t>(0, 20, mt);
-    const auto number_elements = RandomAdapter::get_random_integer<size_t>(0, 20, mt) + number_indices;
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    for (auto i = 0; i < iterations; i++) {
+        return;
+    }
+
+    const auto number_indices = RandomFactory::get_random_integer<size_t>(0, 20, mt);
+    const auto number_elements = RandomFactory::get_random_integer<size_t>(0, 20, mt) + number_indices;
+
+    for (auto i = 0U; i < iterations; i++) {
         const auto indices = RandomHolder::get_random_uniform_indices(RandomHolderKey::Partition, number_indices, number_elements);
         ASSERT_EQ(indices.size(), number_indices);
 
-        const std::unordered_set<size_t> hashed = indices | ranges::to<std::unordered_set>;
+        const auto hashed = indices | ranges::to<std::unordered_set>;
 
         ASSERT_EQ(indices.size(), hashed.size());
 
@@ -143,12 +224,20 @@ TEST_F(RandomTest, testUniformIndices) {
 }
 
 TEST_F(RandomTest, testUniformIndicesAll) {
-    const auto number_indices = RandomAdapter::get_random_integer<size_t>(0, 20, mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto number_indices = RandomFactory::get_random_integer<size_t>(0, 20, mt);
 
     const auto indices = RandomHolder::get_random_uniform_indices(RandomHolderKey::Partition, number_indices, number_indices);
     ASSERT_EQ(indices.size(), number_indices);
 
-    const std::unordered_set<size_t> hashed = indices | ranges::to<std::unordered_set>;
+    const auto hashed = indices | ranges::to<std::unordered_set>;
 
     ASSERT_EQ(indices.size(), hashed.size());
 
@@ -158,42 +247,74 @@ TEST_F(RandomTest, testUniformIndicesAll) {
 }
 
 TEST_F(RandomTest, testUniformIndicesNone) {
-    const auto number_elements = RandomAdapter::get_random_integer<size_t>(0, 20, mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    for (auto i = 0; i < iterations; i++) {
+        return;
+    }
+
+    const auto number_elements = RandomFactory::get_random_integer<size_t>(0, 20, mt);
+
+    for (auto i = 0U; i < iterations; i++) {
         const auto indices = RandomHolder::get_random_uniform_indices(RandomHolderKey::Partition, 0, number_elements);
         ASSERT_TRUE(indices.empty());
     }
 }
 
 TEST_F(RandomTest, testUniformIndicesException) {
-    const auto number_indices = RandomAdapter::get_random_integer<size_t>(1, 20, mt);
-    const auto number_elements = RandomAdapter::get_random_integer<size_t>(1, number_indices, mt) - 1;
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    ASSERT_THROW(auto val = RandomHolder::get_random_uniform_indices(RandomHolderKey::Partition, number_indices, number_elements), RelearnException);
+        return;
+    }
+
+    const auto number_indices = RandomFactory::get_random_integer<size_t>(1, 20, mt);
+    const auto number_elements = RandomFactory::get_random_integer<size_t>(1, number_indices, mt) - 1;
+
+    ASSERT_THROW_NO_PRINT(std::ignore = RandomHolder::get_random_uniform_indices(RandomHolderKey::Partition, number_indices, number_elements), RelearnException);
 }
 
 TEST_F(RandomTest, testNormalDoubleRange) {
-    const auto mean = RandomAdapter::get_random_double<double>(0.0, 1000.0, mt);
-    const auto stddev = RandomAdapter::get_random_double<double>(0.0001, 1.0, mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    std::vector<double> random_numbers(iterations);
-    for (auto i = 0; i < iterations; i++) {
+        return;
+    }
+
+    const auto mean = RandomFactory::get_random_double<double>(0.0, 1000.0, mt);
+    const auto stddev = RandomFactory::get_random_double<double>(0.0001, 1.0, mt);
+
+    auto random_numbers = std::vector<double>(iterations);
+    for (auto i = 0U; i < iterations; i++) {
         random_numbers[i] = RandomHolder::get_random_normal_double(RandomHolderKey::Partition, mean, stddev);
     }
 
     const auto sum = ranges::accumulate(random_numbers, 0.0);
-    std::cerr << "Testing normal doubles. Mean: " << mean << " stddev: " << stddev << "\nValue: " << (sum / iterations) << '\n';
+    std::cerr << "Testing normal doubles. Mean: " << mean << " stddev: " << stddev << "\nValue: " << (sum / static_cast<double>(iterations)) << '\n';
 }
 
 TEST_F(RandomTest, testFillRange) {
-    const auto lower_inclusive = RandomAdapter::get_random_double<double>(0.0, 1000.0, mt);
-    const auto upper_exclusive = RandomAdapter::get_random_double<double>(0.0001, 1000.0, mt) + lower_inclusive;
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    std::vector<double> random_numbers(iterations);
+        return;
+    }
+
+    const auto lower_inclusive = RandomFactory::get_random_double<double>(0.0, 1000.0, mt);
+    const auto upper_exclusive = RandomFactory::get_random_double<double>(0.0001, 1000.0, mt) + lower_inclusive;
+
+    auto random_numbers = std::vector<double>(iterations);
     RandomHolder::fill(RandomHolderKey::Partition, random_numbers, lower_inclusive, upper_exclusive);
 
-    for (auto i = 0; i < iterations; i++) {
+    for (auto i = 0U; i < iterations; i++) {
         const auto random_number = random_numbers[i];
         ASSERT_LE(lower_inclusive, random_number);
         ASSERT_LT(random_number, upper_exclusive);
@@ -201,31 +322,55 @@ TEST_F(RandomTest, testFillRange) {
 }
 
 TEST_F(RandomTest, testFillMinimumRange) {
-    const auto lower_inclusive = RandomAdapter::get_random_double<double>(0.0, 1000.0, mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto lower_inclusive = RandomFactory::get_random_double<double>(0.0, 1000.0, mt);
     const auto upper_exclusive = std::nextafter(lower_inclusive, lower_inclusive * 2.0);
 
-    std::vector<double> random_numbers(iterations);
+    auto random_numbers = std::vector<double>(iterations);
     RandomHolder::fill(RandomHolderKey::Partition, random_numbers, lower_inclusive, upper_exclusive);
 
-    for (auto i = 0; i < iterations; i++) {
+    for (auto i = 0U; i < iterations; i++) {
         const auto random_number = random_numbers[i];
         ASSERT_EQ(lower_inclusive, random_number);
     }
 }
 
 TEST_F(RandomTest, testFillException) {
-    const auto lower_inclusive = RandomAdapter::get_random_double<double>(1000.0001, 2000.0, mt);
-    const auto upper_exclusive = RandomAdapter::get_random_double<double>(0.0, 1000.0, mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    std::vector<double> random_numbers(iterations);
-    ASSERT_THROW(RandomHolder::fill(RandomHolderKey::Partition, random_numbers, lower_inclusive, upper_exclusive);, RelearnException);
+        return;
+    }
+
+    const auto lower_inclusive = RandomFactory::get_random_double<double>(1000.0001, 2000.0, mt);
+    const auto upper_exclusive = RandomFactory::get_random_double<double>(0.0, 1000.0, mt);
+
+    auto random_numbers = std::vector<double>(iterations);
+    ASSERT_THROW_NO_PRINT(RandomHolder::fill(RandomHolderKey::Partition, random_numbers, lower_inclusive, upper_exclusive);, RelearnException);
 }
 
 TEST_F(RandomTest, testShuffle) {
-    const auto lower_inclusive = RandomAdapter::get_random_double<double>(0.0, 1000.0, mt);
-    const auto upper_exclusive = RandomAdapter::get_random_double<double>(0.1, 1000.0, mt) + lower_inclusive;
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    std::vector<double> random_numbers(iterations);
+        return;
+    }
+
+    const auto lower_inclusive = RandomFactory::get_random_double<double>(0.0, 1000.0, mt);
+    const auto upper_exclusive = RandomFactory::get_random_double<double>(0.1, 1000.0, mt) + lower_inclusive;
+
+    auto random_numbers = std::vector<double>(iterations);
     RandomHolder::fill(RandomHolderKey::Partition, random_numbers, lower_inclusive, upper_exclusive);
     std::ranges::sort(random_numbers);
 

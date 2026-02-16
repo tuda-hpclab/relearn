@@ -10,10 +10,11 @@
 
 #include "RelearnException.h"
 
-#include "mpi/MPIWrapper.h"
+#include "mpi-wrapper/MPIInfo.h"
 
 #include <spdlog/spdlog.h>
 
+#include <cstdio>
 #include <iostream>
 
 [[nodiscard]] const char* RelearnException::what() const noexcept {
@@ -21,8 +22,8 @@
 }
 
 void RelearnException::log_message(const std::string& message) {
-    const auto my_rank = MPIWrapper::get_my_rank();
-    const auto num_ranks = MPIWrapper::get_num_ranks();
+    const auto my_rank = mpiPP::MPIInfo::get_my_rank();
+    const auto num_ranks = mpiPP::MPIInfo::get_number_ranks();
 
     std::cerr << message << std::flush;
     fflush(stderr);

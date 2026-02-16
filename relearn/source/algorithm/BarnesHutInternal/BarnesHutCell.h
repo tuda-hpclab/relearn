@@ -10,7 +10,7 @@
  *
  */
 
-#include "structure/BaseCell.h"
+#include "algorithm/Internal/octree/BaseCell.h"
 
 // For the BH algorithm, we need the dendrites
 using BarnesHutCell = BaseCell<true, true, false, false>;

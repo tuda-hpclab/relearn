@@ -25,14 +25,14 @@ class Synapse {
 public:
     /**
      * @brief Constructs a new synapse with the given parameter
-     * @param target The target of the synapse
-     * @param source The source of the synapse
-     * @param weight The weight of the synapse
+     * @param _target The target of the synapse
+     * @param _source The source of the synapse
+     * @param _weight The weight of the synapse
      */
-    Synapse(const Target target, const Source source, const Weight weight)
-        : target(target)
-        , source(source)
-        , weight(weight) { }
+    Synapse(const Target _target, const Source _source, const Weight _weight)
+        : target(_target)
+        , source(_source)
+        , weight(_weight) { }
 
     /**
      * @brief Returns the target of the synapse
@@ -77,7 +77,7 @@ public:
     }
 
     template <std::size_t Index>
-    [[nodiscard]] auto const& get() const& {
+    [[nodiscard]] const auto& get() const& {
         if constexpr (Index == 0) {
             return target;
         }

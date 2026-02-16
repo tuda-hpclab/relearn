@@ -12,11 +12,25 @@
 
 #include "io/Event.h"
 
+#include "mpi-wrapper/MPIInfo.h"
+#include "mpi-wrapper/MPIRank.h"
+
+#include <gtest/gtest.h>
+
+#include <iostream>
 #include <sstream>
 
 TEST_F(EventTest, testEventPhasePrint) {
-    auto test = [](const EventPhase ep, const char expected) {
-        std::stringstream ss{};
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto test = [](const EventPhase ep, const char expected) {
+        auto ss = std::stringstream{};
         ss << ep;
 
         const auto str = ss.str();
@@ -48,8 +62,16 @@ TEST_F(EventTest, testEventPhasePrint) {
 }
 
 TEST_F(EventTest, testInstantEventScopePrint) {
-    auto test = [](const InstantEventScope es, const char expected) {
-        std::stringstream ss{};
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto test = [](const InstantEventScope es, const char expected) {
+        auto ss = std::stringstream{};
         ss << es;
 
         const auto str = ss.str();
@@ -64,11 +86,19 @@ TEST_F(EventTest, testInstantEventScopePrint) {
 }
 
 TEST_F(EventTest, testDurationBeginPrint) {
-    constexpr static auto expected_output = "{\"name\": \"this-name-123\", \"ph\": \"B\", \"pid\": 65, \"tid\": 135, \"ts\": 1236.05}";
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr static auto expected_output = R"({"name": "this-name-123", "ph": "B", "pid": 65, "tid": 135, "ts": 1236.05})";
 
     const auto event_trace = Event::create_duration_begin_event("this-name-123", {}, 1236.05, 65, 135, {});
 
-    std::stringstream ss{};
+    auto ss = std::stringstream{};
     ss << event_trace;
 
     const auto str = ss.str();
@@ -77,11 +107,19 @@ TEST_F(EventTest, testDurationBeginPrint) {
 }
 
 TEST_F(EventTest, testDurationBeginArgumentsPrint) {
-    constexpr static auto expected_output = "{\"name\": \"this-name-123\", \"ph\": \"B\", \"pid\": 65, \"tid\": 135, \"ts\": 1236.05, \"args\": {\"arg1\": val1, \"arg3\": val3}}";
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr static auto expected_output = R"({"name": "this-name-123", "ph": "B", "pid": 65, "tid": 135, "ts": 1236.05, "args": {"arg1": val1, "arg3": val3}})";
 
     const auto event_trace = Event::create_duration_begin_event("this-name-123", {}, 1236.05, 65, 135, { { "arg1", "val1" }, { "arg3", "val3" } });
 
-    std::stringstream ss{};
+    auto ss = std::stringstream{};
     ss << event_trace;
 
     const auto str = ss.str();
@@ -90,11 +128,19 @@ TEST_F(EventTest, testDurationBeginArgumentsPrint) {
 }
 
 TEST_F(EventTest, testDurationBeginCategoriesPrint) {
-    constexpr static auto expected_output = "{\"name\": \"this-name-123\", \"ph\": \"B\", \"pid\": 65, \"tid\": 135, \"ts\": 1236.05, \"cat\": \"async,sync\"}";
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr static auto expected_output = R"({"name": "this-name-123", "ph": "B", "pid": 65, "tid": 135, "ts": 1236.05, "cat": "async, sync"})";
 
     const auto event_trace = Event::create_duration_begin_event("this-name-123", { EventCategory::async, EventCategory::sync }, 1236.05, 65, 135, {});
 
-    std::stringstream ss{};
+    auto ss = std::stringstream{};
     ss << event_trace;
 
     const auto str = ss.str();
@@ -103,11 +149,19 @@ TEST_F(EventTest, testDurationBeginCategoriesPrint) {
 }
 
 TEST_F(EventTest, testDurationBeginCategoriesArgumentsPrint) {
-    constexpr static auto expected_output = "{\"name\": \"this-name-123\", \"ph\": \"B\", \"pid\": 65, \"tid\": 135, \"ts\": 1236.05, \"cat\": \"async,sync\", \"args\": {\"arg1\": val1, \"arg3\": val3}}";
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr static auto expected_output = R"({"name": "this-name-123", "ph": "B", "pid": 65, "tid": 135, "ts": 1236.05, "cat": "async, sync", "args": {"arg1": val1, "arg3": val3}})";
 
     const auto event_trace = Event::create_duration_begin_event("this-name-123", { EventCategory::sync, EventCategory::async }, 1236.05, 65, 135, { { "arg1", "val1" }, { "arg3", "val3" } });
 
-    std::stringstream ss{};
+    auto ss = std::stringstream{};
     ss << event_trace;
 
     const auto str = ss.str();
@@ -116,11 +170,19 @@ TEST_F(EventTest, testDurationBeginCategoriesArgumentsPrint) {
 }
 
 TEST_F(EventTest, testDurationEndPrint) {
-    constexpr static auto expected_output = "{\"ph\": \"E\", \"pid\": 159, \"tid\": 951, \"ts\": 65423365}";
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr static auto expected_output = R"({"ph": "E", "pid": 159, "tid": 951, "ts": 65423365})";
 
     const auto event_trace = Event::create_duration_end_event(65423365.0, 159, 951);
 
-    std::stringstream ss{};
+    auto ss = std::stringstream{};
     ss << event_trace;
 
     const auto str = ss.str();
@@ -129,11 +191,19 @@ TEST_F(EventTest, testDurationEndPrint) {
 }
 
 TEST_F(EventTest, testCounterPrint) {
-    constexpr static auto expected_output = "{\"name\": \"that-name-123\", \"ph\": \"C\", \"pid\": 12, \"tid\": 0, \"ts\": 165}";
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr static auto expected_output = R"({"name": "that-name-123", "ph": "C", "pid": 12, "tid": 0, "ts": 165})";
 
     const auto event_trace = Event::create_counter_event("that-name-123", {}, 165, 12, 0, {});
 
-    std::stringstream ss{};
+    auto ss = std::stringstream{};
     ss << event_trace;
 
     const auto str = ss.str();
@@ -142,11 +212,19 @@ TEST_F(EventTest, testCounterPrint) {
 }
 
 TEST_F(EventTest, testCounterCategoriesPrint) {
-    constexpr static auto expected_output = "{\"name\": \"that-name-123\", \"ph\": \"C\", \"pid\": 12, \"tid\": 0, \"ts\": 165, \"cat\": \"mpi\"}";
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr static auto expected_output = R"({"name": "that-name-123", "ph": "C", "pid": 12, "tid": 0, "ts": 165, "cat": "mpi"})";
 
     const auto event_trace = Event::create_counter_event("that-name-123", { EventCategory::mpi }, 165, 12, 0, {});
 
-    std::stringstream ss{};
+    auto ss = std::stringstream{};
     ss << event_trace;
 
     const auto str = ss.str();
@@ -155,11 +233,19 @@ TEST_F(EventTest, testCounterCategoriesPrint) {
 }
 
 TEST_F(EventTest, testCounterArgumentsPrint) {
-    constexpr static auto expected_output = "{\"name\": \"that-name-123\", \"ph\": \"C\", \"pid\": 12, \"tid\": 0, \"ts\": 165, \"args\": {\"arg1\": val1, \"arg3\": val3}}";
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr static auto expected_output = R"({"name": "that-name-123", "ph": "C", "pid": 12, "tid": 0, "ts": 165, "args": {"arg1": val1, "arg3": val3}})";
 
     const auto event_trace = Event::create_counter_event("that-name-123", {}, 165, 12, 0, { { "arg1", "val1" }, { "arg3", "val3" } });
 
-    std::stringstream ss{};
+    auto ss = std::stringstream{};
     ss << event_trace;
 
     const auto str = ss.str();
@@ -168,11 +254,19 @@ TEST_F(EventTest, testCounterArgumentsPrint) {
 }
 
 TEST_F(EventTest, testCounterCategoriesArgumentsPrint) {
-    constexpr static auto expected_output = "{\"name\": \"that-name-123\", \"ph\": \"C\", \"pid\": 12, \"tid\": 0, \"ts\": 165, \"cat\": \"async,calculation,mpi\", \"args\": {\"arg1\": val1, \"arg3\": val3}}";
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr static auto expected_output = R"({"name": "that-name-123", "ph": "C", "pid": 12, "tid": 0, "ts": 165, "cat": "async, calculation, mpi", "args": {"arg1": val1, "arg3": val3}})";
 
     const auto event_trace = Event::create_counter_event("that-name-123", { EventCategory::async, EventCategory::calculation, EventCategory::mpi }, 165, 12, 0, { { "arg1", "val1" }, { "arg3", "val3" } });
 
-    std::stringstream ss{};
+    auto ss = std::stringstream{};
     ss << event_trace;
 
     const auto str = ss.str();
@@ -181,11 +275,19 @@ TEST_F(EventTest, testCounterCategoriesArgumentsPrint) {
 }
 
 TEST_F(EventTest, testInstantGlobalPrint) {
-    constexpr static auto expected_output = "{\"name\": \"instant-753-name\", \"ph\": \"i\", \"pid\": 111, \"tid\": 56654, \"ts\": 999, \"s\": \"g\"}";
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr static auto expected_output = R"({"name": "instant-753-name", "ph": "i", "pid": 111, "tid": 56654, "ts": 999, "s": "g"})";
 
     const auto event_trace = Event::create_instant_event("instant-753-name", {}, InstantEventScope::Global, 999, 111, 56654, {});
 
-    std::stringstream ss{};
+    auto ss = std::stringstream{};
     ss << event_trace;
 
     const auto str = ss.str();
@@ -194,11 +296,19 @@ TEST_F(EventTest, testInstantGlobalPrint) {
 }
 
 TEST_F(EventTest, testInstantProcessPrint) {
-    constexpr static auto expected_output = "{\"name\": \"instant-7532-name\", \"ph\": \"i\", \"pid\": 1112, \"tid\": 562654, \"ts\": 9992, \"s\": \"p\"}";
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr static auto expected_output = R"({"name": "instant-7532-name", "ph": "i", "pid": 1112, "tid": 562654, "ts": 9992, "s": "p"})";
 
     const auto event_trace = Event::create_instant_event("instant-7532-name", {}, InstantEventScope::Process, 9992, 1112, 562654, {});
 
-    std::stringstream ss{};
+    auto ss = std::stringstream{};
     ss << event_trace;
 
     const auto str = ss.str();
@@ -207,11 +317,19 @@ TEST_F(EventTest, testInstantProcessPrint) {
 }
 
 TEST_F(EventTest, testInstantThreadPrint) {
-    constexpr static auto expected_output = "{\"name\": \"instant-7853-name\", \"ph\": \"i\", \"pid\": 8111, \"tid\": 856654, \"ts\": 8999, \"s\": \"t\"}";
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr static auto expected_output = R"({"name": "instant-7853-name", "ph": "i", "pid": 8111, "tid": 856654, "ts": 8999, "s": "t"})";
 
     const auto event_trace = Event::create_instant_event("instant-7853-name", {}, InstantEventScope::Thread, 8999, 8111, 856654, {});
 
-    std::stringstream ss{};
+    auto ss = std::stringstream{};
     ss << event_trace;
 
     const auto str = ss.str();
@@ -220,11 +338,19 @@ TEST_F(EventTest, testInstantThreadPrint) {
 }
 
 TEST_F(EventTest, testInstantGlobalArgumentsPrint) {
-    constexpr static auto expected_output = "{\"name\": \"instant-753-name\", \"ph\": \"i\", \"pid\": 111, \"tid\": 56654, \"ts\": 999, \"s\": \"g\", \"args\": {\"arg1\": val1, \"arg3\": val3}}";
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr static auto expected_output = R"({"name": "instant-753-name", "ph": "i", "pid": 111, "tid": 56654, "ts": 999, "s": "g", "args": {"arg1": val1, "arg3": val3}})";
 
     const auto event_trace = Event::create_instant_event("instant-753-name", {}, InstantEventScope::Global, 999, 111, 56654, { { "arg1", "val1" }, { "arg3", "val3" } });
 
-    std::stringstream ss{};
+    auto ss = std::stringstream{};
     ss << event_trace;
 
     const auto str = ss.str();
@@ -233,11 +359,19 @@ TEST_F(EventTest, testInstantGlobalArgumentsPrint) {
 }
 
 TEST_F(EventTest, testInstantProcessArgumentsPrint) {
-    constexpr static auto expected_output = "{\"name\": \"instant-7532-name\", \"ph\": \"i\", \"pid\": 1112, \"tid\": 562654, \"ts\": 9992, \"s\": \"p\", \"args\": {\"arg1\": val1, \"arg3\": val3}}";
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr static auto expected_output = R"({"name": "instant-7532-name", "ph": "i", "pid": 1112, "tid": 562654, "ts": 9992, "s": "p", "args": {"arg1": val1, "arg3": val3}})";
 
     const auto event_trace = Event::create_instant_event("instant-7532-name", {}, InstantEventScope::Process, 9992, 1112, 562654, { { "arg1", "val1" }, { "arg3", "val3" } });
 
-    std::stringstream ss{};
+    auto ss = std::stringstream{};
     ss << event_trace;
 
     const auto str = ss.str();
@@ -246,11 +380,19 @@ TEST_F(EventTest, testInstantProcessArgumentsPrint) {
 }
 
 TEST_F(EventTest, testInstantThreadArgumentsPrint) {
-    constexpr static auto expected_output = "{\"name\": \"instant-7853-name\", \"ph\": \"i\", \"pid\": 8111, \"tid\": 856654, \"ts\": 8999, \"s\": \"t\", \"args\": {\"arg1\": val1, \"arg3\": val3}}";
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr static auto expected_output = R"({"name": "instant-7853-name", "ph": "i", "pid": 8111, "tid": 856654, "ts": 8999, "s": "t", "args": {"arg1": val1, "arg3": val3}})";
 
     const auto event_trace = Event::create_instant_event("instant-7853-name", {}, InstantEventScope::Thread, 8999, 8111, 856654, { { "arg1", "val1" }, { "arg3", "val3" } });
 
-    std::stringstream ss{};
+    auto ss = std::stringstream{};
     ss << event_trace;
 
     const auto str = ss.str();
@@ -259,11 +401,19 @@ TEST_F(EventTest, testInstantThreadArgumentsPrint) {
 }
 
 TEST_F(EventTest, testCompletionPrint) {
-    constexpr static auto expected_output = "{\"name\": \"9119-completion-name\", \"ph\": \"X\", \"pid\": 333, \"tid\": 555, \"ts\": 777.777, \"dur\": 963.369}";
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr static auto expected_output = R"({"name": "9119-completion-name", "ph": "X", "pid": 333, "tid": 555, "ts": 777.777, "dur": 963.369})";
 
     const auto event_trace = Event::create_complete_event("9119-completion-name", {}, 963.369, 777.777, 333, 555, {});
 
-    std::stringstream ss{};
+    auto ss = std::stringstream{};
     ss << event_trace;
 
     const auto str = ss.str();
@@ -272,11 +422,19 @@ TEST_F(EventTest, testCompletionPrint) {
 }
 
 TEST_F(EventTest, testCompletionArgumentsPrint) {
-    constexpr static auto expected_output = "{\"name\": \"9119-completion-name\", \"ph\": \"X\", \"pid\": 3333, \"tid\": 5555, \"ts\": 7777.7777, \"dur\": 9630.0369, \"args\": {\"arg1\": val1, \"arg3\": val3}}";
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr static auto expected_output = R"({"name": "9119-completion-name", "ph": "X", "pid": 3333, "tid": 5555, "ts": 7777.7777, "dur": 9630.0369, "args": {"arg1": val1, "arg3": val3}})";
 
     const auto event_trace = Event::create_complete_event("9119-completion-name", {}, 9630.0369, 7777.7777, 3333, 5555, { { "arg1", "val1" }, { "arg3", "val3" } });
 
-    std::stringstream ss{};
+    auto ss = std::stringstream{};
     ss << event_trace;
 
     const auto str = ss.str();

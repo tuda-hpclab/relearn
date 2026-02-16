@@ -10,62 +10,64 @@
 
 #include "CalciumIO.h"
 
+#include "io/parser/MonitorParser.h"
+#include "neurons/LocalGroupTranslator.h"
+#include "util/NeuronID.h"
 #include "util/RelearnException.h"
+#include "util/SetUtil.h"
 
-#include "spdlog/spdlog.h"
+#include "mpi-wrapper/MPIRank.h"
 
+#include <spdlog/spdlog.h>
+
+#include <filesystem>
 #include <fstream>
+#include <memory>
 #include <optional>
 #include <sstream>
+#include <string>
 #include <unordered_map>
+#include <unordered_set>
+#include <utility>
 
-CalciumIO::initial_value_calculator CalciumIO::load_initial_function(const std::filesystem::path& path_to_file) {
-    const auto& [initial_calculator, _] = load_initial_and_target_function(path_to_file);
-    return initial_calculator;
-}
+std::pair<CalciumIO::initial_value_calculator, CalciumIO::target_value_calculator> CalciumIO::load_initial_and_target_function(const std::filesystem::path& path_to_file, const std::shared_ptr<const LocalGroupTranslator>& local_group_translator, const mpiPP::MPIRank my_rank) {
+    auto file = std::ifstream{ path_to_file };
 
-CalciumIO::target_value_calculator CalciumIO::load_target_function(const std::filesystem::path& path_to_file) {
-    const auto& [_, target_calculator] = load_initial_and_target_function(path_to_file);
-    return target_calculator;
-}
+    const auto file_is_good = file.good();
+    const auto file_is_not_good = file.fail() || file.eof();
 
-std::pair<CalciumIO::initial_value_calculator, CalciumIO::target_value_calculator>
-CalciumIO::load_initial_and_target_function(const std::filesystem::path& path_to_file) {
-    std::ifstream file{ path_to_file };
+    RelearnException::check(file_is_good && !file_is_not_good, "InteractiveNeuronIO::load_enable_interrupts: Opening the file '{}' was not successful", path_to_file);
 
-    const bool file_is_good = file.good();
-    const bool file_is_not_good = file.fail() || file.eof();
+    auto default_initial_calcium = std::optional<double>{};
+    auto default_target_calcium = std::optional<double>{};
 
-    RelearnException::check(file_is_good && !file_is_not_good, "InteractiveNeuronIO::load_enable_interrupts: Opening the file was not successful");
+    auto id_to_initial = std::unordered_map<NeuronID::value_type, double>{};
+    auto id_to_target = std::unordered_map<NeuronID::value_type, double>{};
 
-    std::optional<double> default_initial_calcium{};
-    std::optional<double> default_target_calcium{};
+    auto already_seen_neuron_ids = std::unordered_set<NeuronID>{};
 
-    std::unordered_map<NeuronID::value_type, double> id_to_initial{};
-    std::unordered_map<NeuronID::value_type, double> id_to_target{};
-
-    for (std::string line{}; std::getline(file, line);) {
+    for (auto line = std::string{}; std::getline(file, line);) {
         // Skip line with comments
         if (!line.empty() && '#' == line[0]) {
             continue;
         }
 
-        std::stringstream sstream(line);
+        auto sstream = std::stringstream(line);
 
-        NeuronID::value_type neuron_id{};
-        double initial_calcium{};
-        double target_calcium{};
+        auto description = std::string{};
+        auto initial_calcium = double{};
+        auto target_calcium = double{};
 
-        bool success = (sstream >> neuron_id) && (sstream >> initial_calcium) && (sstream >> target_calcium);
+        const auto success = (sstream >> description) && (sstream >> initial_calcium) && (sstream >> target_calcium);
 
         if (!success) {
             spdlog::info("Skipping line: {}", line);
             continue;
         }
 
-        if (neuron_id == 0) {
+        if (description == "default") {
             RelearnException::check(!default_initial_calcium.has_value(),
-                "CalciumIO: {} had more than one default neuron (with id 0)", path_to_file.string());
+                                    "CalciumIO: {} had more than one default neuron (with id 0)", path_to_file.string());
 
             default_initial_calcium = initial_calcium;
             default_target_calcium = target_calcium;
@@ -73,19 +75,27 @@ CalciumIO::load_initial_and_target_function(const std::filesystem::path& path_to
             continue;
         }
 
-        // The IDs start at 0
-        neuron_id--;
+        const auto& parsed_ids = MonitorParser::parse_my_ids(description, my_rank, local_group_translator);
 
-        const auto& found_initial = id_to_initial.find(neuron_id) != id_to_initial.end();
-        const auto& found_target = id_to_target.find(neuron_id) != id_to_target.end();
+        const auto id_already_seen = SetUtil::containers_have_common_element(already_seen_neuron_ids, parsed_ids);
 
-        RelearnException::check(!found_initial, "CalciumIO: Found the neuron id {} twice", (neuron_id + 1));
+        RelearnException::check(!id_already_seen, "CalciumIO::load_initial_and_target_function: A neuron is not supposed to be assigned to multiple calcium value pairs. Each neuron should only get assigned to one!");
 
-        id_to_initial[neuron_id] = initial_calcium;
-        id_to_target[neuron_id] = target_calcium;
+        already_seen_neuron_ids.insert(parsed_ids.begin(), parsed_ids.end());
+
+        for (const auto& neuron_id : parsed_ids) {
+            const auto local_neuron_id = neuron_id.get_neuron_id();
+            const auto& found_initial = id_to_initial.find(local_neuron_id) != id_to_initial.end();
+            const auto& found_target = id_to_target.find(local_neuron_id) != id_to_target.end();
+
+            RelearnException::check(!found_initial && !found_target, "CalciumIO: Found the neuron id {} twice", (local_neuron_id + 1));
+
+            id_to_initial[local_neuron_id] = initial_calcium;
+            id_to_target[local_neuron_id] = target_calcium;
+        }
     }
 
-    auto initial_calculator = [lookup = std::move(id_to_initial), default_initial = default_initial_calcium]([[maybe_unused]] MPIRank mpi_rank, NeuronID::value_type neuron_id) {
+    auto initial_calculator = [lookup = std::move(id_to_initial), default_initial = default_initial_calcium]([[maybe_unused]] mpiPP::MPIRank mpi_rank, NeuronID::value_type neuron_id) {
         const auto& contains = lookup.find(neuron_id) != lookup.end();
         if (contains) {
             const double initial = lookup.at(neuron_id);
@@ -96,7 +106,7 @@ CalciumIO::load_initial_and_target_function(const std::filesystem::path& path_to
         return default_initial.value();
     };
 
-    auto target_calculator = [lookup = std::move(id_to_target), default_target = default_target_calcium]([[maybe_unused]] MPIRank mpi_rank, NeuronID::value_type neuron_id) {
+    auto target_calculator = [lookup = std::move(id_to_target), default_target = default_target_calcium]([[maybe_unused]] mpiPP::MPIRank mpi_rank, NeuronID::value_type neuron_id) {
         const auto& contains = lookup.find(neuron_id) != lookup.end();
         if (contains) {
             const double target = lookup.at(neuron_id);

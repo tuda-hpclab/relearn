@@ -13,7 +13,6 @@
 #include "Types.h"
 
 #include <memory>
-#include <optional>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -34,10 +33,10 @@ protected:
 public:
     /**
      * @brief Constructs a SynapseLoader with the given Partition
-     * @param partition The partition to use
+     * @param _partition The partition to use
      */
-    explicit SynapseLoader(std::shared_ptr<Partition> partition)
-        : partition(std::move(partition)) { }
+    explicit SynapseLoader(std::shared_ptr<Partition> _partition)
+        : partition(std::move(_partition)) { }
 
     virtual ~SynapseLoader() = default;
 

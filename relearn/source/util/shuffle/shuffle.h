@@ -64,15 +64,16 @@
 template <ranges::random_access_iterator RandomAccessIterator, ranges::sized_sentinel_for<RandomAccessIterator> Sentinel, typename UniformRandomNumberGenerator>
     requires ranges::permutable<RandomAccessIterator> && ranges::uniform_random_bit_generator<std::remove_cvref_t<UniformRandomNumberGenerator>>
 void shuffle(RandomAccessIterator first, Sentinel sentinel,
+    // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
     UniformRandomNumberGenerator&& gen) {
     using difference_type = ranges::iter_difference_t<RandomAccessIterator>;
     using distribution_type = boost::random::uniform_int_distribution<ptrdiff_t>;
     using distribution_param_type = typename distribution_type::param_type;
 
     if (difference_type distance = ranges::distance(first, sentinel); distance > 1) {
-        distribution_type uid;
+        const distribution_type uid;
         for (--sentinel, --distance; first < sentinel; ++first, --distance) { // NOLINT(hicpp-use-nullptr,modernize-use-nullptr)
-            if (difference_type random_val = uid(gen, distribution_param_type(0, distance));
+            if (const difference_type random_val = uid(gen, distribution_param_type(0, distance));
                 random_val != difference_type(0)) {
                 ranges::iter_swap(first, first + random_val);
             }
@@ -106,16 +107,16 @@ namespace detail {
 
         template <ranges::random_access_range Range, typename UniformRandomNumberGenerator>
             requires ranges::permutable<ranges::iterator_t<Range>> && ranges::uniform_random_bit_generator<std::remove_cvref_t<UniformRandomNumberGenerator>>
-        [[nodiscard]] constexpr auto operator()(Range&& range, UniformRandomNumberGenerator&& gen) const {
+        [[nodiscard]] constexpr auto operator()(Range&& range, UniformRandomNumberGenerator&& gen) const -> decltype(auto) {
             shuffle(range, std::forward<UniformRandomNumberGenerator>(gen));
-            return static_cast<Range&&>(range);
+            return std::forward<Range>(range);
         }
 
         template <ranges::random_access_range Range, typename UniformRandomNumberGenerator>
             requires ranges::permutable<ranges::iterator_t<Range>> && ranges::uniform_random_bit_generator<std::remove_cvref_t<UniformRandomNumberGenerator>>
-        [[nodiscard]] constexpr auto operator()(Range&& range, ranges::detail::reference_wrapper_<UniformRandomNumberGenerator> gen) const {
+        [[nodiscard]] constexpr auto operator()(Range&& range, ranges::detail::reference_wrapper_<UniformRandomNumberGenerator> gen) const -> decltype(auto) {
             shuffle(range, gen.get());
-            return static_cast<Range&&>(range);
+            return std::forward<Range>(range);
         }
     };
 } // namespace detail

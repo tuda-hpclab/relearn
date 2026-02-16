@@ -12,86 +12,79 @@
 
 #include "Config.h"
 #include "Types.h"
+#include "Types3.h"
+
 #include "algorithm/Algorithm.h"
-#include "models/NeuronModels.h"
-#include "models/SynapticElements.h"
-#include "mpi/CommunicationMap.h"
-#include "neurons/CalciumCalculator.h"
-#include "neurons/enums/ElementType.h"
+#include "algorithm/Kernel/KernelBase.h"
+#include "models/NeuronModel.h"
 #include "neurons/NetworkGraph.h"
 #include "neurons/NeuronsExtraInfo.h"
-#include "neurons/enums/SignalType.h"
+#include "neurons/calcium/CalciumCalculator.h"
+#include "neurons/enums/SynapticElementType.h"
 #include "neurons/enums/UpdateStatus.h"
 #include "neurons/helper/SynapseCreationRequests.h"
 #include "neurons/helper/SynapseDeletionFinder.h"
 #include "neurons/helper/SynapseDeletionRequests.h"
-#include "util/MPIRank.h"
+#include "synaptic_elements/SynapticElements.h"
+#include "util/RelearnAllocator.h"
 #include "util/RelearnException.h"
 #include "util/StatisticalMeasures.h"
-#include "util/ranges/Functional.hpp"
 
-#include <memory>
-#include <span>
-#include <string>
-#include <tuple>
-#include <vector>
+#include "cpp-utility/ranges/Functional.hpp"
+
+#include "mpi-wrapper/MPIRank.h"
 
 #include <range/v3/functional/arithmetic.hpp>
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/transform.hpp>
 
-class AreaMonitor;
+#include <memory>
+#include <span>
+#include <string>
+#include <tuple>
+#include <utility>
+#include <vector>
+
+class GroupMonitor;
 class Essentials;
-class LocalAreaTranslator;
+class LocalGroupTranslator;
 class NetworkGraph;
 class NeuronMonitor;
-class Octree;
 class Partition;
 
 /**
  * This class gathers all information for the neurons and provides the primary interface for the simulation
  */
 class Neurons {
-    friend class NeuronMonitor;
-    friend class AreaMonitor;
+    friend class GroupMonitor;
 
 public:
     using step_type = RelearnTypes::step_type;
     using number_neurons_type = RelearnTypes::number_neurons_type;
 
-    using Axons = SynapticElements;
-    using DendritesExcitatory = SynapticElements;
-    using DendritesInhibitory = SynapticElements;
-
     /**
      * @brief Creates a new object with the passed Partition, NeuronModel, Axons, DendritesExc, and DendritesInh
-     * @param partition The partition, is only used for printing, must not be empty
+     * @param part The partition, is only used for printing, must not be empty
      * @param model_ptr The electrical model for the neurons, must not be empty
      * @param calculator_ptr The calcium calculator, must not be empty
-     * @param network The network graph for the connections, must not be empty
-     * @param axons_ptr The model for the axons, must not be empty
-     * @param dendrites_ex_ptr The model for the excitatory dendrites, must not be empty
-     * @param dendrites_in_ptr The model for the inhibitory dendrites, must not be empty
+     * @param network_graph_ptr The network graph for the connections, must not be empty
      * @exception Throws a RelearnException if any of the pointers is empty
      */
-    Neurons(std::shared_ptr<Partition> partition,
-        std::unique_ptr<NeuronModel> model_ptr,
-        std::unique_ptr<CalciumCalculator> calculator_ptr,
-        std::shared_ptr<NetworkGraph> network_graph,
-        std::shared_ptr<Axons> axons_ptr,
-        std::shared_ptr<DendritesExcitatory> dendrites_ex_ptr,
-        std::shared_ptr<DendritesInhibitory> dendrites_in_ptr,
-        std::unique_ptr<SynapseDeletionFinder> synapse_del_ptr)
-        : partition(std::move(partition))
+    Neurons(std::shared_ptr<Partition> part,
+            std::unique_ptr<NeuronModel> model_ptr,
+            std::unique_ptr<CalciumCalculator> calculator_ptr,
+            std::shared_ptr<NetworkGraph> network_graph_ptr,
+            std::shared_ptr<SynapticElements> synaptic_elements_ptr,
+            std::unique_ptr<SynapseDeletionFinder> synapse_del_ptr)
+        : partition(std::move(part))
         , neuron_model(std::move(model_ptr))
         , calcium_calculator(std::move(calculator_ptr))
-        , network_graph(std::move(network_graph))
-        , axons(std::move(axons_ptr))
-        , dendrites_exc(std::move(dendrites_ex_ptr))
-        , dendrites_inh(std::move(dendrites_in_ptr))
-        , synapse_deletion_finder(std::move(synapse_del_ptr)) {
+        , network_graph(std::move(network_graph_ptr))
+        , synaptic_elements(std::move(synaptic_elements_ptr))
+        , synapse_deletion_finder(std::move(synapse_del_ptr))
+        , extra_info(std::make_shared<NeuronsExtraInfo>()) {
 
-        const bool all_filled = this->partition && this->network_graph && neuron_model && calcium_calculator && axons && dendrites_exc && dendrites_inh && synapse_deletion_finder;
+        const bool all_filled = this->partition && this->network_graph && neuron_model && calcium_calculator && synaptic_elements && synapse_deletion_finder;
         RelearnException::check(all_filled, "Neurons::Neurons: Neurons was constructed with some null arguments");
     }
 
@@ -104,18 +97,37 @@ public:
     Neurons& operator=(Neurons&& other) = default;
 
     /**
-     * @brief Initializes this class and all models with number_neurons, i.e.,
+     * @brief Initializes this class and all models with number_neurons_init, i.e.,
      *      (a) Initializes the electrical model
      *      (b) Initializes the extra infos
      *      (c) Initializes the synaptic models
      *      (d) Enables all neurons
      *      (e) Calculates if the neurons fired once to initialize the calcium values to beta or 0.0
-     * @param number_neurons The number of local neurons
-     * @param target_calcium_values The target calcium values for the local neurons
-     * @param initial_calcium_values The initial calcium values for the local neurons
+     * @param number_neurons_init The number of local neurons
+     * @param pos The positions of the neurons
      * @exception Throws a RelearnException if something unexpected happened
      */
-    void init(number_neurons_type number_neurons);
+    void init(number_neurons_type number_neurons_init, std::vector<NeuronsExtraInfo::position_type> pos);
+
+    /**
+     * @brief Creates creation_count many new neurons with default values
+     *      (a) Creates neurons in the electrical model
+     *      (b) Creates neurons in the extra infos
+     *      (c) Creates neurons in the synaptic models
+     *      (d) Enables all created neurons
+     *      (e) Calculates if the neurons fired once to initialize the calcium values to beta or 0.0
+     *      (f) Inserts the newly created neurons into the octree
+     * @param creation_count The number of newly created neurons
+     * @exception Throws a RelearnException if something unexpected happens
+     */
+    void create_neurons(number_neurons_type creation_count);
+
+    /**
+     * @brief Registers parameters for the neuron monitor.
+     *      Also calls this function recursively
+     * @param monitor The monitor that collects the data
+     */
+    void register_neuron_monitor(NeuronMonitor& monitor);
 
     /**
      * Returns the algorithm that calculates to which neuron a neuron connects during the plasticity update
@@ -123,14 +135,6 @@ public:
      */
     [[nodiscard]] const std::shared_ptr<Algorithm>& get_algorithm() const {
         return algorithm;
-    }
-
-    /**
-     * @brief Sets the octree in which the neurons are stored
-     * @param octree The octree
-     */
-    void set_octree(std::shared_ptr<Octree> octree) noexcept {
-        global_tree = std::move(octree);
     }
 
     /**
@@ -142,11 +146,19 @@ public:
     }
 
     /**
-     * @brief Sets the area translator that translates between the local area id on the current mpi rank and its area name
-     * @param local_area_translator the local area translator for this mpi rank
+     * @brief Sets the probability kernel that is used for the simulation
+     * @param kernel The kernel
      */
-    void set_local_area_translator(std::shared_ptr<LocalAreaTranslator> local_area_translator) {
-        this->local_area_translator = std::move(local_area_translator);
+    void set_probability_kernel(std::unique_ptr<KernelBase>&& kernel) noexcept {
+        probability_kernel = std::move(kernel);
+    }
+
+    /**
+     * @brief Sets the group translator that translates between the local group id on the current mpi rank and its group name
+     * @param new_local_group_translator The local group translator for this mpi rank
+     */
+    void set_local_group_translator(std::shared_ptr<LocalGroupTranslator> new_local_group_translator) {
+        this->local_group_translator = std::move(new_local_group_translator);
     }
 
     /**
@@ -158,36 +170,20 @@ public:
         extra_info->set_static_neurons(static_neurons);
 
         for (const auto neuron_id : static_neurons) {
-            const auto& [distant_out_edges, _1] = network_graph->get_distant_out_edges(neuron_id);
+            const auto id = neuron_id.get_neuron_id();
+
+            const auto& [distant_out_edges, _1] = network_graph->get_distant_out_edges(id);
             RelearnException::check(distant_out_edges.empty(), "Plastic connection from a static neuron is forbidden. {} (static)  -> ?", neuron_id);
 
-            const auto& [local_out_edges, _2] = network_graph->get_local_out_edges(neuron_id);
+            const auto& [local_out_edges, _2] = network_graph->get_local_out_edges(id);
             RelearnException::check(local_out_edges.empty(), "Plastic connection from a static neuron is forbidden. {} (static)  -> ?", neuron_id);
 
-            const auto& [distant_in_edges, _3] = network_graph->get_distant_in_edges(neuron_id);
+            const auto& [distant_in_edges, _3] = network_graph->get_distant_in_edges(id);
             RelearnException::check(distant_in_edges.empty(), "Plastic connection from a static neuron is forbidden. ? -> {} (static)", neuron_id);
 
-            const auto& [local_in_edges, _4] = network_graph->get_local_in_edges(neuron_id);
+            const auto& [local_in_edges, _4] = network_graph->get_local_in_edges(id);
             RelearnException::check(local_in_edges.empty(), "Plastic connection from a static neuron is forbidden. ? -> {} (static)", neuron_id);
         }
-    }
-
-    /**
-     * @brief Returns the model parameters for the specified synaptic elements
-     * @param element_type The element type
-     * @param signal_type The signal type, only relevant if element_type == dendrites
-     * @return The model parameters for the specified synaptic elements
-     */
-    [[nodiscard]] std::vector<ModelParameter> get_parameter(const ElementType element_type, const SignalType signal_type) {
-        if (element_type == ElementType::Axon) {
-            return axons->get_parameter();
-        }
-
-        if (signal_type == SignalType::Excitatory) {
-            return dendrites_exc->get_parameter();
-        }
-
-        return dendrites_inh->get_parameter();
     }
 
     /**
@@ -199,20 +195,11 @@ public:
     }
 
     /**
-     * @brief Sets the positions in the extra infos
-     * @param names The positions
-     * @exception Throws the same RelearnException as NeuronsExtraInfo::set_positions
+     * @brief Returns the group translate that translates between the local group id on the current mpi rank and its group name
+     * @return the local group translator
      */
-    void set_positions(std::vector<NeuronsExtraInfo::position_type> pos) {
-        extra_info->set_positions(std::move(pos));
-    }
-
-    /**
-     * @brief Returns the area translate that translates between the local area id on the current mpi rank and its area name
-     * @return the local area translator
-     */
-    [[nodiscard]] const std::shared_ptr<LocalAreaTranslator> get_local_area_translator() const {
-        return local_area_translator;
+    [[nodiscard]] const std::shared_ptr<LocalGroupTranslator>& get_local_group_translator() const {
+        return local_group_translator;
     }
 
     /**
@@ -231,6 +218,14 @@ public:
         return neuron_model;
     }
 
+    [[nodiscard]] const std::shared_ptr<SynapticElements>& get_synaptic_elements() const noexcept {
+        return synaptic_elements;
+    }
+
+    [[nodiscard]] const std::shared_ptr<NetworkGraph>& get_network_graph() const noexcept {
+        return network_graph;
+    }
+
     /**
      * @brief Returns the current calcium value of the neuron
      * @param neuron_id Local neuron id
@@ -242,11 +237,11 @@ public:
 
     /**
      * @brief Sets the signal types in the extra infos
-     * @param names The signal types
+     * @param signal_types The signal types
      * @exception Throws the same RelearnException as NeuronsExtraInfo::set_signal_types
      */
     void set_signal_types(std::vector<SignalType> signal_types) {
-        axons->set_signal_types(std::move(signal_types));
+        synaptic_elements->set_signal_types(std::move(signal_types));
     }
 
     /**
@@ -263,37 +258,10 @@ public:
     }
 
     /**
-     * @brief Returns a constant reference to the axon model
-     *      The reference is never invalidated
-     * @return A constant reference to the axon model
-     */
-    [[nodiscard]] const Axons& get_axons() const noexcept {
-        return *axons;
-    }
-
-    /**
-     * @brief Returns a constant reference to the excitatory dendrites model
-     *      The reference is never invalidated
-     * @return A constant reference to the excitatory dendrites model
-     */
-    [[nodiscard]] const DendritesExcitatory& get_dendrites_exc() const noexcept {
-        return *dendrites_exc;
-    }
-
-    /**
-     * @brief Returns a constant reference to the inhibitory dendrites model
-     *      The reference is never invalidated
-     * @return A constant reference to the inhibitory dendrites model
-     */
-    [[nodiscard]] const DendritesInhibitory& get_dendrites_inh() const noexcept {
-        return *dendrites_inh;
-    }
-
-    /**
      * @brief Returns the disable flags for the neurons
      * @return The disable flags
      */
-    [[nodiscard]] const std::span<const UpdateStatus> get_disable_flags() const noexcept {
+    [[nodiscard]] std::span<const UpdateStatus> get_disable_flags() const noexcept {
         return extra_info->get_disable_flags();
     }
 
@@ -307,18 +275,12 @@ public:
      * @brief Disables all neurons with specified ids
      *      If a neuron is already disabled, nothing happens for that one
      *      Otherwise, also deletes all synapses from the disabled neurons
-     *      Returns a CommunicationMap containing the mpi requests for deleting distant connections on other ranks to the disabled neurons on this rank.
+     *      Returns a RelearnTypes::comm_map_deletion containing the mpi requests for deleting distant connections on other ranks to the disabled neurons on this rank.
      * @param step The current simulation step
      * @exception Throws RelearnExceptions if something unexpected happens
-     * @return Tuple of
-     * (1) number_deleted_distant_out_axons
-     * (2) number_deleted_distant_in
-     * (3) number_deleted_in_edges_from_outside
-     * (4) number_deleted_out_edges_to_outside
-     * (5) number_deleted_out_edges_within
-     * (6) requests for deletions on other ranks
+     * @return Pair of number of local synapse deletion and requests for deletions on other ranks
      */
-    std::tuple<size_t, size_t, size_t, size_t, size_t, size_t, CommunicationMap<SynapseDeletionRequest>> disable_neurons(step_type step, std::span<const NeuronID> disabled_neurons, int num_ranks);
+    std::pair<std::size_t, RelearnTypes::comm_map_deletion<SynapseDeletionRequest>> disable_neurons(step_type step, std::span<const NeuronID> local_neuron_ids, int num_ranks);
 
     /**
      * @brief Enables all neurons with specified ids
@@ -327,33 +289,23 @@ public:
      */
     void enable_neurons(const std::span<const NeuronID> neuron_ids) {
         extra_info->set_enabled_neurons(neuron_ids);
+        neuron_model->enable_neurons(neuron_ids);
     }
-
-    /**
-     * @brief Creates creation_count many new neurons with default values
-     *      (a) Creates neurons in the electrical model
-     *      (b) Creates neurons in the extra infos
-     *      (c) Creates neurons in the synaptic models
-     *      (d) Enables all created neurons
-     *      (e) Calculates if the neurons fired once to initialize the calcium values to beta or 0.0
-     *      (f) Inserts the newly created neurons into the octree
-     * @param creation_count The number of newly created neurons
-     * @exception Throws a RelearnException if something unexpected happens
-     */
-    void create_neurons(number_neurons_type creation_count);
 
     /**
      * @brief Calls update_electrical_activity from the electrical model with the stored network graph,
      *      and updates the calcium values afterwards
+     * @param step The current update step
      * @exception Throws a RelearnException if something unexpected happens
      */
     void update_electrical_activity(step_type step);
 
     /**
      * @brief Updates the delta of the synaptic elements for (1) axons, (2) excitatory dendrites, (3) inhibitory dendrites
+     * @param step The current update step
      * @exception Throws a RelearnException if something unexpected happens
      */
-    void update_number_synaptic_elements_delta();
+    void update_number_synaptic_elements_delta(step_type step);
 
     /**
      * @brief Updates the plasticity by
@@ -370,7 +322,8 @@ public:
      * @brief Calculates the number vacant axons and dendrites (excitatory, inhibitory) and prints them to LogFiles::EventType::Sums
      *      Performs communication with MPI
      * @param step The current simulation step
-     * @param sum_synapses_deleted The number of deleted synapses (locally)
+     * @param sum_axon_deleted The number of delected axons
+     * @param sum_dendrites_deleted The number of deleted synapses (locally)
      * @param sum_synapses_created The number of created synapses (locally)
      */
     void print_sums_of_synapses_and_elements_to_log_file_on_rank_0(step_type step, std::uint64_t sum_axon_deleted, std::uint64_t sum_dendrites_deleted, std::uint64_t sum_synapses_created);
@@ -381,6 +334,13 @@ public:
      * @param step The current simulation step
      */
     void print_neurons_overview_to_log_file_on_rank_0(step_type step) const;
+
+    /**
+     * @brief Prints the steps when each neuron on the current rank fired since the last write to a file
+     * @param current_step The current step
+     * @param steps_since_last_print Steps since last print
+     */
+    void print_fire_steps_to_file(step_type current_step, step_type steps_since_last_print) const;
 
     /**
      * @brief Inserts the calcium statistics in the essentials
@@ -406,9 +366,22 @@ public:
     /**
      * @brief Prints the neuron positions to LogFiles::EventType::Positions
      */
-    void print_positions_to_log_file();
+    void print_positions_to_log_file() const;
 
-    void print_area_mapping_to_log_file();
+    /**
+     * @brief Prints the neuron groups to LogFiles::EventType::Groups (each group with associated neurons)
+     */
+    void print_groups_to_log_file() const;
+
+    /**
+     * @brief Writes the group mapping (names and number of neurons) to the file
+     */
+    void print_group_mapping_to_log_file() const;
+
+    /**
+     * @brief Writes the group name to file name mapping to the file
+     */
+    void print_groups_to_file_name_to_log_file() const;
 
     /**
      * @brief Prints some overview to LogFiles::EventType::Cout
@@ -421,24 +394,15 @@ public:
     void print_info_for_algorithm();
 
     /**
-     * @brief Prints the histogram of in edges for the local neurons at the current simulation step
-     * @param current_step The current simulation step
-     */
-    void print_local_network_histogram(step_type current_step);
-
-    /**
      * @brief Prints the calcium values for the local neurons at the current simulation step
      * @param current_step The current simulation step
      */
     void print_calcium_values_to_file(step_type current_step);
 
-    void print_fire_rate_to_file(step_type current_step);
-
     /**
-     * @brief Prints the synaptic inputs for the local neurons at the current simulation step
-     * @param current_step The current simulation step
+     * @brief Writes the fire rates (since the last reset) to the file
      */
-    void print_synaptic_inputs_to_file(step_type current_step);
+    void print_fire_rate_to_file(step_type current_step);
 
     /**
      * @brief Performs debug checks on the synaptic element models if Config::do_debug_checks
@@ -460,7 +424,7 @@ public:
      * @param signal_types Vector of SignalTypes. Neuron i has signal_type[i]
      * @throws RelearnException If signal_type does not match weight
      */
-    static void check_signal_types(const std::shared_ptr<NetworkGraph> network_graph, std::span<const SignalType> signal_types, MPIRank my_rank);
+    static void check_signal_types(const std::shared_ptr<NetworkGraph>& network_graph, std::span<const SignalType> signal_types, mpiPP::MPIRank my_rank);
 
     /**
      * Processes the requests of other mpi ranks to delete distant synapses on this rank to disabled remote neurons
@@ -468,16 +432,22 @@ public:
      * @param my_rank Current mpi rank
      * @return Number of deletions
      */
-    [[nodiscard]] size_t delete_disabled_distant_synapses(const CommunicationMap<SynapseDeletionRequest>& list, MPIRank my_rank);
+    [[nodiscard]] std::size_t delete_disabled_distant_synapses(const RelearnTypes::comm_map_deletion<SynapseDeletionRequest>& list, mpiPP::MPIRank my_rank);
+
+    /**
+     * @brief Records the memory footprint of the current object
+     * @param footprint Where to store the current footprint
+     */
+    void record_memory_footprint(const std::unique_ptr<utility::MemoryFootprint>& footprint);
 
 private:
-    [[nodiscard]] StatisticalMeasures global_statistics(std::span<const double> local_values, MPIRank root) const;
+    [[nodiscard]] StatisticalMeasures global_statistics(std::span<const double> local_values, mpiPP::MPIRank root) const;
 
     template <typename T>
-    [[nodiscard]] StatisticalMeasures global_statistics_integral(const std::span<const T> local_values, const MPIRank root) const {
+    [[nodiscard]] StatisticalMeasures global_statistics_integral(const std::span<const T> local_values, const mpiPP::MPIRank root) const {
         auto values = local_values
-            | ranges::views::transform(ranges::convert_to<double>{})
-            | ranges::to_vector;
+                      | ranges::views::transform(ranges::convert_to<double>{})
+                      | ranges::to_vector;
         return global_statistics(std::move(values), root);
     }
 
@@ -491,21 +461,18 @@ private:
 
     std::shared_ptr<Partition> partition{};
 
-    std::shared_ptr<LocalAreaTranslator> local_area_translator{};
-
-    std::shared_ptr<Octree> global_tree{};
-    std::shared_ptr<Algorithm> algorithm{};
-
-    std::shared_ptr<NetworkGraph> network_graph{};
-
     std::shared_ptr<NeuronModel> neuron_model{};
     std::unique_ptr<CalciumCalculator> calcium_calculator{};
 
-    std::shared_ptr<Axons> axons{};
-    std::shared_ptr<DendritesExcitatory> dendrites_exc{};
-    std::shared_ptr<DendritesInhibitory> dendrites_inh{};
+    std::shared_ptr<NetworkGraph> network_graph{};
 
+    std::shared_ptr<SynapticElements> synaptic_elements{};
     std::unique_ptr<SynapseDeletionFinder> synapse_deletion_finder{};
 
-    std::shared_ptr<NeuronsExtraInfo> extra_info{ std::make_shared<NeuronsExtraInfo>() };
+    std::shared_ptr<LocalGroupTranslator> local_group_translator;
+
+    std::shared_ptr<Algorithm> algorithm{};
+    std::unique_ptr<KernelBase> probability_kernel{};
+
+    std::shared_ptr<NeuronsExtraInfo> extra_info{};
 };

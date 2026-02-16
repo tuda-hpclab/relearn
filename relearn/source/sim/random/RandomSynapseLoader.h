@@ -23,10 +23,10 @@ public:
     /**
      * @brief Constructs a RandomSynapseLoader with the given Partition.
      *      Does not provide any synapses
-     * @param partition The partition to use
+     * @param _partition The partition to use
      */
-    explicit RandomSynapseLoader(std::shared_ptr<Partition> partition)
-        : SynapseLoader(std::move(partition)) { }
+    explicit RandomSynapseLoader(std::shared_ptr<Partition> _partition)
+        : SynapseLoader(std::move(_partition)) { }
 
 protected:
     synapses_pair_type internal_load_synapses() override {

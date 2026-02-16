@@ -1,10 +1,16 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.17)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 project(relearn)
+enable_language(CXX)
+
+include(CheckLanguage)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 
 include(cmake/StandardProjectSettings.cmake)
 include(cmake/PreventInSourceBuilds.cmake)
@@ -41,14 +47,13 @@ enable_doxygen()
 # allow for static analysis options
 include(cmake/StaticAnalyzers.cmake)
 
-include(cmake/VisualStudio.cmake)
-
 # utilities
 include(cmake/Utils.cmake)
 
 add_subdirectory(source)
 
 if(NOT ENABLE_SCOREP)
+  add_subdirectory(benchmark)
   add_subdirectory(harness)
   add_subdirectory(test)
 endif()

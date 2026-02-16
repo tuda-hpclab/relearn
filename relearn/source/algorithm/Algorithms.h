@@ -11,6 +11,11 @@
  */
 
 #include "Algorithm.h"
+
 #include "BarnesHutInternal/BarnesHut.h"
 #include "BarnesHutInternal/BarnesHutInverted.h"
+#include "BarnesHutInternal/BarnesHutLocationAware.h"
+#include "CombinedAlgorithmsInternal/CombinedAlgorithms.h"
+#include "FMMInternal/FastMultipoleMethod.h"
+#include "FMMInternal/FastMultipoleMethodInverted.h"
 #include "NaiveInternal/Naive.h"

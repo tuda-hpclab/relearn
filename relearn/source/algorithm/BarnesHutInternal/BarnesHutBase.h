@@ -12,16 +12,19 @@
 
 #include "Config.h"
 #include "Types.h"
+
+#include "algorithm/Internal/octree/NodeCache.h"
+#include "algorithm/Internal/octree/OctreeNode.h"
 #include "algorithm/Kernel/Kernel.h"
-#include "neurons/enums/ElementType.h"
-#include "neurons/enums/SignalType.h"
+#include "algorithm/Kernel/KernelBase.h"
+#include "neurons/enums/SynapticElementType.h"
 #include "neurons/helper/DistantNeuronRequests.h"
 #include "neurons/helper/SynapseCreationRequests.h"
-#include "structure/NodeCache.h"
-#include "structure/OctreeNode.h"
-#include "util/MPIRank.h"
 #include "util/RelearnException.h"
-#include "util/Stack.h"
+
+#include "cpp-utility/data-structure/Stack.hpp"
+
+#include "mpi-wrapper/MPIRank.h"
 
 #include <algorithm>
 #include <cmath>
@@ -36,8 +39,8 @@
 template <typename AdditionalCellAttributes>
 class BarnesHutBase {
 public:
-    using position_type = typename RelearnTypes::position_type;
-    using counter_type = typename RelearnTypes::counter_type;
+    using position_type = RelearnTypes::position_type;
+    using counter_type = RelearnTypes::counter_type;
 
     /**
      * This enum indicates for an OctreeNode what the acceptance status is
@@ -63,13 +66,13 @@ public:
      * @return The acceptance status for the node, i.e., if it must be discarded, can be accepted, or must be expanded.
      */
     [[nodiscard]] static AcceptanceStatus test_acceptance_criterion(const position_type& source_position, const OctreeNode<AdditionalCellAttributes>* target_node,
-        const ElementType element_type, const SignalType signal_type, const double acceptance_criterion) {
+                                                                    const ElementType element_type, const SignalType signal_type, const double acceptance_criterion) {
         RelearnException::check(acceptance_criterion > 0.0,
-            "BarnesHutBase::test_acceptance_criterion: The acceptance criterion was not positive: ({})", acceptance_criterion);
+                                "BarnesHutBase::test_acceptance_criterion: The acceptance criterion was not positive: ({})", acceptance_criterion);
         RelearnException::check(acceptance_criterion <= Constants::bh_max_theta,
-            "BarnesHutBase::test_acceptance_criterion: The acceptance criterion must not be larger than {}: ({})", Constants::bh_max_theta, acceptance_criterion);
+                                "BarnesHutBase::test_acceptance_criterion: The acceptance criterion must not be larger than {}: ({})", Constants::bh_max_theta, acceptance_criterion);
         RelearnException::check(target_node != nullptr,
-            "BarnesHutBase::test_acceptance_criterion: target_node was nullptr");
+                                "BarnesHutBase::test_acceptance_criterion: target_node was nullptr");
 
         const auto& cell = target_node->get_cell();
 
@@ -108,7 +111,8 @@ public:
 
     /**
      * @brief Searches all neurons that must be considered as targets starting at root.
-     *      Might perform MPI communication via NodeCache::download_children()
+     *      Might perform MPI communication via NodeCache::get_children()
+     * @param cache The cache that contains the children of the nodes
      * @param source_position The position of the source
      * @param root The start where the source searches for targets, not nullptr
      * @param element_type The element type that the source searches
@@ -118,14 +122,14 @@ public:
      * @exception Throws a RelearnException if the requirements on the acceptance criterion are not fulfilled or root is nullptr
      * @return The vector of all nodes from which the source can choose. Might be empty
      */
-    [[nodiscard]] static std::vector<OctreeNode<AdditionalCellAttributes>*> get_nodes_to_consider(const position_type& source_position, OctreeNode<AdditionalCellAttributes>* const root,
-        const ElementType element_type, const SignalType signal_type, const double acceptance_criterion, const bool accept_early_far_node = false) {
+    [[nodiscard]] static std::vector<OctreeNode<AdditionalCellAttributes>*> get_nodes_to_consider(const NodeCache<AdditionalCellAttributes>& cache, const position_type& source_position, OctreeNode<AdditionalCellAttributes>* const root,
+                                                                                                  const ElementType element_type, const SignalType signal_type, const double acceptance_criterion, const bool accept_early_far_node = false) {
         RelearnException::check(acceptance_criterion > 0.0,
-            "BarnesHutBase::get_nodes_to_consider: The acceptance criterion was not positive: ({})", acceptance_criterion);
+                                "BarnesHutBase::get_nodes_to_consider: The acceptance criterion was not positive: ({})", acceptance_criterion);
         RelearnException::check(acceptance_criterion <= Constants::bh_max_theta,
-            "BarnesHutBase::get_nodes_to_consider: The acceptance criterion must not be larger than {}: ({})", Constants::bh_max_theta, acceptance_criterion);
+                                "BarnesHutBase::get_nodes_to_consider: The acceptance criterion must not be larger than {}: ({})", Constants::bh_max_theta, acceptance_criterion);
         RelearnException::check(root != nullptr,
-            "BarnesHutBase::get_nodes_to_consider: root was nullptr");
+                                "BarnesHutBase::get_nodes_to_consider: root was nullptr");
 
         if (root->get_cell().get_number_elements_for(element_type, signal_type) == 0) {
             return {};
@@ -147,10 +151,10 @@ public:
             return {};
         }
 
-        Stack<OctreeNode<AdditionalCellAttributes>*> stack(Constants::number_prealloc_space);
+        auto stack = utility::Stack<OctreeNode<AdditionalCellAttributes>*>(Constants::number_prealloc_space);
 
-        const auto add_children = [&stack](OctreeNode<AdditionalCellAttributes>* node) {
-            const auto& children = NodeCache<AdditionalCellAttributes>::get_children(node);
+        const auto add_children = [&stack, &cache](OctreeNode<AdditionalCellAttributes>* node) {
+            const auto& children = cache.get_children(node);
 
             for (auto* it : children) {
                 if (it != nullptr) {
@@ -162,7 +166,7 @@ public:
         // The algorithm expects that root is not considered directly, rather its children
         add_children(root);
 
-        std::vector<OctreeNode<AdditionalCellAttributes>*> nodes_to_consider{};
+        auto nodes_to_consider = std::vector<OctreeNode<AdditionalCellAttributes>*>{};
         nodes_to_consider.reserve(Constants::number_prealloc_space);
 
         while (!stack.empty()) {
@@ -185,7 +189,7 @@ public:
                 continue;
             }
 
-            if (accept_early_far_node && !node->is_local()) {
+            if (accept_early_far_node && !node->is_actual_id()) {
                 nodes_to_consider.emplace_back(node);
                 continue;
             }
@@ -199,7 +203,9 @@ public:
 
     /**
      * @brief Returns an optional RankNeuronId that the algorithm determined for the given source neuron. No actual request is made.
-     *      Might perform MPI communication via NodeCache::download_children()
+     *      Might perform MPI communication via NodeCache::get_children()
+     * @param kernel The probability kernel
+     * @param cache The cache that contains the children of the nodes
      * @param source_neuron_id The source neuron's id
      * @param source_position The source neuron's position
      * @param root The starting position where to look, not nullptr
@@ -210,12 +216,12 @@ public:
      * @return If the algorithm didn't find a matching neuron, the return value is empty.
      *      If the algorithm found a matching neuron, its RankNeuronId is returned
      */
-    [[nodiscard]] static std::optional<RankNeuronId> find_target_neuron(const RankNeuronId& source_neuron_id, const position_type& source_position, OctreeNode<AdditionalCellAttributes>* const root,
-        const ElementType element_type, const SignalType signal_type, const double acceptance_criterion) {
+    [[nodiscard]] static std::optional<RankNeuronId> find_target_neuron(const KernelBase& kernel, const NodeCache<AdditionalCellAttributes>& cache, const RankNeuronId& source_neuron_id, const position_type& source_position, OctreeNode<AdditionalCellAttributes>* const root,
+                                                                        const ElementType element_type, const SignalType signal_type, const double acceptance_criterion) {
         RelearnException::check(acceptance_criterion > 0.0,
-            "BarnesHutBase::find_target_neuron: The acceptance criterion was not positive: ({})", acceptance_criterion);
+                                "BarnesHutBase::find_target_neuron: The acceptance criterion was not positive: ({})", acceptance_criterion);
         RelearnException::check(acceptance_criterion <= Constants::bh_max_theta,
-            "BarnesHutBase::find_target_neuron: The acceptance criterion must not be larger than {}: ({})", Constants::bh_max_theta, acceptance_criterion);
+                                "BarnesHutBase::find_target_neuron: The acceptance criterion must not be larger than {}: ({})", Constants::bh_max_theta, acceptance_criterion);
         RelearnException::check(root != nullptr, "BarnesHutBase::find_target_neuron: root was nullptr");
 
         if (root->contains(source_neuron_id)) {
@@ -227,9 +233,9 @@ public:
         }
 
         for (auto root_of_subtree = root; true;) {
-            const auto& possible_targets = get_nodes_to_consider(source_position, root_of_subtree, element_type, signal_type, acceptance_criterion);
+            const auto& possible_targets = get_nodes_to_consider(cache, source_position, root_of_subtree, element_type, signal_type, acceptance_criterion);
 
-            auto* node_selected = Kernel<AdditionalCellAttributes>::pick_target(source_neuron_id, source_position, possible_targets, element_type, signal_type);
+            auto* node_selected = Kernel<AdditionalCellAttributes>::pick_target(kernel, source_neuron_id, source_position, possible_targets, element_type, signal_type);
             if (node_selected == nullptr) {
                 return {};
             }
@@ -246,7 +252,9 @@ public:
 
     /**
      * @brief Finds target neurons for a specified source neuron. No actual request is made.
-     *      Might perform MPI communication via NodeCache::download_children()
+     *      Might perform MPI communication via NodeCache::get_children()
+     * @param kernel The probability kernel
+     * @param cache The cache that contains the children of the nodes
      * @param source_neuron_id The source neuron's id
      * @param source_position The source neuron's position
      * @param number_vacant_elements The source neuron's number of vacant elements
@@ -257,27 +265,27 @@ public:
      * @exception Throws a RelearnException if the requirements on the acceptance criterion are not fulfilled or root is nullptr
      * @return A vector of pairs with (a) the target mpi rank and (b) the request for that rank
      */
-    [[nodiscard]] static std::vector<std::pair<MPIRank, SynapseCreationRequest>> find_target_neurons(const RankNeuronId& source_neuron_id, const position_type& source_position,
-        const counter_type number_vacant_elements, OctreeNode<AdditionalCellAttributes>* const root, const ElementType element_type, const SignalType signal_type, const double acceptance_criterion) {
+    [[nodiscard]] static std::vector<std::pair<mpiPP::MPIRank, SynapseCreationRequest>> find_target_neurons(const KernelBase& kernel, const NodeCache<AdditionalCellAttributes>& cache, const RankNeuronId& source_neuron_id, const position_type& source_position,
+                                                                                                            const counter_type number_vacant_elements, OctreeNode<AdditionalCellAttributes>* const root, const ElementType element_type, const SignalType signal_type, const double acceptance_criterion) {
         RelearnException::check(acceptance_criterion > 0.0,
-            "BarnesHutBase::find_target_neurons: The acceptance criterion was not positive: ({})", acceptance_criterion);
+                                "BarnesHutBase::find_target_neurons: The acceptance criterion was not positive: ({})", acceptance_criterion);
         RelearnException::check(acceptance_criterion <= Constants::bh_max_theta,
-            "BarnesHutBase::find_target_neurons: The acceptance criterion must not be larger than {}: ({})", Constants::bh_max_theta, acceptance_criterion);
+                                "BarnesHutBase::find_target_neurons: The acceptance criterion must not be larger than {}: ({})", Constants::bh_max_theta, acceptance_criterion);
         RelearnException::check(root != nullptr, "BarnesHutBase::find_target_neurons: root was nullptr");
 
-        std::vector<std::pair<MPIRank, SynapseCreationRequest>> requests{};
+        auto requests = std::vector<std::pair<mpiPP::MPIRank, SynapseCreationRequest>>{};
         requests.reserve(number_vacant_elements);
 
-        for (counter_type j = 0; j < number_vacant_elements; j++) {
+        for (auto j = 0U; j < number_vacant_elements; j++) {
             // Find one target at the time
-            const auto& rank_neuron_id = find_target_neuron(source_neuron_id, source_position, root, element_type, signal_type, acceptance_criterion);
+            const auto& rank_neuron_id = find_target_neuron(kernel, cache, source_neuron_id, source_position, root, element_type, signal_type, acceptance_criterion);
             if (!rank_neuron_id.has_value()) {
                 // If finding failed, it won't succeed in later iterations
                 break;
             }
 
             const auto& [target_rank, target_id] = rank_neuron_id.value();
-            const SynapseCreationRequest creation_request(target_id, source_neuron_id.get_neuron_id(), signal_type);
+            const auto creation_request = SynapseCreationRequest(target_id, source_neuron_id.get_neuron_id(), signal_type);
 
             requests.emplace_back(target_rank, creation_request);
         }
@@ -296,15 +304,15 @@ public:
      * @return If the target node cannot be used as-is (its level is smaller than the level of branch nodes), returns empty.
      *      Otherwise, constructs the correct DistantNeuronRequest and returns it
      */
-    [[nodiscard]] static std::optional<std::pair<MPIRank, DistantNeuronRequest>> convert_target_node(const RankNeuronId& source_neuron_id, const position_type& source_position,
-        const OctreeNode<AdditionalCellAttributes>* const target_node, const SignalType signal_type, const std::uint16_t level_of_branch_nodes) {
+    [[nodiscard]] static std::optional<std::pair<mpiPP::MPIRank, DistantNeuronRequest>> convert_target_node(const RankNeuronId& source_neuron_id, const position_type& source_position,
+                                                                                                            const OctreeNode<AdditionalCellAttributes>* const target_node, const SignalType signal_type, const std::uint16_t level_of_branch_nodes) {
         RelearnException::check(target_node != nullptr, "BarnesHutBase::convert_target_node: target_node was nullptr");
 
         const auto& cell = target_node->get_cell();
         const auto target_rank = target_node->get_mpi_rank();
 
         if (const auto is_leaf = target_node->is_leaf(); is_leaf) {
-            const DistantNeuronRequest neuron_request(
+            const auto neuron_request = DistantNeuronRequest(
                 source_neuron_id.get_neuron_id(),
                 source_position,
                 cell.get_neuron_id().get_neuron_id(),
@@ -318,7 +326,7 @@ public:
             return {};
         }
 
-        const DistantNeuronRequest neuron_request(
+        const auto neuron_request = DistantNeuronRequest(
             source_neuron_id.get_neuron_id(),
             source_position,
             cell.get_neuron_id().get_rma_offset(),
@@ -326,5 +334,91 @@ public:
             signal_type);
 
         return std::make_pair(target_rank, neuron_request);
+    }
+
+    /**
+     * @brief Returns an optional pair of target rank and request. This is used for sending the request to the other rank and calculating further. No actual request is sent yet.
+     *      Might perform MPI communication via NodeCache::get_children()
+     * @param kernel The probability kernel
+     * @param cache The cache that contains the children of the nodes
+     * @param source_neuron_id The source neuron's id
+     * @param source_position The source neuron's position
+     * @param root The starting position where to look, not nullptr
+     * @param element_type The element type the source is looking for
+     * @param signal_type The signal type the source is looking for
+     * @param level_of_branch_nodes The level of branch nodes in the Octree
+     * @param acceptance_criterion The acceptance criterion, must be > 0.0 and <= Constants::bh_max_theta
+     * @exception Throws a RelearnException if the requirements on the acceptance criterion are not fulfilled or root is nullptr
+     * @return If the algorithm didn't find a matching neuron, the return value is empty.
+     *      If the algorithm found a matching neuron, it is returned as the rank that shall further the calculations and the distant request
+     */
+    [[nodiscard]] static std::optional<std::pair<mpiPP::MPIRank, DistantNeuronRequest>> find_target_neuron_location_aware(const KernelBase& kernel, const NodeCache<AdditionalCellAttributes>& cache, const RankNeuronId& source_neuron_id, const position_type& source_position,
+                                                                                                                          OctreeNode<AdditionalCellAttributes>* const root, const ElementType element_type, const SignalType signal_type, const std::uint16_t level_of_branch_nodes, const double acceptance_criterion) {
+        RelearnException::check(acceptance_criterion > 0.0,
+                                "BarnesHutBase::find_target_neuron_location_aware: The acceptance criterion was not positive: ({})", acceptance_criterion);
+        RelearnException::check(acceptance_criterion <= Constants::bh_max_theta,
+                                "BarnesHutBase::find_target_neuron_location_aware: The acceptance criterion must not be larger than {}: ({})", Constants::bh_max_theta, acceptance_criterion);
+        RelearnException::check(root != nullptr, "BarnesHutBase::find_target_neuron_location_aware: root was nullptr");
+
+        for (auto root_of_subtree = root; true;) {
+            const auto& possible_targets = get_nodes_to_consider(cache, source_position, root_of_subtree, element_type, signal_type, acceptance_criterion, true);
+
+            auto* node_selected = Kernel<AdditionalCellAttributes>::pick_target(kernel, source_neuron_id, source_position, possible_targets, element_type, signal_type);
+            if (node_selected == nullptr) {
+                return {};
+            }
+
+            const auto& request = convert_target_node(source_neuron_id, source_position, node_selected, signal_type, level_of_branch_nodes);
+            if (request.has_value()) {
+                return request;
+            }
+
+            // If the level of the selected node is too low, continue the search
+            // We need to choose again, starting from the chosen virtual neuron
+            root_of_subtree = node_selected;
+        }
+    }
+
+    /**
+     * @brief Finds target neurons for a specified source neuron. No actual request is made.
+     *      Might perform MPI communication via NodeCache::get_children()
+     * @param kernel The probability kernel
+     * @param cache The cache that contains the children of the nodes
+     * @param source_neuron_id The source neuron's id
+     * @param source_position The source neuron's position
+     * @param number_vacant_elements The number of vacant elements of the source neuron
+     * @param root Where the source neuron should start to search for targets, not nullptr
+     * @param element_type The element type the source neuron searches
+     * @param signal_type The signal type the source neuron searches
+     * @param level_of_branch_nodes The level of branch nodes in the Octree
+     * @param acceptance_criterion The acceptance criterion, must be > 0.0 and <= Constants::bh_max_theta
+     * @exception Throws a RelearnException if the requirements on the acceptance criterion are not fulfilled or root is nullptr
+     * @return A vector of pairs with (a) the target mpi rank and (b) the request for that rank
+     */
+    [[nodiscard]] static std::vector<std::pair<mpiPP::MPIRank, DistantNeuronRequest>> find_target_neurons_location_aware(const KernelBase& kernel, const NodeCache<AdditionalCellAttributes>& cache, const RankNeuronId& source_neuron_id, const position_type& source_position,
+                                                                                                                         const counter_type number_vacant_elements, OctreeNode<AdditionalCellAttributes>* const root, const ElementType element_type,
+                                                                                                                         const SignalType signal_type, const std::uint16_t level_of_branch_nodes, const double acceptance_criterion) {
+
+        RelearnException::check(acceptance_criterion > 0.0,
+                                "BarnesHutBase::find_target_neurons_location_aware: The acceptance criterion was not positive: ({})", acceptance_criterion);
+        RelearnException::check(acceptance_criterion <= Constants::bh_max_theta,
+                                "BarnesHutBase::find_target_neurons_location_aware: The acceptance criterion must not be larger than {}: ({})", Constants::bh_max_theta, acceptance_criterion);
+        RelearnException::check(root != nullptr, "BarnesHutBase::find_target_neurons_location_aware: root was nullptr");
+
+        auto requests = std::vector<std::pair<mpiPP::MPIRank, DistantNeuronRequest>>{};
+        requests.reserve(number_vacant_elements);
+
+        for (auto j = 0U; j < number_vacant_elements; j++) {
+            // Find one target at the time
+            const auto& neuron_request = find_target_neuron_location_aware(kernel, cache, source_neuron_id, source_position, root, element_type, signal_type, level_of_branch_nodes, acceptance_criterion);
+            if (!neuron_request.has_value()) {
+                // If finding failed, it won't succeed in later iterations
+                break;
+            }
+
+            requests.emplace_back(neuron_request.value());
+        }
+
+        return requests;
     }
 };

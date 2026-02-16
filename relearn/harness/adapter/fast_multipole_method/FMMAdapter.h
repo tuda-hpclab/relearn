@@ -10,20 +10,6 @@
  *
  */
 
-#include "adapter/random/RandomAdapter.h"
-
-#include "Config.h"
-#include "util/Vec3.h"
-
-#include <random>
-
 class FMMAdapter {
 public:
-    static Vec3u get_random_multi_index(std::mt19937& mt) {
-        const auto x = RandomAdapter::get_random_integer<Vec3u::value_type>(0, Constants::p, mt);
-        const auto y = RandomAdapter::get_random_integer<Vec3u::value_type>(0, Constants::p, mt);
-        const auto z = RandomAdapter::get_random_integer<Vec3u::value_type>(0, Constants::p, mt);
-
-        return Vec3u{ x, y, z };
-    }
 };

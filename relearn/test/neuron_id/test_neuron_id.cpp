@@ -10,143 +10,653 @@
 
 #include "test_neuron_id.h"
 
-#include "adapter/random/RandomAdapter.h"
+#include "util/NeuronID.h"
+#include "util/RelearnException.h"
+
+#include "mpi-wrapper/MPIInfo.h"
+#include "mpi-wrapper/MPIRank.h"
+
+#include "factory/random/random_factory.h"
+
+#include <fmt/core.h>
 
 #include <compare>
 #include <cstdint>
-#include <functional>
-#include <type_traits>
+#include <iostream>
 
-TEST_F(NeuronIDTest, testNeuronIDUninitialized) { // NOLINT
+TEST_F(NeuronIDTest, testUninitialized) { // NOLINT
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     const auto id = NeuronID::uninitialized_id();
 
     ASSERT_FALSE(id.is_initialized());
     ASSERT_FALSE(static_cast<bool>(id));
     ASSERT_FALSE(id.is_virtual());
-    ASSERT_FALSE(id.is_local());
+    ASSERT_FALSE(id.is_actual_id());
 
-    ASSERT_THROW(auto val = id.get_neuron_id(), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = id.get_neuron_id(), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = id.get_rma_offset(), RelearnException);
 }
 
-TEST_F(NeuronIDTest, testNeuronIDVirtual) { // NOLINT
+TEST_F(NeuronIDTest, testVirtual) { // NOLINT
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     const auto id = NeuronID::virtual_id();
 
     ASSERT_TRUE(id.is_initialized());
     ASSERT_TRUE(static_cast<bool>(id));
     ASSERT_TRUE(id.is_virtual());
-    ASSERT_FALSE(id.is_local());
+    ASSERT_FALSE(id.is_actual_id());
 
-    ASSERT_THROW(auto val = id.get_neuron_id(), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = id.get_neuron_id(), RelearnException);
+    ASSERT_EQ(id.get_rma_offset(), 0);
+    ASSERT_EQ(static_cast<std::uint64_t>(id), 0);
 }
 
-TEST_F(NeuronIDTest, testNeuronIDConstructorDefault) { // NOLINT
-    NeuronID id{};
+TEST_F(NeuronIDTest, testHijackedVirtual) { // NOLINT
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    ASSERT_FALSE(id.is_initialized());
-    ASSERT_FALSE(static_cast<bool>(id));
-    ASSERT_FALSE(id.is_virtual());
-    ASSERT_FALSE(id.is_local());
+        return;
+    }
 
-    ASSERT_THROW(auto val = id.get_neuron_id(), RelearnException);
-}
-
-TEST_F(NeuronIDTest, testNeuronIDConstructorOnlyID) { // NOLINT
-    const auto id_val = RandomAdapter::template get_random_integer(NeuronID::limits::min, NeuronID::limits::max, this->mt);
-
-    const NeuronID id{ id_val };
-
-    ASSERT_TRUE(id.is_initialized());
-    ASSERT_TRUE(static_cast<bool>(id));
-    ASSERT_FALSE(id.is_virtual());
-    ASSERT_TRUE(id.is_local());
-
-    ASSERT_EQ(id.get_neuron_id(), id_val);
-    ASSERT_EQ(static_cast<std::uint64_t>(id), id_val);
-}
-
-TEST_F(NeuronIDTest, testNeuronIDConstructorLocal) {
-    const auto id_val = RandomAdapter::template get_random_integer(NeuronID::limits::min, NeuronID::limits::max, this->mt);
-
-    const NeuronID id{ false, id_val };
-
-    ASSERT_TRUE(id.is_initialized());
-    ASSERT_TRUE(static_cast<bool>(id));
-    ASSERT_FALSE(id.is_virtual());
-    ASSERT_TRUE(id.is_local());
-
-    ASSERT_EQ(id.get_neuron_id(), id_val);
-    ASSERT_EQ(static_cast<std::uint64_t>(id), id_val);
-}
-
-TEST_F(NeuronIDTest, testNeuronIDConstructorVirtual) {
-    const auto id_val = RandomAdapter::template get_random_integer(NeuronID::limits::min, NeuronID::limits::max, this->mt);
-
-    const NeuronID id{ true, id_val };
+    const auto id = NeuronID::virtual_id(135);
 
     ASSERT_TRUE(id.is_initialized());
     ASSERT_TRUE(static_cast<bool>(id));
     ASSERT_TRUE(id.is_virtual());
-    ASSERT_FALSE(id.is_local());
+    ASSERT_FALSE(id.is_actual_id());
 
-    ASSERT_THROW(auto val = id.get_neuron_id(), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = id.get_neuron_id(), RelearnException);
+    ASSERT_EQ(id.get_rma_offset(), 135);
+    ASSERT_EQ(static_cast<std::uint64_t>(id), 135);
 }
 
-TEST_F(NeuronIDTest, testNeuronIDComparisons1) { // NOLINT
-    constexpr static auto min = NeuronID::limits::min;
-    constexpr static auto max = NeuronID::limits::max;
+TEST_F(NeuronIDTest, testConstructorDefault) { // NOLINT
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    const auto get_random_id = [this]() { return NeuronID{ RandomAdapter::template get_random_integer(min, max, this->mt) }; };
+        return;
+    }
 
-    const auto id1 = get_random_id();
-    const auto id2 = get_random_id();
+    const auto id = NeuronID{};
 
-    ASSERT_EQ(id1 <=> id2, id1.get_neuron_id() <=> id2.get_neuron_id());
-    ASSERT_EQ(NeuronID{}, NeuronID{});
+    ASSERT_FALSE(id.is_initialized());
+    ASSERT_FALSE(static_cast<bool>(id));
+    ASSERT_FALSE(id.is_virtual());
+    ASSERT_FALSE(id.is_actual_id());
+
+    ASSERT_THROW_NO_PRINT(std::ignore = id.get_neuron_id(), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = id.get_rma_offset(), RelearnException);
 }
 
-TEST_F(NeuronIDTest, testNeuronIDComparisons2) { // NOLINT
-    constexpr static auto min = NeuronID::limits::min;
-    constexpr static auto max = NeuronID::limits::max;
+TEST_F(NeuronIDTest, testConstructorOnlyID) { // NOLINT
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    const auto get_random_id = [this]() {
-        auto res = NeuronID{
-            RandomAdapter::get_random_bool(this->mt),
-            RandomAdapter::template get_random_integer(min, max, this->mt)
-        };
+        return;
+    }
 
-        // res.is_initialized() = this->RandomAdapter::get_random_bool(this->mt);
-        return res;
+    const auto test = [](const auto id_val) {
+        const auto id = NeuronID{ id_val };
+
+        ASSERT_TRUE(id.is_initialized());
+        ASSERT_TRUE(static_cast<bool>(id));
+        ASSERT_FALSE(id.is_virtual());
+        ASSERT_TRUE(id.is_actual_id());
+
+        ASSERT_THROW_NO_PRINT(std::ignore = id.get_rma_offset(), RelearnException);
+        ASSERT_EQ(id.get_neuron_id(), id_val);
+        ASSERT_EQ(static_cast<std::uint64_t>(id), id_val);
     };
 
-    const auto id1 = get_random_id();
-    const auto id2 = get_random_id();
+    test(std::uint64_t{ 0 });
+    test(std::uint64_t{ 1 });
+    test(std::uint64_t{ 65537 });
+    test(std::uint64_t{ 102255410 });
+    test(std::uint64_t{ 0 });
+    test(std::uint64_t{ 1 });
+    test(std::uint64_t{ 0 });
+}
 
-    const auto failure_message = fmt::format("ID 1: {}\n ID 2: {}\n", id1, id2);
-
-    // members are compared in order of declaration
-    // -> if any compares not equal,
-    // then the result of that first comparison that is not equal
-    // is the result of the comparison
-    const auto comp = id1 <=> id2;
-
-    if (const auto initialized_comparison = id1.is_initialized() <=> id2.is_initialized();
-        std::is_neq(initialized_comparison)) {
-        EXPECT_EQ(comp, initialized_comparison) << failure_message;
-        return;
-    }
-
-    if (const auto virtual_comparison = id1.is_virtual() <=> id2.is_virtual();
-        std::is_neq(virtual_comparison)) {
-        EXPECT_EQ(comp, virtual_comparison) << failure_message;
-        return;
-    }
-
-    // id's are only valid if they are initialized and virtual
-    if (id1.is_initialized() && !id1.is_virtual()) {
-        if (const auto id_comparison = id1.get_neuron_id() <=> id2.get_neuron_id();
-            std::is_neq(id_comparison)) {
-            EXPECT_EQ(comp, id_comparison) << failure_message;
-            return;
+TEST_F(NeuronIDTest, testConstructorLocal) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
         }
+
+        return;
     }
+
+    const auto test = [](const auto id_val) {
+        const auto id = NeuronID{ false, id_val };
+
+        ASSERT_TRUE(id.is_initialized());
+        ASSERT_TRUE(static_cast<bool>(id));
+        ASSERT_FALSE(id.is_virtual());
+        ASSERT_TRUE(id.is_actual_id());
+
+        ASSERT_THROW_NO_PRINT(std::ignore = id.get_rma_offset(), RelearnException);
+        ASSERT_EQ(id.get_neuron_id(), id_val);
+        ASSERT_EQ(static_cast<std::uint64_t>(id), id_val);
+    };
+
+    test(std::uint64_t{ 0 });
+    test(std::uint64_t{ 1 });
+    test(std::uint64_t{ 65537 });
+    test(std::uint64_t{ 102255410 });
+    test(std::uint64_t{ 0 });
+    test(std::uint64_t{ 1 });
+    test(std::uint64_t{ 0 });
+}
+
+TEST_F(NeuronIDTest, testConstructorVirtual) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto test = [](const auto id_val) {
+        const auto id = NeuronID{ true, id_val };
+
+        ASSERT_TRUE(id.is_initialized());
+        ASSERT_TRUE(static_cast<bool>(id));
+        ASSERT_TRUE(id.is_virtual());
+        ASSERT_FALSE(id.is_actual_id());
+
+        ASSERT_THROW_NO_PRINT(std::ignore = id.get_neuron_id(), RelearnException);
+        ASSERT_EQ(id.get_rma_offset(), id_val);
+        ASSERT_EQ(static_cast<std::uint64_t>(id), id_val);
+    };
+
+    test(std::uint64_t{ 0 });
+    test(std::uint64_t{ 1 });
+    test(std::uint64_t{ 65537 });
+    test(std::uint64_t{ 102255410 });
+    test(std::uint64_t{ 0 });
+    test(std::uint64_t{ 1 });
+    test(std::uint64_t{ 0 });
+}
+
+TEST_F(NeuronIDTest, testRange1) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto test = [](const auto id_val_1, const auto id_val_2) {
+        const auto range = NeuronID::range(id_val_1, id_val_2);
+
+        auto expected = id_val_1;
+        for (const auto id : range) {
+            const auto expected_id = NeuronID{ false, expected };
+            ASSERT_EQ(id, expected_id);
+            expected++;
+        }
+
+        ASSERT_EQ(expected, id_val_2);
+    };
+
+    test(std::uint64_t{ 0 }, std::uint64_t{ 0 });
+    test(std::uint64_t{ 1 }, std::uint64_t{ 1 });
+    test(std::uint64_t{ 0 }, std::uint64_t{ 1 });
+    test(std::uint64_t{ 0 }, std::uint64_t{ 357 });
+    test(std::uint64_t{ 157 }, std::uint64_t{ 357 });
+    test(std::uint64_t{ 157 }, std::uint64_t{ 157 });
+}
+
+TEST_F(NeuronIDTest, testRange2) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto test = [](const auto id_val_1, const auto id_val_2) {
+        const auto range = NeuronID::range(NeuronID{ false, id_val_1 }, NeuronID{ false, id_val_2 });
+
+        auto expected = id_val_1;
+        for (const auto id : range) {
+            const auto expected_id = NeuronID{ false, expected };
+            ASSERT_EQ(id, expected_id);
+            expected++;
+        }
+
+        ASSERT_EQ(expected, id_val_2);
+    };
+
+    test(std::uint64_t{ 0 }, std::uint64_t{ 0 });
+    test(std::uint64_t{ 1 }, std::uint64_t{ 1 });
+    test(std::uint64_t{ 0 }, std::uint64_t{ 1 });
+    test(std::uint64_t{ 0 }, std::uint64_t{ 357 });
+    test(std::uint64_t{ 157 }, std::uint64_t{ 357 });
+    test(std::uint64_t{ 157 }, std::uint64_t{ 157 });
+}
+
+TEST_F(NeuronIDTest, testRange3) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto test = [](const auto id_val) {
+        const auto range = NeuronID::range(std::uint64_t{ 0 }, id_val);
+
+        auto expected = std::uint64_t{ 0 };
+        for (const auto id : range) {
+            const auto expected_id = NeuronID{ false, expected };
+            ASSERT_EQ(id, expected_id);
+            expected++;
+        }
+
+        ASSERT_EQ(expected, id_val);
+    };
+
+    test(std::uint64_t{ 0 });
+    test(std::uint64_t{ 1 });
+    test(std::uint64_t{ 10 });
+    test(std::uint64_t{ 0 });
+    test(std::uint64_t{ 357 });
+    test(std::uint64_t{ 157 });
+}
+
+TEST_F(NeuronIDTest, testRange4) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto test = [](const auto id_val) {
+        const auto range = NeuronID::range(NeuronID{ false, 0 }, NeuronID{ false, id_val });
+
+        auto expected = std::uint64_t{ 0 };
+        for (const auto id : range) {
+            const auto expected_id = NeuronID{ false, expected };
+            ASSERT_EQ(id, expected_id);
+            expected++;
+        }
+
+        ASSERT_EQ(expected, id_val);
+    };
+
+    test(std::uint64_t{ 0 });
+    test(std::uint64_t{ 1 });
+    test(std::uint64_t{ 10 });
+    test(std::uint64_t{ 0 });
+    test(std::uint64_t{ 357 });
+    test(std::uint64_t{ 157 });
+}
+
+TEST_F(NeuronIDTest, testRangeId1) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto test = [](const auto id_val_1, const auto id_val_2) {
+        const auto range = NeuronID::range_id(id_val_1, id_val_2);
+
+        auto expected = id_val_1;
+        for (const auto id : range) {
+            ASSERT_EQ(id, expected);
+            expected++;
+        }
+
+        ASSERT_EQ(expected, id_val_2);
+    };
+
+    test(std::uint64_t{ 0 }, std::uint64_t{ 0 });
+    test(std::uint64_t{ 1 }, std::uint64_t{ 1 });
+    test(std::uint64_t{ 0 }, std::uint64_t{ 1 });
+    test(std::uint64_t{ 0 }, std::uint64_t{ 357 });
+    test(std::uint64_t{ 157 }, std::uint64_t{ 357 });
+    test(std::uint64_t{ 157 }, std::uint64_t{ 157 });
+}
+
+TEST_F(NeuronIDTest, testRangeId2) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto test = [](const auto id_val) {
+        const auto range = NeuronID::range_id(std::uint64_t{ 0 }, id_val);
+
+        auto expected = std::uint64_t{ 0 };
+        for (const auto id : range) {
+            ASSERT_EQ(id, expected);
+            expected++;
+        }
+
+        ASSERT_EQ(expected, id_val);
+    };
+
+    test(std::uint64_t{ 0 });
+    test(std::uint64_t{ 1 });
+    test(std::uint64_t{ 10 });
+    test(std::uint64_t{ 0 });
+    test(std::uint64_t{ 357 });
+    test(std::uint64_t{ 157 });
+}
+
+TEST_F(NeuronIDTest, testComparisons1) { // NOLINT
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto id1 = NeuronID{ 23 };
+    const auto id2 = NeuronID{ 47 };
+
+    ASSERT_EQ(id1 <=> id2, id1.get_neuron_id() <=> id2.get_neuron_id());
+
+    ASSERT_EQ(NeuronID{}, NeuronID{});
+    ASSERT_NE(id1, NeuronID{});
+    ASSERT_NE(id2, NeuronID{});
+    ASSERT_NE(NeuronID{}, id1);
+    ASSERT_NE(NeuronID{}, id2);
+
+    ASSERT_EQ(id1, id1);
+    ASSERT_EQ(id1, NeuronID{ 23 });
+    ASSERT_EQ(NeuronID{ 23 }, id1);
+    ASSERT_EQ(NeuronID{ 23 }, NeuronID{ 23 });
+
+    ASSERT_NE(id1, id2);
+    ASSERT_NE(NeuronID{ 23 }, id2);
+    ASSERT_NE(id1, NeuronID{ 47 });
+    ASSERT_NE(NeuronID{ 23 }, NeuronID{ 47 });
+
+    ASSERT_NE(id2, id1);
+    ASSERT_NE(id2, NeuronID{ 23 });
+    ASSERT_NE(NeuronID{ 47 }, id1);
+    ASSERT_NE(NeuronID{ 47 }, NeuronID{ 23 });
+
+    ASSERT_EQ(id2, id2);
+    ASSERT_EQ(id2, NeuronID{ 47 });
+    ASSERT_EQ(NeuronID{ 47 }, id2);
+    ASSERT_EQ(NeuronID{ 47 }, NeuronID{ 47 });
+}
+
+TEST_F(NeuronIDTest, testComparisons2) { // NOLINT
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto id1 = NeuronID(false, 23);
+    const auto id2 = NeuronID(false, 47);
+
+    ASSERT_EQ(id1 <=> id2, id1.get_neuron_id() <=> id2.get_neuron_id());
+    ASSERT_NE(id1, NeuronID{});
+    ASSERT_NE(id2, NeuronID{});
+    ASSERT_NE(NeuronID{}, id1);
+    ASSERT_NE(NeuronID{}, id2);
+
+    ASSERT_EQ(id1, id1);
+    ASSERT_EQ(id1, NeuronID(false, 23));
+    ASSERT_EQ(NeuronID(false, 23), id1);
+    ASSERT_EQ(NeuronID(false, 23), NeuronID(false, 23));
+
+    ASSERT_NE(id1, id2);
+    ASSERT_NE(NeuronID(false, 23), id2);
+    ASSERT_NE(id1, NeuronID(false, 47));
+    ASSERT_NE(NeuronID(false, 23), NeuronID(false, 47));
+
+    ASSERT_NE(id2, id1);
+    ASSERT_NE(id2, NeuronID(false, 23));
+    ASSERT_NE(NeuronID(false, 47), id1);
+    ASSERT_NE(NeuronID(false, 47), NeuronID(false, 23));
+
+    ASSERT_EQ(id2, id2);
+    ASSERT_EQ(id2, NeuronID(false, 47));
+    ASSERT_EQ(NeuronID(false, 47), id2);
+    ASSERT_EQ(NeuronID(false, 47), NeuronID(false, 47));
+}
+
+TEST_F(NeuronIDTest, testComparisons3) { // NOLINT
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto id1 = NeuronID(false, 23);
+    const auto id2 = NeuronID(true, 23);
+
+    ASSERT_NE(id1 <=> id2, std::strong_ordering::equal);
+    ASSERT_NE(id1 <=> id2, std::strong_ordering::equivalent);
+    ASSERT_NE(id1, NeuronID{});
+    ASSERT_NE(id2, NeuronID{});
+    ASSERT_NE(NeuronID{}, id1);
+    ASSERT_NE(NeuronID{}, id2);
+
+    ASSERT_NE(id1, id2);
+    ASSERT_NE(NeuronID(false, 23), id2);
+    ASSERT_NE(id1, NeuronID(true, 23));
+    ASSERT_NE(NeuronID(false, 23), NeuronID(true, 23));
+
+    ASSERT_NE(id2, id1);
+    ASSERT_NE(id2, NeuronID(false, 23));
+    ASSERT_NE(NeuronID(true, 23), id1);
+    ASSERT_NE(NeuronID(true, 23), NeuronID(false, 23));
+}
+
+TEST_F(NeuronIDTest, testHashValue) { // NOLINT
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto id1 = NeuronID{ false, 18 };
+    const auto id2 = NeuronID{ true, 18 };
+    const auto id3 = NeuronID{};
+
+    const auto hash_value_1 = id1.hash_value();
+    const auto hash_value_2 = id2.hash_value();
+    const auto hash_value_3 = id3.hash_value();
+
+    ASSERT_NE(hash_value_1, hash_value_2);
+    ASSERT_NE(hash_value_1, hash_value_3);
+    ASSERT_NE(hash_value_2, hash_value_3);
+
+    ASSERT_EQ(hash_value_1, std::hash<NeuronID>{}(id1));
+    ASSERT_EQ(hash_value_2, std::hash<NeuronID>{}(id2));
+    ASSERT_EQ(hash_value_3, std::hash<NeuronID>{}(id3));
+
+    ASSERT_EQ(hash_value_1, std::hash<NeuronID>{}(NeuronID{ false, 18 }));
+    ASSERT_EQ(hash_value_2, std::hash<NeuronID>{}(NeuronID{ true, 18 }));
+    ASSERT_EQ(hash_value_3, std::hash<NeuronID>{}(NeuronID{}));
+
+    ASSERT_EQ(hash_value_1, hash_value(id1));
+    ASSERT_EQ(hash_value_2, hash_value(id2));
+    ASSERT_EQ(hash_value_3, hash_value(id3));
+}
+
+TEST_F(NeuronIDTest, testPrint1) { // NOLINT
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto id1 = NeuronID{ false, 89 };
+    const auto id2 = NeuronID{ true, 89 };
+    const auto id3 = NeuronID{};
+
+    const auto str1 = fmt::format("{}", id1);
+    const auto str2 = fmt::format("{}", id2);
+    const auto str3 = fmt::format("{}", id3);
+
+    ASSERT_EQ(str1, "89");
+    ASSERT_EQ(str2, "10000000000000000089");
+    ASSERT_EQ(str3, "18446744073709551615");
+}
+
+TEST_F(NeuronIDTest, testPrint2) { // NOLINT
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto id1 = NeuronID{ false, 89 };
+    const auto id2 = NeuronID{ true, 89 };
+    const auto id3 = NeuronID{};
+
+    const auto str1 = fmt::format("{:i}", id1);
+    const auto str2 = fmt::format("{:i}", id2);
+    const auto str3 = fmt::format("{:i}", id3);
+
+    ASSERT_EQ(str1, "89");
+    ASSERT_EQ(str2, "10000000000000000089");
+    ASSERT_EQ(str3, "18446744073709551615");
+}
+
+TEST_F(NeuronIDTest, testPrint3) { // NOLINT
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto id1 = NeuronID{ false, 89 };
+    const auto id2 = NeuronID{ true, 89 };
+    const auto id3 = NeuronID{};
+
+    const auto str1 = fmt::format("{:s}", id1);
+    const auto str2 = fmt::format("{:s}", id2);
+    const auto str3 = fmt::format("{:s}", id3);
+
+    ASSERT_EQ(str1, "10:89");
+    ASSERT_EQ(str2, "11:10000000000000000089");
+    ASSERT_EQ(str3, "00:18446744073709551615");
+}
+
+TEST_F(NeuronIDTest, testPrint4) { // NOLINT
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto id1 = NeuronID{ false, 89 };
+    const auto id2 = NeuronID{ true, 89 };
+    const auto id3 = NeuronID{};
+
+    const auto str1 = fmt::format("{:m}", id1);
+    const auto str2 = fmt::format("{:m}", id2);
+    const auto str3 = fmt::format("{:m}", id3);
+
+    ASSERT_EQ(str1, "i1v0:89");
+    ASSERT_EQ(str2, "i1v1:10000000000000000089");
+    ASSERT_EQ(str3, "i0v0:18446744073709551615");
+}
+
+TEST_F(NeuronIDTest, testPrint5) { // NOLINT
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto id1 = NeuronID{ false, 89 };
+    const auto id2 = NeuronID{ true, 89 };
+    const auto id3 = NeuronID{};
+
+    const auto str1 = fmt::format("{:l}", id1);
+    const auto str2 = fmt::format("{:l}", id2);
+    const auto str3 = fmt::format("{:l}", id3);
+
+    ASSERT_EQ(str1, "initialized: true, virtual: false, id: 89");
+    ASSERT_EQ(str2, "initialized: true, virtual: true, id: 10000000000000000089");
+    ASSERT_EQ(str3, "initialized: false, virtual: false, id: 18446744073709551615");
+}
+
+TEST_F(NeuronIDTest, testPrint6) { // NOLINT
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto id1 = NeuronID{ false, 89 };
+    const auto id2 = NeuronID{ true, 89 };
+    const auto id3 = NeuronID{};
+
+    auto ss1 = std::stringstream{};
+    auto ss2 = std::stringstream{};
+    auto ss3 = std::stringstream{};
+
+    ss1 << id1;
+    ss2 << id2;
+    ss3 << id3;
+
+    const auto str1 = fmt::format("{}", id1);
+    const auto str2 = fmt::format("{}", id2);
+    const auto str3 = fmt::format("{}", id3);
+
+    ASSERT_EQ(str1, ss1.str());
+    ASSERT_EQ(str2, ss2.str());
+    ASSERT_EQ(str3, ss3.str());
 }

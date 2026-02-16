@@ -10,15 +10,17 @@
  *
  */
 
-#include "sim/NeuronToSubdomainAssignment.h"
-
 #include "Types.h"
-#include "util/RelearnException.h"
+
+#include "sim/LoadedNeuron.h"
+#include "sim/NeuronToSubdomainAssignment.h"
 #include "util/NeuronID.h"
+#include "util/RelearnException.h"
 #include "util/Vec3.h"
 
 #include <functional>
 #include <memory>
+#include <utility>
 #include <vector>
 
 class Partition;
@@ -34,16 +36,16 @@ public:
 
     /**
      * @brief Construct a new object with the given parameter
-     * @param partition The partition, not nullptr
+     * @param _partition The partition, not nullptr
      * @param fraction_excitatory_neurons The fraction of excitatory neurons, must be from [0.0, 1.0]
      * @param um_per_neuron The box side length in micrometer
      */
-    BoxBasedRandomSubdomainAssignment(std::shared_ptr<Partition> partition, const double fraction_excitatory_neurons, const double um_per_neuron)
-        : NeuronToSubdomainAssignment(std::move(partition))
+    BoxBasedRandomSubdomainAssignment(std::shared_ptr<Partition> _partition, const double fraction_excitatory_neurons, const double um_per_neuron)
+        : NeuronToSubdomainAssignment(std::move(_partition))
         , um_per_neuron_(um_per_neuron) {
-        RelearnException::check(this->partition.operator bool(), "BoxBasedRandomSubdomainAssignment::BoxBasedRandomSubdomainAssignment: partition was nullptr");
+        RelearnException::check(partition != nullptr, "BoxBasedRandomSubdomainAssignment::BoxBasedRandomSubdomainAssignment: partition was nullptr");
         RelearnException::check(fraction_excitatory_neurons >= 0.0 && fraction_excitatory_neurons <= 1.0,
-            "BoxBasedRandomSubdomainAssignment::BoxBasedRandomSubdomainAssignment: The requested fraction of excitatory neurons is not in [0.0, 1.0]: {}", fraction_excitatory_neurons);
+                                "BoxBasedRandomSubdomainAssignment::BoxBasedRandomSubdomainAssignment: The requested fraction of excitatory neurons is not in [0.0, 1.0]: {}", fraction_excitatory_neurons);
         RelearnException::check(um_per_neuron > 0.0, "BoxBasedRandomSubdomainAssignment::BoxBasedRandomSubdomainAssignment: The requested um per neuron is <= 0.0: {}", um_per_neuron);
 
         set_requested_ratio_excitatory_neurons(fraction_excitatory_neurons);
@@ -81,14 +83,14 @@ public:
 
     /**
      * @brief Places a given number of neurons within a box
-     * @param offset
+     * @param offset The offset to place to neurons into the box
      * @param length_of_box The length of the box, must be positive in each component
-     * @param number_neurons
-     * @param first_id
-     * @return
+     * @param number_neurons The number of neurons to place
+     * @param first_id The starting ID of the placed neurons
+     * @return The placed neurons and the number of exhitatory neurons
      */
     std::pair<std::vector<LoadedNeuron>, number_neurons_type> place_neurons_in_box(const box_size_type& offset, const box_size_type& length_of_box,
-        number_neurons_type number_neurons, NeuronID::value_type first_id);
+                                                                                   number_neurons_type number_neurons, NeuronID::value_type first_id);
 
 private:
     const double um_per_neuron_{}; // Micrometer per neuron in one dimension

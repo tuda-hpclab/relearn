@@ -10,6 +10,8 @@
  *
  */
 
+#include <cstdint>
+
 /**
  * @brief This struct is used to aggregate different statistical parameters
  */
@@ -23,17 +25,15 @@ struct StatisticalMeasures {
 
 /**
  * @brief This enum provides a way to choose the attributes
- * of the neurons for which the statistics should be calculated
+ *      of the neurons for which the statistics should be calculated
  */
-enum class NeuronAttribute {
+enum class NeuronAttribute : std::uint8_t {
     Calcium,
     TargetCalcium,
+    CalciumDifference,
     X,
-    SecondaryVariable,
     Fired,
-    FiredFraction,
-    SynapticInput,
-    BackgroundActivity,
+    ActivityInput,
     Axons,
     AxonsConnected,
     DendritesExcitatory,

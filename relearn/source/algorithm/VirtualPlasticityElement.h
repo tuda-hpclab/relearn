@@ -21,8 +21,8 @@
  */
 class VirtualPlasticityElementManual {
 public:
-    using position_type = typename RelearnTypes::position_type;
-    using counter_type = typename RelearnTypes::counter_type;
+    using position_type = RelearnTypes::position_type;
+    using counter_type = RelearnTypes::counter_type;
 
     /**
      * @brief Sets the number of free elements
@@ -65,6 +65,27 @@ public:
         return position;
     }
 
+    /**
+     * @brief Compare two VirtualPlasticityElementOptional
+     * @return True iff both are considered equal;
+     *      which is the case if both have no position, or both have the same position and number of free elements
+     */
+    [[nodiscard]] friend constexpr bool operator==(const VirtualPlasticityElementManual& first, const VirtualPlasticityElementManual& second) noexcept {
+        const auto first_has_value = first.is_valid;
+        const auto second_has_value = second.is_valid;
+
+        if (first_has_value != second_has_value) {
+            return false;
+        }
+
+        // second_has_value == first_has_value
+        if (!first_has_value) {
+            return true;
+        }
+
+        return first.position == second.position && first.num_free_elements == second.num_free_elements;
+    }
+
 private:
     // Avoiding std::optional<> saves 8 bytes, which translates to 32 bytes per FFM-cell
 
@@ -80,8 +101,8 @@ private:
  */
 class VirtualPlasticityElementOptional {
 public:
-    using position_type = typename RelearnTypes::position_type;
-    using counter_type = typename RelearnTypes::counter_type;
+    using position_type = RelearnTypes::position_type;
+    using counter_type = RelearnTypes::counter_type;
 
     /**
      * @brief Sets the number of free elements
@@ -113,6 +134,27 @@ public:
      */
     [[nodiscard]] constexpr std::optional<position_type> get_position() const noexcept {
         return position;
+    }
+
+    /**
+     * @brief Compare two VirtualPlasticityElementOptional
+     * @return True iff both are considered equal;
+     *      which is the case if both have no position, or both have the same position and number of free elements
+     */
+    [[nodiscard]] friend constexpr bool operator==(const VirtualPlasticityElementOptional& first, const VirtualPlasticityElementOptional& second) noexcept {
+        const auto first_has_value = first.position.has_value();
+        const auto second_has_value = second.position.has_value();
+
+        if (first_has_value != second_has_value) {
+            return false;
+        }
+
+        // second_has_value == first_has_value
+        if (!first_has_value) {
+            return true;
+        }
+
+        return first.position.value() == second.position.value() && first.num_free_elements == second.num_free_elements;
     }
 
 private:

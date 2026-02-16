@@ -12,8 +12,23 @@
 
 #include "util/StatisticalMeasures.h"
 
+#include "mpi-wrapper/MPIInfo.h"
+#include "mpi-wrapper/MPIRank.h"
+
+#include <gtest/gtest.h>
+
+#include <iostream>
+
 TEST_F(StatisticalMeasuresTest, testDefaultValues) {
-    StatisticalMeasures sm{};
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto sm = StatisticalMeasures{};
 
     ASSERT_EQ(sm.avg, 0.0);
     ASSERT_EQ(sm.max, 0.0);

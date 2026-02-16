@@ -10,7 +10,7 @@
  *
  */
 
-#include "fmt/ostream.h"
+#include <fmt/ostream.h>
 
 #include <ostream>
 
@@ -26,7 +26,7 @@ enum class TargetCalciumDecay : char {
 /**
  * @brief Pretty-prints the target calcium decay to the chosen stream
  * @param out The stream to which to print the target calcium decay
- * @param element_type The target calcium decay to print
+ * @param decay_type The target calcium decay to print
  * @return The argument out, now altered with the target calcium decay
  */
 inline std::ostream& operator<<(std::ostream& out, const TargetCalciumDecay decay_type) {

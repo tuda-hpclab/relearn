@@ -10,176 +10,222 @@
 
 #include "test_neuron_extra_info.h"
 
-#include "adapter/mpi/MpiRankAdapter.h"
-#include "adapter/simulation/SimulationAdapter.h"
-#include "adapter/neuron_id/NeuronIdAdapter.h"
-#include "adapter/simulation/SimulationAdapter.h"
-
 #include "neurons/NeuronsExtraInfo.h"
+#include "neurons/enums/UpdateStatus.h"
+#include "util/NeuronID.h"
+#include "util/RelearnAllocator.h"
+#include "util/RelearnException.h"
+#include "util/Vec3.h"
+
+#include "mpi-wrapper/MPIInfo.h"
+#include "mpi-wrapper/MPIRank.h"
+
+#include "factory/mpi_rank/mpi_rank_factory.h"
+#include "factory/neuron_id/neuron_id_factory.h"
+#include "factory/random/random_factory.h"
+#include "factory/simulation/simulation_factory.h"
+
+#include <gtest/gtest.h>
+
+#include <fmt/core.h>
+#include <range/v3/view/indices.hpp>
 
 #include <algorithm>
+#include <cstddef>
+#include <iostream>
+#include <vector>
 
-void NeuronsExtraInfoTest::assert_empty(const NeuronsExtraInfo& nei, size_t number_neurons) {
-    const auto& positions = nei.get_positions();
+void NeuronsExtraInfoTest::assert_empty(const NeuronsExtraInfo& extra_info, size_t number_neurons) {
+    const auto& positions = extra_info.get_positions();
 
     const auto& positions_size = positions.size();
 
     ASSERT_EQ(0, positions_size) << positions_size;
 
-    for (const auto i : NeuronID::range_id(number_neurons_out_of_scope)) {
-        const auto neuron_id = NeuronIdAdapter::get_random_neuron_id(number_neurons, 1, mt);
+    for ([[maybe_unused]] const auto i : NeuronID::range_id(number_neurons_out_of_scope)) {
+        const auto neuron_id = NeuronIdFactory::get_random_neuron_id(number_neurons, 1, mt);
 
-        ASSERT_THROW(const auto& tmp = nei.get_position(neuron_id), RelearnException) << "assert empty position" << neuron_id;
+        ASSERT_THROW_NO_PRINT_MSG(std::ignore = extra_info.get_position(neuron_id), RelearnException, fmt::format("assert empty position {}", neuron_id));
     }
 }
 
-void NeuronsExtraInfoTest::assert_contains(const NeuronsExtraInfo& nei, size_t number_neurons, size_t num_neurons_check, const std::vector<Vec3d>& expected_positions) {
+void NeuronsExtraInfoTest::assert_contains(const NeuronsExtraInfo& extra_info, size_t number_neurons, size_t num_neurons_check,
+                                           const std::vector<Vec3d>& expected_positions) {
 
     const auto& expected_positions_size = expected_positions.size();
 
     ASSERT_EQ(num_neurons_check, expected_positions_size) << num_neurons_check << ' ' << expected_positions_size;
 
-    const auto& actual_positions = nei.get_positions();
+    const auto& actual_positions = extra_info.get_positions();
 
     const auto& positions_size = actual_positions.size();
 
     ASSERT_EQ(positions_size, number_neurons) << positions_size << ' ' << number_neurons;
 
-    for (auto neuron_id : NeuronID::range(num_neurons_check)) {
-
+    for (const auto neuron_id : NeuronID::range(num_neurons_check)) {
         ASSERT_EQ(expected_positions[neuron_id.get_neuron_id()], actual_positions[neuron_id.get_neuron_id()]) << neuron_id;
-        ASSERT_EQ(expected_positions[neuron_id.get_neuron_id()], nei.get_position(neuron_id)) << neuron_id;
+        ASSERT_EQ(expected_positions[neuron_id.get_neuron_id()], extra_info.get_position(neuron_id)) << neuron_id;
     }
 
-    for (const auto i : ranges::views::indices(number_neurons_out_of_scope)) {
-        const auto neuron_id = NeuronIdAdapter::get_random_neuron_id(
+    for ([[maybe_unused]] const auto i : ranges::views::indices(number_neurons_out_of_scope)) {
+        const auto neuron_id = NeuronIdFactory::get_random_neuron_id(
             number_neurons, number_neurons, mt);
 
-        ASSERT_THROW(const auto& tmp = nei.get_position(neuron_id), RelearnException) << neuron_id;
+        ASSERT_THROW_NO_PRINT_MSG(std::ignore = extra_info.get_position(neuron_id), RelearnException, neuron_id);
     }
 }
 
 TEST_F(NeuronsExtraInfoTest, testConstructor) {
-    NeuronsExtraInfo nei{};
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    assert_empty(nei, NeuronIdAdapter::upper_bound_num_neurons);
+        return;
+    }
 
-    ASSERT_THROW(nei.set_positions(std::vector<NeuronsExtraInfo::position_type>{}), RelearnException);
+    auto extra_info = NeuronsExtraInfo{};
 
-    assert_empty(nei, NeuronIdAdapter::upper_bound_num_neurons);
+    assert_empty(extra_info, NeuronIdFactory::upper_bound_num_neurons);
 
-    const auto new_size = NeuronIdAdapter::get_random_number_neurons(mt);
+    auto empty_positions = std::vector<NeuronsExtraInfo::position_type>{};
+    ASSERT_THROW_NO_PRINT(extra_info.set_positions(empty_positions), RelearnException);
 
-    ASSERT_THROW(nei.set_positions(std::vector<NeuronsExtraInfo::position_type>(new_size)), RelearnException);
+    assert_empty(extra_info, NeuronIdFactory::upper_bound_num_neurons);
 
-    assert_empty(nei, NeuronIdAdapter::upper_bound_num_neurons);
+    const auto new_size = NeuronIdFactory::get_random_number_neurons(mt);
+
+    auto full_positions = std::vector<NeuronsExtraInfo::position_type>{ new_size };
+    ASSERT_THROW_NO_PRINT(extra_info.set_positions(full_positions), RelearnException);
+
+    assert_empty(extra_info, NeuronIdFactory::upper_bound_num_neurons);
+
+    ASSERT_EQ(extra_info.get_size(), 0);
 }
 
 TEST_F(NeuronsExtraInfoTest, testInit) {
-    NeuronsExtraInfo nei{};
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+        return;
+    }
 
-    nei.init(number_neurons);
-    assert_empty(nei, number_neurons);
+    auto extra_info = NeuronsExtraInfo{};
 
-    auto num_neurons_wrong = NeuronIdAdapter::get_random_number_neurons(mt);
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    extra_info.init(number_neurons);
+    assert_empty(extra_info, number_neurons);
+
+    ASSERT_EQ(extra_info.get_size(), number_neurons);
+
+    auto num_neurons_wrong = NeuronIdFactory::get_random_number_neurons(mt);
     if (num_neurons_wrong == number_neurons) {
         num_neurons_wrong++;
     }
 
-    std::vector<Vec3d> positions_wrong(num_neurons_wrong);
+    const auto positions_wrong = std::vector<Vec3d>(num_neurons_wrong);
 
-    ASSERT_THROW(nei.set_positions(positions_wrong), RelearnException);
+    ASSERT_THROW_NO_PRINT(extra_info.set_positions(positions_wrong), RelearnException);
 
-    assert_empty(nei, number_neurons);
+    assert_empty(extra_info, number_neurons);
 
-    std::vector<Vec3d> positions_right(number_neurons);
+    auto positions_right = SimulationFactory::get_random_positions<std::allocator<Vec3d>>(mt, number_neurons);
+    extra_info.set_positions(positions_right);
+    assert_contains(extra_info, number_neurons, number_neurons, positions_right);
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
-        positions_right[neuron_id] = SimulationAdapter::get_random_position(mt);
-    }
+    auto positions_right_2 = SimulationFactory::get_random_positions<std::allocator<Vec3d>>(mt, number_neurons);
+    extra_info.set_positions(positions_right_2);
+    assert_contains(extra_info, number_neurons, number_neurons, positions_right_2);
 
-    nei.set_positions(positions_right);
+    ASSERT_THROW_NO_PRINT(extra_info.init(number_neurons), RelearnException);
 
-    assert_contains(nei, number_neurons, number_neurons, positions_right);
+    ASSERT_EQ(extra_info.get_size(), number_neurons);
 
-    std::vector<Vec3d> positions_right_2(number_neurons);
+    extra_info.set_positions(positions_right_2);
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
-        positions_right_2[neuron_id] = SimulationAdapter::get_random_position(mt);
-    }
-
-    nei.set_positions(positions_right_2);
-
-    assert_contains(nei, number_neurons, number_neurons, positions_right_2);
+    assert_contains(extra_info, number_neurons, number_neurons, positions_right_2);
 }
 
 TEST_F(NeuronsExtraInfoTest, testCreate) {
-    NeuronsExtraInfo nei{};
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    const auto num_neurons_init = NeuronIdAdapter::get_random_number_neurons(mt);
-    const auto num_neurons_create_1 = NeuronIdAdapter::get_random_number_neurons(mt);
-    const auto num_neurons_create_2 = NeuronIdAdapter::get_random_number_neurons(mt);
+        return;
+    }
+
+    auto extra_info = NeuronsExtraInfo{};
+
+    const auto num_neurons_init = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto num_neurons_create_1 = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto num_neurons_create_2 = NeuronIdFactory::get_random_number_neurons(mt);
 
     const auto num_neurons_total_1 = num_neurons_init + num_neurons_create_1;
     const auto num_neurons_total_2 = num_neurons_total_1 + num_neurons_create_2;
 
-    nei.init(num_neurons_init);
+    extra_info.init(num_neurons_init);
 
-    ASSERT_THROW(nei.create_neurons(num_neurons_create_1), RelearnException);
+    ASSERT_THROW_NO_PRINT(extra_info.create_neurons(num_neurons_create_1), RelearnException);
 
-    assert_empty(nei, num_neurons_init);
+    assert_empty(extra_info, num_neurons_init);
 
-    std::vector<Vec3d> positions_right(num_neurons_init);
+    auto positions_right = SimulationFactory::get_random_positions<std::allocator<Vec3d>>(mt, num_neurons_init);
 
-    for (const auto neuron_id : NeuronID::range_id(num_neurons_init)) {
-        positions_right[neuron_id] = SimulationAdapter::get_random_position(mt);
-    }
+    extra_info.set_positions(positions_right);
 
-    nei.set_positions(positions_right);
+    extra_info.create_neurons(num_neurons_create_1);
 
-    nei.create_neurons(num_neurons_create_1);
+    ASSERT_EQ(extra_info.get_size(), num_neurons_init + num_neurons_create_1);
 
-    assert_contains(nei, num_neurons_total_1, num_neurons_init, positions_right);
+    assert_contains(extra_info, num_neurons_total_1, num_neurons_init, positions_right);
 
-    std::vector<Vec3d> positions_right_2(num_neurons_total_1);
+    auto positions_right_2 = SimulationFactory::get_random_positions<std::allocator<Vec3d>>(mt, num_neurons_total_1);
 
-    for (const auto neuron_id : NeuronID::range_id(num_neurons_total_1)) {
-        positions_right_2[neuron_id] = SimulationAdapter::get_random_position(mt);
-    }
+    extra_info.set_positions(positions_right_2);
 
-    nei.set_positions(positions_right_2);
+    assert_contains(extra_info, num_neurons_total_1, num_neurons_total_1, positions_right_2);
 
-    assert_contains(nei, num_neurons_total_1, num_neurons_total_1, positions_right_2);
+    extra_info.create_neurons(num_neurons_create_2);
 
-    nei.create_neurons(num_neurons_create_2);
+    ASSERT_EQ(extra_info.get_size(), num_neurons_init + num_neurons_create_1 + num_neurons_create_2);
 
-    assert_contains(nei, num_neurons_total_2, num_neurons_total_1, positions_right_2);
+    assert_contains(extra_info, num_neurons_total_2, num_neurons_total_1, positions_right_2);
 
-    std::vector<Vec3d> positions_right_3(num_neurons_total_2);
+    auto positions_right_3 = SimulationFactory::get_random_positions<std::allocator<Vec3d>>(mt, num_neurons_total_2);
 
-    for (const auto neuron_id : NeuronID::range_id(num_neurons_total_2)) {
-        positions_right_3[neuron_id] = SimulationAdapter::get_random_position(mt);
-    }
+    extra_info.set_positions(positions_right_3);
 
-    nei.set_positions(positions_right_3);
+    assert_contains(extra_info, num_neurons_total_2, num_neurons_total_2, positions_right_3);
 
-    assert_contains(nei, num_neurons_total_2, num_neurons_total_2, positions_right_3);
+    ASSERT_THROW_NO_PRINT(extra_info.create_neurons(0), RelearnException);
+
+    assert_contains(extra_info, num_neurons_total_2, num_neurons_total_2, positions_right_3);
 }
 
 TEST_F(NeuronsExtraInfoTest, testSetStatus) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    NeuronsExtraInfo nei{};
-    nei.init(number_neurons);
+        return;
+    }
 
-    std::vector<NeuronID> enabled_neurons{};
-    std::vector<NeuronID> disabled_neurons{};
-    std::vector<NeuronID> static_neurons{};
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    auto extra_info = NeuronsExtraInfo{};
+    extra_info.init(number_neurons);
+
+    auto enabled_neurons = std::vector<NeuronID>{};
+    auto disabled_neurons = std::vector<NeuronID>{};
+    auto static_neurons = std::vector<NeuronID>{};
 
     for (const auto neuron_id : NeuronID::range(number_neurons)) {
-        const auto random_number = RandomAdapter::get_random_integer(0, 5, mt);
+        const auto random_number = RandomFactory::get_random_integer(0, 5, mt);
         if (random_number == 0) {
             static_neurons.emplace_back(neuron_id);
         } else if (random_number == 1) {
@@ -189,11 +235,13 @@ TEST_F(NeuronsExtraInfoTest, testSetStatus) {
         }
     }
 
-    ASSERT_THROW(nei.set_enabled_neurons(enabled_neurons), RelearnException);
-    ASSERT_NO_THROW(nei.set_disabled_neurons(disabled_neurons));
-    ASSERT_NO_THROW(nei.set_static_neurons(static_neurons));
+    if (!enabled_neurons.empty()) {
+        ASSERT_THROW_NO_PRINT(extra_info.set_enabled_neurons(enabled_neurons), RelearnException);
+    }
+    ASSERT_NO_THROW(extra_info.set_disabled_neurons(disabled_neurons));
+    ASSERT_NO_THROW(extra_info.set_static_neurons(static_neurons));
 
-    const auto status_flags = nei.get_disable_flags();
+    const auto status_flags = extra_info.get_disable_flags();
     ASSERT_EQ(status_flags.size(), number_neurons);
 
     for (const auto neuron_id : NeuronID::range(number_neurons)) {
@@ -201,32 +249,40 @@ TEST_F(NeuronsExtraInfoTest, testSetStatus) {
 
         if (std::ranges::binary_search(enabled_neurons, neuron_id)) {
             ASSERT_EQ(status_flags[index], UpdateStatus::Enabled);
-            ASSERT_TRUE(nei.does_update_electrical_actvity(neuron_id));
-            ASSERT_TRUE(nei.does_update_plasticity(neuron_id));
+            ASSERT_TRUE(extra_info.does_update_electrical_actvity(neuron_id));
+            ASSERT_TRUE(extra_info.does_update_plasticity(neuron_id));
         } else if (std::ranges::binary_search(disabled_neurons, neuron_id)) {
             ASSERT_EQ(status_flags[index], UpdateStatus::Disabled);
-            ASSERT_FALSE(nei.does_update_electrical_actvity(neuron_id));
-            ASSERT_FALSE(nei.does_update_plasticity(neuron_id));
+            ASSERT_FALSE(extra_info.does_update_electrical_actvity(neuron_id));
+            ASSERT_FALSE(extra_info.does_update_plasticity(neuron_id));
         } else {
             ASSERT_EQ(status_flags[index], UpdateStatus::Static);
-            ASSERT_TRUE(nei.does_update_electrical_actvity(neuron_id));
-            ASSERT_FALSE(nei.does_update_plasticity(neuron_id));
+            ASSERT_TRUE(extra_info.does_update_electrical_actvity(neuron_id));
+            ASSERT_FALSE(extra_info.does_update_plasticity(neuron_id));
         }
     }
 }
 
 TEST_F(NeuronsExtraInfoTest, testSetStatusShuffle) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    NeuronsExtraInfo nei{};
-    nei.init(number_neurons);
+        return;
+    }
 
-    std::vector<NeuronID> enabled_neurons{};
-    std::vector<NeuronID> disabled_neurons{};
-    std::vector<NeuronID> static_neurons{};
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    auto extra_info = NeuronsExtraInfo{};
+    extra_info.init(number_neurons);
+
+    auto enabled_neurons = std::vector<NeuronID>{};
+    auto disabled_neurons = std::vector<NeuronID>{};
+    auto static_neurons = std::vector<NeuronID>{};
 
     for (const auto neuron_id : NeuronID::range(number_neurons)) {
-        const auto random_number = RandomAdapter::get_random_integer(0, 5, mt);
+        const auto random_number = RandomFactory::get_random_integer(0, 5, mt);
         if (random_number == 0) {
             static_neurons.emplace_back(neuron_id);
         } else if (random_number == 1) {
@@ -236,19 +292,21 @@ TEST_F(NeuronsExtraInfoTest, testSetStatusShuffle) {
         }
     }
 
-    RandomAdapter::shuffle(enabled_neurons, mt);
-    RandomAdapter::shuffle(disabled_neurons, mt);
-    RandomAdapter::shuffle(static_neurons, mt);
+    RandomFactory::shuffle(enabled_neurons, mt);
+    RandomFactory::shuffle(disabled_neurons, mt);
+    RandomFactory::shuffle(static_neurons, mt);
 
-    ASSERT_THROW(nei.set_enabled_neurons(enabled_neurons), RelearnException);
-    ASSERT_NO_THROW(nei.set_disabled_neurons(disabled_neurons));
-    ASSERT_NO_THROW(nei.set_static_neurons(static_neurons));
+    if (!enabled_neurons.empty()) {
+        ASSERT_THROW_NO_PRINT(extra_info.set_enabled_neurons(enabled_neurons), RelearnException);
+    }
+    ASSERT_NO_THROW(extra_info.set_disabled_neurons(disabled_neurons));
+    ASSERT_NO_THROW(extra_info.set_static_neurons(static_neurons));
 
     std::ranges::sort(enabled_neurons);
     std::ranges::sort(disabled_neurons);
     std::ranges::sort(static_neurons);
 
-    const auto status_flags = nei.get_disable_flags();
+    const auto status_flags = extra_info.get_disable_flags();
     ASSERT_EQ(status_flags.size(), number_neurons);
 
     for (const auto neuron_id : NeuronID::range(number_neurons)) {
@@ -256,32 +314,40 @@ TEST_F(NeuronsExtraInfoTest, testSetStatusShuffle) {
 
         if (std::ranges::binary_search(enabled_neurons, neuron_id)) {
             ASSERT_EQ(status_flags[index], UpdateStatus::Enabled);
-            ASSERT_TRUE(nei.does_update_electrical_actvity(neuron_id));
-            ASSERT_TRUE(nei.does_update_plasticity(neuron_id));
+            ASSERT_TRUE(extra_info.does_update_electrical_actvity(neuron_id));
+            ASSERT_TRUE(extra_info.does_update_plasticity(neuron_id));
         } else if (std::ranges::binary_search(disabled_neurons, neuron_id)) {
             ASSERT_EQ(status_flags[index], UpdateStatus::Disabled);
-            ASSERT_FALSE(nei.does_update_electrical_actvity(neuron_id));
-            ASSERT_FALSE(nei.does_update_plasticity(neuron_id));
+            ASSERT_FALSE(extra_info.does_update_electrical_actvity(neuron_id));
+            ASSERT_FALSE(extra_info.does_update_plasticity(neuron_id));
         } else {
             ASSERT_EQ(status_flags[index], UpdateStatus::Static);
-            ASSERT_TRUE(nei.does_update_electrical_actvity(neuron_id));
-            ASSERT_FALSE(nei.does_update_plasticity(neuron_id));
+            ASSERT_TRUE(extra_info.does_update_electrical_actvity(neuron_id));
+            ASSERT_FALSE(extra_info.does_update_plasticity(neuron_id));
         }
     }
 }
 
 TEST_F(NeuronsExtraInfoTest, testSetStatusOutOfBounds) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    NeuronsExtraInfo nei{};
-    nei.init(number_neurons);
+        return;
+    }
 
-    std::vector<NeuronID> enabled_neurons{};
-    std::vector<NeuronID> disabled_neurons{};
-    std::vector<NeuronID> static_neurons{};
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+
+    auto extra_info = NeuronsExtraInfo{};
+    extra_info.init(number_neurons);
+
+    auto enabled_neurons = std::vector<NeuronID>{};
+    auto disabled_neurons = std::vector<NeuronID>{};
+    auto static_neurons = std::vector<NeuronID>{};
 
     for (const auto neuron_id : NeuronID::range(number_neurons)) {
-        const auto random_number = RandomAdapter::get_random_integer(0, 5, mt);
+        const auto random_number = RandomFactory::get_random_integer(0, 5, mt);
         if (random_number == 0) {
             static_neurons.emplace_back(neuron_id);
         } else if (random_number == 1) {
@@ -295,30 +361,38 @@ TEST_F(NeuronsExtraInfoTest, testSetStatusOutOfBounds) {
     enabled_neurons.emplace_back(number_neurons + 1);
     disabled_neurons.emplace_back(number_neurons + 2);
 
-    ASSERT_THROW(nei.set_enabled_neurons(enabled_neurons), RelearnException);
-    ASSERT_THROW(nei.set_disabled_neurons(disabled_neurons), RelearnException);
-    ASSERT_THROW(nei.set_static_neurons(static_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(extra_info.set_enabled_neurons(enabled_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(extra_info.set_disabled_neurons(disabled_neurons), RelearnException);
+    ASSERT_THROW_NO_PRINT(extra_info.set_static_neurons(static_neurons), RelearnException);
 }
 
 TEST_F(NeuronsExtraInfoTest, testSetStatusRepeated) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     const auto number_neurons = 5;
 
-    NeuronsExtraInfo nei{};
-    nei.init(number_neurons);
+    auto extra_info = NeuronsExtraInfo{};
+    extra_info.init(number_neurons);
 
-    const auto status_flags = nei.get_disable_flags();
+    const auto status_flags = extra_info.get_disable_flags();
 
-    nei.set_disabled_neurons(std::vector{ NeuronID(2) });
-    nei.set_enabled_neurons(std::vector{ NeuronID(2) });
+    extra_info.set_disabled_neurons(std::vector{ NeuronID(2) });
+    extra_info.set_enabled_neurons(std::vector{ NeuronID(2) });
 
-    for (auto i = 0; i < number_neurons; i++) {
+    for (auto i = 0U; i < number_neurons; i++) {
         ASSERT_EQ(status_flags[i], UpdateStatus::Enabled);
     }
 
-    nei.set_static_neurons(std::vector{ NeuronID(2), NeuronID(3) });
+    extra_info.set_static_neurons(std::vector{ NeuronID(2), NeuronID(3) });
 
-    ASSERT_THROW(nei.set_enabled_neurons(std::vector{ NeuronID(3) }), RelearnException);
-    ASSERT_THROW(nei.set_disabled_neurons(std::vector{ NeuronID(2) }), RelearnException);
+    ASSERT_THROW_NO_PRINT(extra_info.set_enabled_neurons(std::vector{ NeuronID(3) }), RelearnException);
+    ASSERT_THROW_NO_PRINT(extra_info.set_disabled_neurons(std::vector{ NeuronID(2) }), RelearnException);
 
     ASSERT_EQ(status_flags[0], UpdateStatus::Enabled);
     ASSERT_EQ(status_flags[1], UpdateStatus::Enabled);
@@ -328,73 +402,83 @@ TEST_F(NeuronsExtraInfoTest, testSetStatusRepeated) {
 }
 
 TEST_F(NeuronsExtraInfoTest, testGetPositionsFor) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    NeuronsExtraInfo nei{};
-    nei.init(number_neurons);
-
-    std::vector<RelearnTypes::position_type> positions(number_neurons);
-    for (auto i = 0; i < number_neurons; i++) {
-        positions[i] = SimulationAdapter::get_random_position(mt);
+        return;
     }
 
-    nei.set_positions(positions);
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
 
-    const auto number_ranks = MPIRankAdapter::get_random_number_ranks(mt);
+    auto extra_info = NeuronsExtraInfo{};
+    extra_info.init(number_neurons);
 
-    CommunicationMap<NeuronID> cm(number_ranks, NeuronIdAdapter::upper_bound_num_neurons);
+    auto positions = SimulationFactory::get_random_positions<std::allocator<Vec3d>>(mt, number_neurons);
 
-    for (const auto rank : MPIRank::range(number_ranks)) {
-        const auto number_neurons_for_rank = NeuronIdAdapter::get_random_number_neurons(mt);
-        for (auto it = 0; it < number_neurons_for_rank; it++) {
-            cm.emplace_back(rank, NeuronIdAdapter::get_random_neuron_id(number_neurons, mt));
+    extra_info.set_positions(positions);
+
+    const auto number_ranks = MPIRankFactory::get_random_number_ranks(mt);
+
+    auto cm = RelearnTypes::comm_map_position<NeuronID>(number_ranks, NeuronIdFactory::upper_bound_num_neurons);
+
+    for (const auto rank : mpiPP::MPIRank::range(number_ranks)) {
+        const auto number_neurons_for_rank = NeuronIdFactory::get_random_number_neurons(mt);
+        for (auto it = 0U; it < number_neurons_for_rank; it++) {
+            cm.emplace_back(rank, NeuronIdFactory::get_random_neuron_id(number_neurons, mt));
         }
     }
 
-    auto results = nei.get_positions_for(cm);
+    auto results = extra_info.get_positions_for(cm);
 
     ASSERT_EQ(cm.size(), results.size());
 
-    for (auto outer_it = 0; outer_it < cm.size(); outer_it++) {
-        const auto rank = MPIRank(outer_it);
+    for (auto outer_it = 0; static_cast<std::size_t>(outer_it) < cm.size(); outer_it++) {
+        const auto rank = mpiPP::MPIRank(outer_it);
         const auto& requests = cm.get_requests(rank);
         const auto& responses = results.get_requests(rank);
 
         ASSERT_EQ(requests.size(), responses.size());
 
-        for (auto inner_it = 0; inner_it < requests.size(); inner_it++) {
-            const auto& expected_position = nei.get_position(requests[inner_it]);
+        for (auto inner_it = 0U; inner_it < requests.size(); inner_it++) {
+            const auto& expected_position = extra_info.get_position(requests[inner_it]);
             ASSERT_EQ(expected_position, responses[inner_it]);
         }
     }
 }
 
 TEST_F(NeuronsExtraInfoTest, testGetPositionsForException) {
-    const auto number_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    NeuronsExtraInfo nei{};
-    nei.init(number_neurons);
-
-    std::vector<RelearnTypes::position_type> positions(number_neurons);
-    for (auto i = 0; i < number_neurons; i++) {
-        positions[i] = SimulationAdapter::get_random_position(mt);
+        return;
     }
 
-    nei.set_positions(positions);
+    const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
 
-    const auto number_ranks = MPIRankAdapter::get_random_number_ranks(mt);
+    auto extra_info = NeuronsExtraInfo{};
+    extra_info.init(number_neurons);
 
-    CommunicationMap<NeuronID> cm(number_ranks, NeuronIdAdapter::upper_bound_num_neurons);
+    auto positions = SimulationFactory::get_random_positions<std::allocator<Vec3d>>(mt, number_neurons);
 
-    for (const auto rank : MPIRank::range(number_ranks)) {
-        const auto number_neurons_for_rank = NeuronIdAdapter::get_random_number_neurons(mt);
-        for (auto it = 0; it < number_neurons_for_rank; it++) {
-            cm.emplace_back(rank, NeuronIdAdapter::get_random_neuron_id(number_neurons, mt));
+    extra_info.set_positions(positions);
+
+    const auto number_ranks = MPIRankFactory::get_random_number_ranks(mt);
+
+    auto cm = RelearnTypes::comm_map_position<NeuronID>(number_ranks, NeuronIdFactory::upper_bound_num_neurons);
+
+    for (const auto rank : mpiPP::MPIRank::range(number_ranks)) {
+        const auto number_neurons_for_rank = NeuronIdFactory::get_random_number_neurons(mt);
+        for (auto it = 0U; it < number_neurons_for_rank; it++) {
+            cm.emplace_back(rank, NeuronIdFactory::get_random_neuron_id(number_neurons, mt));
         }
     }
 
-    const auto faulty_rank = MPIRankAdapter::get_random_mpi_rank(number_ranks, mt);
+    const auto faulty_rank = MPIRankFactory::get_random_mpi_rank(number_ranks, mt);
     cm.emplace_back(faulty_rank, number_neurons);
 
-    ASSERT_THROW(auto val = nei.get_positions_for(cm), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = extra_info.get_positions_for(cm), RelearnException);
 }

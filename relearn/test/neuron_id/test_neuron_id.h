@@ -12,6 +12,4 @@
 
 #include "RelearnTest.hpp"
 
-#include "util/NeuronID.h"
-
 class NeuronIDTest : public RelearnTest { };

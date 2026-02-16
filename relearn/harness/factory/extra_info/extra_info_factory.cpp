@@ -1,0 +1,19 @@
+/*
+ * This file is part of the RELeARN software developed at Technical University Darmstadt
+ *
+ * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ *
+ * This software may be modified and distributed under the terms of a BSD-style license.
+ * See the LICENSE file in the base directory for details.
+ *
+ */
+
+#include "extra_info_factory.h"
+
+#include "neurons/NeuronsExtraInfo.h"
+
+#include <memory>
+
+std::shared_ptr<NeuronsExtraInfo> NeuronsExtraInfoFactory::construct_extra_info() {
+    return std::make_shared<NeuronsExtraInfo>();
+}

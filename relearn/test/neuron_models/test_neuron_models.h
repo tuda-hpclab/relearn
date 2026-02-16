@@ -12,7 +12,23 @@
 
 #include "RelearnTest.hpp"
 
+class NeuronModel;
+
 class NeuronModelsTest : public RelearnTest {
 protected:
-    // void test_update(std::unique_ptr<NeuronModel> model, std::shared_ptr<NetworkGraph> ng, size_t number_neurons);
+    static void assert_getter_equality(const NeuronModel& model);
+
+    static void assert_getter_throws(const NeuronModel& model);
+};
+
+class AEIFModelTest : public NeuronModelsTest {
+};
+
+class FitzHughNagumoModelTest : public NeuronModelsTest {
+};
+
+class IzhikevichModelTest : public NeuronModelsTest {
+};
+
+class PoissonModelTest : public NeuronModelsTest {
 };

@@ -10,19 +10,18 @@
  *
  */
 
-#include "util/MPIRank.h"
-#include "util/RelearnException.h"
 #include "util/NeuronID.h"
+#include "util/RelearnException.h"
+
+#include "mpi-wrapper/MPIRank.h"
 
 #include <boost/functional/hash.hpp>
-
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 
 #include <compare>
 #include <ostream>
 #include <utility>
-#include <boost/functional/hash.hpp>
 
 /**
  * Identifies a neuron by the MPI rank of its owner
@@ -38,12 +37,12 @@ public:
 
     /**
      * @brief Constructs a new RankNeuronId with specified inputs (not validated)
-     * @param rank The MPI rank
-     * @param neuron_id The neuron id
+     * @param _rank The MPI rank
+     * @param _neuron_id The neuron id
      */
-    constexpr RankNeuronId(const MPIRank rank, const NeuronID neuron_id) noexcept
-        : rank(rank)
-        , neuron_id(neuron_id) {
+    constexpr RankNeuronId(const mpiPP::MPIRank _rank, const NeuronID _neuron_id) noexcept
+        : rank(_rank)
+        , neuron_id(_neuron_id) {
     }
 
     /**
@@ -59,7 +58,7 @@ public:
      * @return The MPI rank, must be initialized
      * @exception Throws a RelearnException if the rank is not initialized
      */
-    [[nodiscard]] constexpr MPIRank get_rank() const {
+    [[nodiscard]] constexpr mpiPP::MPIRank get_rank() const {
         RelearnException::check(rank.is_initialized(), "RankNeuronId::get_rank: The rank was not initialized");
         return rank;
     }
@@ -95,7 +94,7 @@ public:
     }
 
     template <std::size_t Index>
-    [[nodiscard]] constexpr auto const& get() const& {
+    [[nodiscard]] constexpr const auto& get() const& {
         if constexpr (Index == 0) {
             return rank;
         }
@@ -115,8 +114,8 @@ public:
     }
 
 private:
-    MPIRank rank{}; // MPI rank of the owner
-    NeuronID neuron_id{}; // Neuron id on the owner
+    mpiPP::MPIRank rank{}; // MPI rank of the owner
+    NeuronID neuron_id{};  // Neuron id on the owner
 };
 
 template <>
@@ -130,7 +129,7 @@ struct tuple_size<::RankNeuronId> {
 
 template <>
 struct tuple_element<0, ::RankNeuronId> {
-    using type = MPIRank;
+    using type = mpiPP::MPIRank;
 };
 
 template <>
@@ -138,6 +137,9 @@ struct tuple_element<1, ::RankNeuronId> {
     using type = NeuronID;
 };
 
+} // namespace std
+
+namespace std {
 template <>
 struct hash<RankNeuronId> {
     using argument_type = RankNeuronId;
@@ -146,7 +148,7 @@ struct hash<RankNeuronId> {
     result_type operator()(const argument_type& rni) const {
         const auto& [rank, neuron_id] = rni;
 
-        const auto rank_hash = std::hash<MPIRank>{}(rank);
+        const auto rank_hash = std::hash<mpiPP::MPIRank>{}(rank);
         const auto neuron_id_hash = std::hash<NeuronID>{}(neuron_id);
 
         std::size_t total_hash = rank_hash;
@@ -155,3 +157,8 @@ struct hash<RankNeuronId> {
     }
 };
 } // namespace std
+
+// for use of boost::hash for SynapticIndividuallyWeightedActivityInput::weight_map_type
+[[nodiscard]] inline std::size_t hash_value(const RankNeuronId& rni) {
+    return std::hash<RankNeuronId>{}(rni);
+}

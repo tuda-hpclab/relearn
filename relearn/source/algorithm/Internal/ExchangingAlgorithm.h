@@ -10,21 +10,17 @@
  *
  */
 
-#include "AlgorithmImpl.h"
-
 #include "Types.h"
-#include "mpi/CommunicationMap.h"
-#include "mpi/MPIWrapper.h"
-#include "neurons/enums/UpdateStatus.h"
-#include "structure/Octree.h"
+#include "Types3.h"
+
+#include "algorithm/Algorithm.h"
 #include "util/Timers.h"
+
+#include "mpi-wrapper/MPIAdvancedCommunicationPatterns.h"
 
 #include <memory>
 #include <tuple>
 #include <utility>
-#include <vector>
-
-class NeuronsExtraInfo;
 
 /**
  * This class manages the exchange of requests and responses, and their distribution on all MPI ranks
@@ -32,13 +28,16 @@ class NeuronsExtraInfo;
  * @tparam RequestType The type of creation requests
  * @tparam ResponseType The type of creation responses
  */
-template <typename RequestType, typename ResponseType, typename AdditionalCellAttributes>
-class ForwardAlgorithm : public AlgorithmImpl<AdditionalCellAttributes> {
+template <typename RequestType, typename ResponseType>
+class ForwardAlgorithm : public Algorithm {
 public:
     using number_neurons_type = RelearnTypes::number_neurons_type;
 
-    explicit ForwardAlgorithm(const std::shared_ptr<OctreeImplementation<AdditionalCellAttributes>>& octree)
-        : AlgorithmImpl<AdditionalCellAttributes>(octree) { }
+    /**
+     * @brief Constructs a new object
+     */
+    ForwardAlgorithm()
+        : Algorithm() { }
 
     /**
      * @brief Updates the connectivity with the algorithm. Already updates the synaptic elements, i.e., the axons and dendrites (both excitatory and inhibitory).
@@ -47,7 +46,7 @@ public:
      * @exception Can throw a RelearnException
      * @return A tuple with the created synapses that must be committed to the network graph
      */
-    [[nodiscard]] std::tuple<PlasticLocalSynapses, PlasticDistantInSynapses, PlasticDistantOutSynapses> update_connectivity(number_neurons_type number_neurons) override {
+    [[nodiscard]] std::tuple<PlasticLocalSynapses, PlasticDistantInSynapses, PlasticDistantOutSynapses> update_connectivity(const number_neurons_type number_neurons) override {
         Timers::start(TimerRegion::CREATE_SYNAPSES);
 
         Timers::start(TimerRegion::FIND_TARGET_NEURONS);
@@ -55,7 +54,7 @@ public:
         Timers::stop_and_add(TimerRegion::FIND_TARGET_NEURONS);
 
         Timers::start(TimerRegion::EXCHANGE_CREATION_REQUESTS);
-        const auto& synapse_creation_requests_incoming = MPIWrapper::exchange_requests(synapse_creation_requests_outgoing);
+        const auto& synapse_creation_requests_incoming = mpiPP::MPIAdvancedCommunicationPatterns::exchange_requests(synapse_creation_requests_outgoing);
         Timers::stop_and_add(TimerRegion::EXCHANGE_CREATION_REQUESTS);
 
         Timers::start(TimerRegion::PROCESS_CREATION_REQUESTS);
@@ -64,7 +63,7 @@ public:
         Timers::stop_and_add(TimerRegion::PROCESS_CREATION_REQUESTS);
 
         Timers::start(TimerRegion::CREATE_CREATION_RESPONSES);
-        const auto& responses_incoming = MPIWrapper::exchange_requests(responses_outgoing);
+        const auto& responses_incoming = mpiPP::MPIAdvancedCommunicationPatterns::exchange_requests(responses_outgoing);
         Timers::stop_and_add(TimerRegion::CREATE_CREATION_RESPONSES);
 
         Timers::start(TimerRegion::PROCESS_CREATION_RESPONSES);
@@ -78,6 +77,17 @@ public:
         };
     }
 
+    /**
+     * @brief Records the memory footprint of the current object
+     * @param footprint Where to store the current footprint
+     */
+    void record_memory_footprint(const std::unique_ptr<utility::MemoryFootprint>& footprint) override {
+        Algorithm::record_memory_footprint(footprint);
+
+        const auto my_footprint = sizeof(*this) - sizeof(Algorithm);
+        footprint->emplace("ForwardAlgorithm", my_footprint);
+    }
+
 protected:
     /**
      * @brief Returns a collection of proposed synapse creations for each neuron
@@ -85,7 +95,7 @@ protected:
      * @exception Can throw a RelearnException
      * @return Returns a map, indicating for every MPI rank all requests that are made from this rank. Does not send those requests to the other MPI ranks.
      */
-    [[nodiscard]] virtual CommunicationMap<RequestType> find_target_neurons(number_neurons_type number_neurons) = 0;
+    [[nodiscard]] virtual RelearnTypes::comm_map_creation<RequestType> find_target_neurons(number_neurons_type number_neurons) = 0;
 
     /**
      * @brief Processes all incoming requests from the MPI ranks locally, and prepares the responses
@@ -93,8 +103,8 @@ protected:
      * @exception Can throw a RelearnException
      * @return A pair of (1) The responses to each request and (2) another pair of (a) all local synapses and (b) all distant synapses to the local rank
      */
-    [[nodiscard]] virtual std::pair<CommunicationMap<ResponseType>, std::pair<PlasticLocalSynapses, PlasticDistantInSynapses>>
-    process_requests(const CommunicationMap<RequestType>& creation_requests) = 0;
+    [[nodiscard]] virtual std::pair<RelearnTypes::comm_map_creation<ResponseType>, std::pair<PlasticLocalSynapses, PlasticDistantInSynapses>>
+    process_requests(const RelearnTypes::comm_map_creation<RequestType>& creation_requests) = 0;
 
     /**
      * @brief Processes all incoming responses from the MPI ranks locally
@@ -103,7 +113,9 @@ protected:
      * @exception Can throw a RelearnException
      * @return All synapses from this MPI rank to other MPI ranks
      */
-    [[nodiscard]] virtual PlasticDistantOutSynapses process_responses(const CommunicationMap<RequestType>& creation_requests, const CommunicationMap<ResponseType>& creation_responses) = 0;
+    [[nodiscard]] virtual PlasticDistantOutSynapses process_responses(const RelearnTypes::comm_map_creation<RequestType>& creation_requests,
+                                                                      const RelearnTypes::comm_map_creation<ResponseType>& creation_responses)
+        = 0;
 };
 
 /**
@@ -112,13 +124,17 @@ protected:
  * @tparam RequestType The type of creation requests
  * @tparam ResponseType The type of creation responses
  */
-template <typename RequestType, typename ResponseType, typename AdditionalCellAttributes>
-class BackwardAlgorithm : public AlgorithmImpl<AdditionalCellAttributes> {
+template <typename RequestType, typename ResponseType>
+class BackwardAlgorithm : public Algorithm {
 public:
     using number_neurons_type = RelearnTypes::number_neurons_type;
 
-    explicit BackwardAlgorithm(const std::shared_ptr<OctreeImplementation<AdditionalCellAttributes>>& octree)
-        : AlgorithmImpl<AdditionalCellAttributes>(octree) { }
+    /**
+     * @brief Constructs a new object
+     * @exception Throws a RelearnException if octree is nullptr
+     */
+    BackwardAlgorithm()
+        : Algorithm() { }
 
     /**
      * @brief Updates the connectivity with the algorithm. Already updates the synaptic elements, i.e., the axons and dendrites (both excitatory and inhibitory).
@@ -127,7 +143,7 @@ public:
      * @exception Can throw a RelearnException
      * @return A tuple with the created synapses that must be committed to the network graph
      */
-    [[nodiscard]] std::tuple<PlasticLocalSynapses, PlasticDistantInSynapses, PlasticDistantOutSynapses> update_connectivity(number_neurons_type number_neurons) override {
+    [[nodiscard]] std::tuple<PlasticLocalSynapses, PlasticDistantInSynapses, PlasticDistantOutSynapses> update_connectivity(const number_neurons_type number_neurons) override {
         Timers::start(TimerRegion::CREATE_SYNAPSES);
 
         Timers::start(TimerRegion::FIND_TARGET_NEURONS);
@@ -135,7 +151,7 @@ public:
         Timers::stop_and_add(TimerRegion::FIND_TARGET_NEURONS);
 
         Timers::start(TimerRegion::EXCHANGE_CREATION_REQUESTS);
-        const auto& synapse_creation_requests_incoming = MPIWrapper::exchange_requests(synapse_creation_requests_outgoing);
+        const auto& synapse_creation_requests_incoming = mpiPP::MPIAdvancedCommunicationPatterns::exchange_requests(synapse_creation_requests_outgoing);
         Timers::stop_and_add(TimerRegion::EXCHANGE_CREATION_REQUESTS);
 
         Timers::start(TimerRegion::PROCESS_CREATION_REQUESTS);
@@ -144,7 +160,7 @@ public:
         Timers::stop_and_add(TimerRegion::PROCESS_CREATION_REQUESTS);
 
         Timers::start(TimerRegion::CREATE_CREATION_RESPONSES);
-        const auto& responses_incoming = MPIWrapper::exchange_requests(responses_outgoing);
+        const auto& responses_incoming = mpiPP::MPIAdvancedCommunicationPatterns::exchange_requests(responses_outgoing);
         Timers::stop_and_add(TimerRegion::CREATE_CREATION_RESPONSES);
 
         Timers::start(TimerRegion::PROCESS_CREATION_RESPONSES);
@@ -158,6 +174,17 @@ public:
         };
     }
 
+    /**
+     * @brief Records the memory footprint of the current object
+     * @param footprint Where to store the current footprint
+     */
+    void record_memory_footprint(const std::unique_ptr<utility::MemoryFootprint>& footprint) override {
+        Algorithm::record_memory_footprint(footprint);
+
+        const auto my_footprint = sizeof(*this) - sizeof(Algorithm);
+        footprint->emplace("BackwardAlgorithm", my_footprint);
+    }
+
 protected:
     /**
      * @brief Returns a collection of proposed synapse creations for each neuron
@@ -165,7 +192,7 @@ protected:
      * @exception Can throw a RelearnException
      * @return Returns a map, indicating for every MPI rank all requests that are made from this rank. Does not send those requests to the other MPI ranks.
      */
-    [[nodiscard]] virtual CommunicationMap<RequestType> find_target_neurons(number_neurons_type number_neurons) = 0;
+    [[nodiscard]] virtual RelearnTypes::comm_map_creation<RequestType> find_target_neurons(number_neurons_type number_neurons) = 0;
 
     /**
      * @brief Processes all incoming requests from the MPI ranks locally, and prepares the responses
@@ -173,8 +200,8 @@ protected:
      * @exception Can throw a RelearnException
      * @return A pair of (1) The responses to each request and (2) another pair of (a) all local synapses and (b) all synapses from other ranks
      */
-    [[nodiscard]] virtual std::pair<CommunicationMap<ResponseType>, std::pair<PlasticLocalSynapses, PlasticDistantOutSynapses>>
-    process_requests(const CommunicationMap<RequestType>& creation_requests) = 0;
+    [[nodiscard]] virtual std::pair<RelearnTypes::comm_map_creation<ResponseType>, std::pair<PlasticLocalSynapses, PlasticDistantOutSynapses>>
+    process_requests(const RelearnTypes::comm_map_creation<RequestType>& creation_requests) = 0;
 
     /**
      * @brief Processes all incoming responses from the MPI ranks locally
@@ -183,5 +210,7 @@ protected:
      * @exception Can throw a RelearnException
      * @return All synapses to this MPI rank from other MPI ranks
      */
-    [[nodiscard]] virtual PlasticDistantInSynapses process_responses(const CommunicationMap<RequestType>& creation_requests, const CommunicationMap<ResponseType>& creation_responses) = 0;
+    [[nodiscard]] virtual PlasticDistantInSynapses process_responses(const RelearnTypes::comm_map_creation<RequestType>& creation_requests,
+                                                                     const RelearnTypes::comm_map_creation<ResponseType>& creation_responses)
+        = 0;
 };

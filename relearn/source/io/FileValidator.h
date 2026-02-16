@@ -11,8 +11,9 @@
  */
 
 #include "util/NeuronID.h"
-#include "util/ranges/Functional.hpp"
-#include "util/ranges/views/IO.hpp"
+
+#include "cpp-utility/ranges/Functional.hpp"
+#include "cpp-utility/ranges/views/IO.hpp"
 
 #include <range/v3/view/getlines.hpp>
 
@@ -36,17 +37,17 @@ public:
      */
     template <typename synapse_weight>
     static bool check_edges_from_file(const std::filesystem::path& path_synapses, const std::vector<NeuronID::value_type>& neuron_ids) {
-        std::ifstream file_synapses(path_synapses, std::ios::binary | std::ios::in);
+        auto file_synapses = std::ifstream(path_synapses, std::ios::binary | std::ios::in);
 
-        std::set<NeuronID::value_type> ids_in_file{};
+        auto ids_in_file = std::set<NeuronID::value_type>{};
 
-        for (const auto& line : ranges::getlines(file_synapses) | views::filter_not_comment_not_empty_line) {
-            NeuronID::value_type source_id = 0;
-            NeuronID::value_type target_id = 0;
-            synapse_weight weight = 0;
+        for (const auto& line : ranges::getlines(file_synapses) | utility::views::filter_not_comment_not_empty_line) {
+            auto source_id = NeuronID::value_type{ 0 };
+            auto target_id = NeuronID::value_type{ 0 };
+            auto weight = synapse_weight{ 0 };
 
-            std::stringstream sstream(line);
-            const bool success = (sstream >> source_id) && (sstream >> target_id) && (sstream >> weight);
+            auto sstream = std::stringstream{ line };
+            const auto success = (sstream >> source_id) && (sstream >> target_id) && (sstream >> weight);
 
             if (!success) {
                 return false;

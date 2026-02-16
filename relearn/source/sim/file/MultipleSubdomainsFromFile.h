@@ -11,8 +11,9 @@
  */
 
 #include "Config.h"
+
 #include "sim/NeuronToSubdomainAssignment.h"
-#include "AdditionalPositionInformation.h"
+#include "sim/file/AdditionalPositionInformation.h"
 
 #include <filesystem>
 #include <memory>
@@ -31,11 +32,12 @@ public:
      *      Optionally all read their respective synapses
      * @param path_to_neurons The directory that includes all files with the neurons to load
      * @param path_to_synapses The directory that includes all files with the synapses, can be empty if none should be loaded
-     * @param partition The partition
+     * @param _partition The partition
      * @exception Throws a RelearnException if some errors occurred while processing the file,
      *      if there is only 1 MPI rank, or not every MPI rank has a designated file.
      */
-    MultipleSubdomainsFromFile(const std::filesystem::path& path_to_neurons, std::optional<std::filesystem::path> path_to_synapses, const std::shared_ptr<Partition>& partition);
+    MultipleSubdomainsFromFile(const std::filesystem::path& path_to_neurons, std::optional<std::filesystem::path> path_to_synapses,
+                               const std::shared_ptr<Partition>& _partition);
 
     MultipleSubdomainsFromFile(const MultipleSubdomainsFromFile& other) = delete;
     MultipleSubdomainsFromFile(MultipleSubdomainsFromFile&& other) = delete;

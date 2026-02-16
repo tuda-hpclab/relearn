@@ -10,28 +10,99 @@
 
 #include "test_background_activity_io.h"
 
-#include "adapter/mpi/MpiRankAdapter.h"
-#include "adapter/network_graph/NetworkGraphAdapter.h"
-#include "adapter/neuron_assignment/NeuronAssignmentAdapter.h"
-#include "adapter/neuron_id/NeuronIdAdapter.h"
-#include "adapter/neurons/NeuronTypesAdapter.h"
-#include "adapter/random/RandomAdapter.h"
-#include "adapter/simulation/SimulationAdapter.h"
+#include "Types.h"
 
-#include "io/NeuronIO.h"
-#include "neurons/LocalAreaTranslator.h"
 #include "io/BackgroundActivityIO.h"
+#include "io/NeuronIO.h"
+#include "neurons/LocalGroupTranslator.h"
+#include "neurons/helper/ChoiceFunction.h"
+#include "neurons/input/ConstantActivityInput.h"
+#include "neurons/input/NormalActivityInput.h"
+#include "util/NeuronID.h"
+#include "util/shuffle/shuffle.h"
 
+#include "mpi-wrapper/MPIInfo.h"
+#include "mpi-wrapper/MPIRank.h"
+
+#include "factory/local_group_translator/local_group_translator_factory.h"
+#include "factory/mpi_rank/mpi_rank_factory.h"
+#include "factory/neuron_id/neuron_id_factory.h"
+#include "factory/neurons/neurons_factory.h"
+
+#include <gtest/gtest.h>
+
+#include <range/v3/range/conversion.hpp>
+#include <range/v3/view/filter.hpp>
+#include <range/v3/view/transform.hpp>
+
+#include <algorithm>
+#include <cstddef>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <iterator>
+#include <memory>
+#include <optional>
+#include <string>
 #include <tuple>
-#include "range/v3/action/sort.hpp"
+#include <unordered_set>
+#include <vector>
+
+namespace {
+template <typename Base, typename T>
+inline bool instanceof(const std::shared_ptr<T>& ptr) {
+    return dynamic_cast<Base*>(ptr.get()) != nullptr;
+}
+} // namespace
+
+void check_choice(const std::vector<std::string>& input_keys, const std::unordered_set<size_t>& indices, const std::vector<std::string>& expected_input_keys) {
+    ASSERT_EQ(indices.size(), expected_input_keys.size());
+
+    for (const auto index : indices) {
+        ASSERT_LT(index, input_keys.size());
+        const auto& input_key = input_keys[index];
+        ASSERT_TRUE(std::find(expected_input_keys.begin(), expected_input_keys.end(), input_key) != expected_input_keys.end());
+    }
+}
+
+std::vector<std::string> inputs_to_input_keys(const std::vector<std::shared_ptr<ActivityInput>>& inputs) {
+    auto input_keys = std::vector<std::string>{};
+    input_keys.reserve(inputs.size());
+
+    for (const auto& input : inputs) {
+        std::string key = std::string{};
+
+        if (instanceof<ConstantActivityInput>(input)) {
+            const auto constant_input = static_pointer_cast<ConstantActivityInput>(input);
+            key = fmt::format("constant:{}", constant_input->get_constant());
+        } else if (instanceof<NormalActivityInput>(input)) {
+            const auto constant_input = static_pointer_cast<NormalActivityInput>(input);
+            key = fmt::format("normal:{},{}", constant_input->get_mean(), constant_input->get_stddev());
+        } else if (instanceof<FastNormalActivityInput>(input)) {
+            const auto constant_input = static_pointer_cast<FastNormalActivityInput>(input);
+            key = fmt::format("fastnormal:{},{}", constant_input->get_mean(), constant_input->get_stddev());
+        }
+        const bool found_key = !key.empty();
+        RelearnException::check(found_key, "BackgroundActivityIOTest::inputs_to_input_keys: Key was not found");
+
+        input_keys.push_back(key);
+    }
+    return input_keys;
+}
 
 TEST_F(BackgroundActivityIOTest, testRead) {
-    const auto num_neurons = NeuronIdAdapter::get_random_number_neurons(mt);
-    const auto num_steps = RandomAdapter::get_random_integer(1000, 999999, mt);
-    const auto num_ranks = RandomAdapter::get_random_integer(1, 10, mt);
-    const auto my_rank = MPIRankAdapter::get_random_mpi_rank(num_ranks, mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    std::filesystem::path file_path{ "./background_activity.tmp" };
+        return;
+    }
+
+    const auto num_neurons = NeuronIdFactory::get_random_number_neurons(mt);
+    const auto my_rank = mpiPP::MPIRank::root_rank();
+
+    std::filesystem::path file_path{ "./background_activity0.tmp" };
 
     std::ofstream of(file_path, std::ios::binary | std::ios::out);
 
@@ -41,73 +112,146 @@ TEST_F(BackgroundActivityIOTest, testRead) {
     ASSERT_TRUE(is_good);
     ASSERT_FALSE(is_bad);
 
-    const auto num_changes = RandomAdapter::get_random_integer(10, 50, mt);
-
-    std::vector<std::tuple<RelearnTypes::step_type, std::string, std::vector<NeuronID>>> gold;
-
-    const auto area_names = NeuronAssignmentAdapter::get_random_area_names(num_neurons, mt);
-    const auto num_areas = area_names.size();
-    const auto neuron_to_area_name = NeuronAssignmentAdapter::get_random_area_ids(num_areas, num_neurons, mt);
-    const auto local_area_translator = std::make_shared<LocalAreaTranslator>(area_names, neuron_to_area_name);
-
-    for (auto i = 0; i < num_changes; i++) {
-        const auto step = RandomAdapter::get_random_integer<RelearnTypes::step_type>(0, num_steps, mt);
-
-        const auto p = RandomAdapter::get_random_string(RandomAdapter::get_random_integer(1, 20, mt), mt);
-        const auto num_selected_neurons = RandomAdapter::get_random_integer<size_t>(1, num_neurons, mt);
-        const auto& neurons = NeuronIdAdapter::get_random_rank_neuron_ids(num_neurons, num_ranks, num_selected_neurons, mt);
-
-        const auto num_fake_area_names = RandomAdapter::get_random_integer(0, 10, mt);
-        const auto num_real_area_names = RandomAdapter::get_random_integer<size_t>(0, num_areas, mt);
-
-        auto local_neurons = neurons | ranges::view::filter([my_rank](const auto& rni) { return rni.get_rank() == my_rank; }) | ranges::view::transform([](const auto& rni) { return rni.get_neuron_id(); })
-            | ranges::to_vector;
-
-        of << step << " " << p << " ";
-
-        for (auto i = 0; i < num_fake_area_names; i++) {
-            of << NeuronAssignmentAdapter::get_random_area_name(mt) << " ";
-        }
-
-        auto real_area_names = area_names;
-        real_area_names = actions::shuffle(real_area_names, mt);
-        for (auto i = 0; i < num_real_area_names; i++) {
-            of << real_area_names[i] << " ";
-            const auto& neurons_in_area = local_area_translator->get_neuron_ids_in_area(local_area_translator->get_area_id_for_area_name(real_area_names[i]));
-            std::copy(neurons_in_area.begin(), neurons_in_area.end(), std::back_inserter(local_neurons));
-        }
-
-        for (const auto& neuron_id : neurons) {
-            of << neuron_id.get_rank().get_rank() << ":" << neuron_id.get_neuron_id().get_neuron_id() + 1 << " ";
-        }
-        of << "\n";
-        std::sort(local_neurons.begin(), local_neurons.end());
-        local_neurons.erase(unique(local_neurons.begin(), local_neurons.end()), local_neurons.end());
-
-        gold.emplace_back(step, p, local_neurons);
-    }
+    of << "1 4 constant:1 .+\n";
+    of << "2 4 constant:2 .+\n";
+    of << "3 4 constant:3 .+\n";
+    of << "10 -1 normal:1,1 .+\n";
+    of << "150 -1 constant:2 .+\n";
     of.close();
 
-    std::sort(gold.begin(), gold.end(), [](const auto& t1, const auto& t2) {
-        return std::get<0>(t1) < std::get<0>(t2);
-    });
+    auto group_names = RelearnTypes::group_names{};
+    auto neuron_to_group_ids = std::vector<RelearnTypes::group_ids>{};
+    NeuronsFactory::generate_random_neuron_groups(neuron_to_group_ids, group_names, num_neurons, mt, std::nullopt, std::nullopt, 1);
+    const auto local_group_translator = std::make_shared<LocalGroupTranslator>(group_names, neuron_to_group_ids);
 
-    ASSERT_EQ(num_changes, gold.size());
-    const auto loaded = BackgroundActivityIO::load_background_activity(file_path, my_rank, local_area_translator);
+    auto tup = BackgroundActivityIO::load_background_activity(file_path, my_rank, local_group_translator);
+    const auto& inputs = tup.first;
+    auto chooser = std::move(tup.second);
+    const auto input_keys = inputs_to_input_keys(inputs);
 
-    ASSERT_EQ(gold.size(), loaded.size());
+    ASSERT_EQ(inputs.size(), 4);
+    const auto neuron_id = NeuronID{ 0 };
 
-    auto last_step = 0;
+    ASSERT_EQ(chooser->get_inputs_for_neuron_id(0, neuron_id).size(), 0);
 
-    for (auto i = 0; i < num_changes; i++) {
-        const auto& [loaded_step, loaded_type, loaded_neurons] = loaded[i];
-        const auto& [step, type, neurons] = gold[i];
+    ASSERT_EQ(chooser->get_inputs_for_neuron_id(1, neuron_id).size(), 1);
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(1, neuron_id), { "constant:1" });
 
-        ASSERT_TRUE(last_step <= loaded_step);
-        last_step = loaded_step;
+    ASSERT_EQ(chooser->get_inputs_for_neuron_id(2, neuron_id).size(), 2);
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(2, neuron_id), { "constant:1", "constant:2" });
+    ASSERT_EQ(chooser->get_inputs_for_neuron_id(3, neuron_id).size(), 3);
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(3, neuron_id), { "constant:1", "constant:2", "constant:3" });
+    ASSERT_EQ(chooser->get_inputs_for_neuron_id(4, neuron_id).size(), 0);
+    ASSERT_EQ(chooser->get_inputs_for_neuron_id(9, neuron_id).size(), 0);
+    ASSERT_EQ(chooser->get_inputs_for_neuron_id(10, neuron_id).size(), 1);
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(10, neuron_id), { "normal:1,1" });
+    ASSERT_EQ(chooser->get_inputs_for_neuron_id(100, neuron_id).size(), 1);
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(100, neuron_id), { "normal:1,1" });
+    ASSERT_EQ(chooser->get_inputs_for_neuron_id(150, neuron_id).size(), 2);
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(150, neuron_id), { "normal:1,1", "constant:2" });
+    ASSERT_EQ(chooser->get_inputs_for_neuron_id(500, neuron_id).size(), 2);
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(150, neuron_id), { "normal:1,1", "constant:2" });
+    ASSERT_EQ(chooser->get_inputs_for_neuron_id(1000000, neuron_id).size(), 2);
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(150, neuron_id), { "normal:1,1", "constant:2" });
 
-        ASSERT_EQ(step, loaded_step);
-        ASSERT_EQ(type, loaded_type);
-        ASSERT_EQ(neurons, loaded_neurons);
+    std::filesystem::remove(file_path);
+}
+TEST_F(BackgroundActivityIOTest, testAllInputTypes) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
     }
+
+    const auto num_neurons = 10;
+    const auto my_rank = mpiPP::MPIRank::root_rank();
+
+    std::filesystem::path file_path{ "./background_activity1.tmp" };
+    std::ofstream of(file_path, std::ios::binary | std::ios::out);
+    const auto is_good = of.good();
+    const auto is_bad = of.bad();
+    ASSERT_TRUE(is_good);
+    ASSERT_FALSE(is_bad);
+
+    of << "1 10 constant:42 .+\n";
+    of << "10 20 fastnormal:4,2 .+\n";
+    of << "20 30 normal:9,3 .+\n";
+    of.close();
+
+    const auto local_group_translator = LocalGroupTranslatorFactory::get_randomized_group_translator(num_neurons, mt);
+
+    const auto& [inputs, chooser] = BackgroundActivityIO::load_background_activity(file_path, my_rank, local_group_translator);
+    const auto input_keys = inputs_to_input_keys(inputs);
+
+    ASSERT_EQ(inputs.size(), 3);
+    const auto neuron_id = NeuronID{ 0 };
+
+    ASSERT_EQ(chooser->get_inputs_for_neuron_id(0, neuron_id).size(), 0);
+
+    ASSERT_EQ(chooser->get_inputs_for_neuron_id(1, neuron_id).size(), 1);
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(1, neuron_id), { "constant:42" });
+
+    ASSERT_EQ(chooser->get_inputs_for_neuron_id(10, neuron_id).size(), 1);
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(2, neuron_id), { "fastnormal:4,2" });
+    ASSERT_EQ(chooser->get_inputs_for_neuron_id(20, neuron_id).size(), 1);
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(3, neuron_id), { "normal:9,3" });
+    std::filesystem::remove(file_path);
+}
+
+TEST_F(BackgroundActivityIOTest, testNeuronIds) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+    const auto num_neurons = 10;
+    const auto my_rank = mpiPP::MPIRank::root_rank();
+
+    std::filesystem::path file_path{ "./background_activity2.tmp" };
+    std::ofstream of(file_path, std::ios::binary | std::ios::out);
+    const auto is_good = of.good();
+    const auto is_bad = of.bad();
+    ASSERT_TRUE(is_good);
+    ASSERT_FALSE(is_bad);
+
+    of << "0 -1 constant:42 0:1 0:2\n";
+    of << "10 20 fastnormal:4,2 0:1 0:2 0:5\n";
+    of << "20 30 normal:9,3 0:3 0:5\n";
+    of.close();
+
+    const auto local_group_translator = LocalGroupTranslatorFactory::get_randomized_group_translator(num_neurons, mt);
+
+    const auto& [inputs, chooser] = BackgroundActivityIO::load_background_activity(file_path, my_rank, local_group_translator);
+    const auto input_keys = inputs_to_input_keys(inputs);
+
+    ASSERT_EQ(inputs.size(), 3);
+
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(0, NeuronID{ 0 }), { "constant:42" });
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(0, NeuronID{ 1 }), { "constant:42" });
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(0, NeuronID{ 2 }), {});
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(0, NeuronID{ 3 }), {});
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(0, NeuronID{ 4 }), {});
+
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(10, NeuronID{ 0 }), { "constant:42", "fastnormal:4,2" });
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(10, NeuronID{ 1 }), { "constant:42", "fastnormal:4,2" });
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(10, NeuronID{ 2 }), {});
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(10, NeuronID{ 3 }), {});
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(10, NeuronID{ 4 }), { "fastnormal:4,2" });
+
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(20, NeuronID{ 0 }), { "constant:42" });
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(20, NeuronID{ 1 }), { "constant:42" });
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(20, NeuronID{ 2 }), { "normal:9,3" });
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(20, NeuronID{ 3 }), {});
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(20, NeuronID{ 4 }), { "normal:9,3" });
+
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(30, NeuronID{ 0 }), { "constant:42" });
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(30, NeuronID{ 1 }), { "constant:42" });
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(30, NeuronID{ 2 }), {});
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(30, NeuronID{ 3 }), {});
+    check_choice(input_keys, chooser->get_inputs_for_neuron_id(30, NeuronID{ 4 }), {});
+    std::filesystem::remove(file_path);
 }

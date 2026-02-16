@@ -38,19 +38,43 @@ protected:
         }
     }
 
-    void assert_local_plastic_empty(const NetworkGraph& network_graph);
+    static void assert_local_plastic_empty(const NetworkGraph& network_graph);
 
-    void assert_distant_plastic_empty(const NetworkGraph& network_graph);
+    static void assert_distant_plastic_empty(const NetworkGraph& network_graph);
 
-    void assert_plastic_empty(const NetworkGraph& network_graph);
+    static void assert_plastic_empty(const NetworkGraph& network_graph);
 
-    void assert_local_static_empty(const NetworkGraph& network_graph);
+    static void assert_local_static_empty(const NetworkGraph& network_graph);
 
-    void assert_distant_static_empty(const NetworkGraph& network_graph);
+    static void assert_distant_static_empty(const NetworkGraph& network_graph);
 
-    void assert_static_empty(const NetworkGraph& network_graph);
+    static void assert_static_empty(const NetworkGraph& network_graph);
 
-    void assert_plastic_size(const NetworkGraph& network_graph, RelearnTypes::number_neurons_type);
+    static void assert_plastic_size(const NetworkGraph& network_graph, RelearnTypes::number_neurons_type expected_number_neurons);
 
-    void assert_static_size(const NetworkGraph& network_graph, RelearnTypes::number_neurons_type);
+    static void assert_static_size(const NetworkGraph& network_graph, RelearnTypes::number_neurons_type expected_number_neurons);
+
+    /**
+     * @brief Format is: target -> source -> weight
+     */
+    static void assert_in_connectivity(const NetworkGraph& network_graph, const std::map<NeuronID, std::map<NeuronID, RelearnTypes::plastic_synapse_weight>>& incoming_edges,
+        const std::map<NeuronID, std::map<RankNeuronId, RelearnTypes::plastic_synapse_weight>>& distant_incoming_edges);
+
+    /**
+     * @brief Format is: source -> target-> weight
+     */
+    static void assert_out_connectivity(const NetworkGraph& network_graph, const std::map<NeuronID, std::map<NeuronID, RelearnTypes::plastic_synapse_weight>>& outgoing_edges,
+        const std::map<NeuronID, std::map<RankNeuronId, RelearnTypes::plastic_synapse_weight>>& distant_outgoing_edges);
+
+    /**
+     * @brief Format is: target -> source -> weight
+     */
+    static void assert_in_connectivity(const NetworkGraph& network_graph, const std::map<NeuronID, std::map<NeuronID, RelearnTypes::static_synapse_weight>>& incoming_edges,
+        const std::map<NeuronID, std::map<RankNeuronId, RelearnTypes::static_synapse_weight>>& distant_incoming_edges);
+
+    /**
+     * @brief Format is: source -> target-> weight
+     */
+    static void assert_out_connectivity(const NetworkGraph& network_graph, const std::map<NeuronID, std::map<NeuronID, RelearnTypes::static_synapse_weight>>& outgoing_edges,
+        const std::map<NeuronID, std::map<RankNeuronId, RelearnTypes::static_synapse_weight>>& distant_outgoing_edges);
 };

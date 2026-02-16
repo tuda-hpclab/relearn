@@ -10,73 +10,88 @@
  *
  */
 
+#include "Config.h"
 #include "Types.h"
+
+#include "algorithm/Kernel/KernelBase.h"
 #include "util/RelearnException.h"
 #include "util/Vec3.h"
 
 #include <cmath>
 
 /**
- * Offers a static interface to calculate the attraction linearly with
+ * Offers an inheritance-based interface to calculate the attraction linearly with
  * a cut-off, i.e., the attraction is 0 if the distance is larger then the cut-off,
  * constant if the cut-off is infinite, and linear interpolated based on the
  * distance is neither is the case
  */
-class LinearDistributionKernel {
+class LinearDistributionKernel : public KernelBase {
 public:
     using counter_type = RelearnTypes::counter_type;
     using position_type = RelearnTypes::position_type;
 
+    using KernelBase::get_probability;
+
     static constexpr double default_cutoff = std::numeric_limits<double>::infinity();
 
     /**
-     * @brief Sets cut-off, must be greater than or equal to 0.0
-     * @param cutoff_point The cut-off parameter, >= 0.0
-     * @exception Throws a RelearnException if cutoff_point < 0.0
+     * @brief Constructs a new Gaussian kernel
+     * @param _cutoff The variance sigma, must be >= 0.0
+     * @exception Throws a RelearnException if _cutoff < 0.0
      */
-    static void set_cutoff(const double cutoff_point) {
-        RelearnException::check(cutoff_point >= 0.0, "In LinearDistributionKernel::set_sigma, sigma was less than 0.0");
-        LinearDistributionKernel::cutoff_point = cutoff_point;
+    explicit LinearDistributionKernel(const double _cutoff = default_cutoff)
+        : cutoff{ _cutoff } {
+        RelearnException::check(_cutoff >= 0.0, "LinearDistributionKernel::LinearDistributionKernel, _cutoff was less than 0.0");
     }
+
+    ~LinearDistributionKernel() override = default;
 
     /**
      * @brief Returns the currently used cut-off parameter
      * @return The currently used cut-off parameter
      */
-    [[nodiscard]] static double get_cutoff() noexcept {
-        return cutoff_point;
+    [[nodiscard]] double get_cutoff() const noexcept {
+        return cutoff;
     }
 
     /**
      * @brief Calculates the attractiveness to connect on the basis of ||s - t||_2,
      *      i.e., if this is smaller than the cut-off point, the return value is k, otherwise it's 0.0
-     * @param source_position The source position s
-     * @param target_position The target position t
-     * @param number_free_elements The linear scaling factor k
-     * @return The calculated attractiveness
+     * @param distance The distance between the source and target neuron
+     * @return The probability for a connection, >= 0.0; not normalized to [0, 1]
      */
-    [[nodiscard]] static double calculate_attractiveness_to_connect(const position_type& source_position, const position_type& target_position,
-        const counter_type& number_free_elements) noexcept {
-        if (number_free_elements == 0) {
+    [[nodiscard]] double get_probability(const double distance) const override {
+        if (std::isinf(cutoff)) {
+            return 1.0;
+        }
+
+        if (distance > cutoff) {
             return 0.0;
         }
 
-        const auto cast_number_elements = static_cast<double>(number_free_elements);
+        const auto factor = distance / cutoff;
+        return 1 - factor;
+    }
 
-        if (std::isinf(cutoff_point)) {
-            return cast_number_elements;
+    [[nodiscard]] bool is_approximately_equal(const KernelBase& other, double epsilon = Constants::eps) const override {
+        const auto double_equal = [epsilon](double a, double b) {
+            return fabs(a - b) < epsilon;
+        };
+        const auto* other_kernel = dynamic_cast<const LinearDistributionKernel*>(&other);
+        if (!other_kernel) {
+            return false;
         }
+        return double_equal(get_cutoff(), other_kernel->get_cutoff());
+    }
 
-        const auto x = (source_position - target_position).calculate_2_norm();
-        if (x > cutoff_point) {
-            return 0.0;
-        }
+    [[nodiscard]] KernelType get_kernel_type() const override {
+        return KernelType::Linear;
+    }
 
-        const auto factor = x / cutoff_point;
-
-        return (1 - factor) * cast_number_elements;
+    [[nodiscard]] std::string to_humanreadable_string() const override {
+        return fmt::format("Kernel Linear with cutoff={}", cutoff);
     }
 
 private:
-    static inline double cutoff_point{ default_cutoff };
+    double cutoff{ default_cutoff };
 };

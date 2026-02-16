@@ -13,10 +13,12 @@
 #include "RelearnTest.hpp"
 
 #include "neurons/NeuronsExtraInfo.h"
+#include "util/RelearnAllocator.h"
 
 class NeuronsExtraInfoTest : public RelearnTest {
 protected:
-    void assert_empty(const NeuronsExtraInfo& nei, size_t number_neurons);
+    void assert_empty(const NeuronsExtraInfo& extra_info, size_t number_neurons);
 
-    void assert_contains(const NeuronsExtraInfo& nei, size_t number_neurons, size_t num_neurons_check, const std::vector<Vec3d>& expected_positions);
+    void assert_contains(const NeuronsExtraInfo& extra_info, size_t number_neurons, size_t num_neurons_check,
+        const std::vector<Vec3d>& expected_positions);
 };

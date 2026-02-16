@@ -11,29 +11,20 @@
 #include "SynapseLoader.h"
 
 #include "Types.h"
-#include "sim/Essentials.h"
-#include "structure/Partition.h"
-#include "util/RelearnException.h"
-#include "util/Timers.h"
-#include "util/ranges/Functional.hpp"
 
-#include <fstream>
-#include <set>
-#include <sstream>
-#include <string>
+#include "sim/Essentials.h"
+#include "util/Timers.h"
 
 #include <range/v3/numeric/accumulate.hpp>
-#include <range/v3/range/concepts.hpp>
 #include <range/v3/range/traits.hpp>
+#include <range/v3/view/transform.hpp>
+
+#include <memory>
 
 SynapseLoader::synapses_pair_type SynapseLoader::load_synapses(const std::unique_ptr<Essentials>& essentials) {
-    Timers::start(TimerRegion::LOAD_SYNAPSES);
-
     const auto& synapses_pair = internal_load_synapses();
     const auto& [synapses_static, synapses_plastic] = synapses_pair;
     const auto& [local_synapses, in_synapses, out_synapses] = synapses_plastic;
-
-    Timers::stop_and_add(TimerRegion::LOAD_SYNAPSES);
 
     const auto sum_weights = []<typename SynapsesType>(const SynapsesType& synapses) {
         return ranges::accumulate(synapses | ranges::views::transform(&ranges::range_value_t<SynapsesType>::get_weight), RelearnTypes::plastic_synapse_weight{ 0U });

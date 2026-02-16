@@ -10,17 +10,9 @@
  *
  */
 
-#include "RelearnException.h"
-
-#include <algorithm>
-#include <cctype>
-#include <iomanip>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
-
-#include <range/v3/algorithm/all_of.hpp>
 
 /**
  * This class provides a static interface to load interrupts from files, i.e., when during the simulation the neurons should be altered.
@@ -29,58 +21,34 @@ class StringUtil {
 public:
     /**
      * @brief Split a string based on a delimiter character in a list of substrings.
-     *      Empty strings within two delimiters are or at the beginning kept while one at the end is discarded
+     *      Empty strings within two delimiters or at the beginning are kept while one at the end is discarded
      * @param string The string to split
      * @param delim Single char used as delimiter
      * @return Vector of substrings
      */
-    static std::vector<std::string> split_string(const std::string& string, char delim) {
-        std::vector<std::string> result{};
-        result.reserve(string.size());
-
-        std::stringstream ss(string);
-        std::string item{};
-
-        while (getline(ss, item, delim)) {
-            result.emplace_back(std::move(item));
-        }
-
-        return result;
-    }
-
-    static std::vector<std::string> split_string(const std::string_view& string_view, char delim) {
-        std::vector<std::string> result{};
-        result.reserve(string_view.size());
-
-        std::string::size_type current_position = 0;
-
-        while (true) {
-            auto semicolon_position = string_view.find(';', current_position);
-            if (semicolon_position == std::string_view::npos) {
-                semicolon_position = string_view.size();
-            }
-
-            const auto substring = string_view.substr(current_position, semicolon_position - current_position);
-            result.emplace_back(substring);
-
-            if (semicolon_position == string_view.size()) {
-                break;
-            }
-
-            current_position = semicolon_position + 1;
-        }
-
-        return result;
-    }
+    static std::vector<std::string> split_string(const std::string& string, char delim);
 
     /**
-     * @brief Checks if the string contains only digits
-     * @param s a string
-     * @return true if string is a number
+     * @brief Split a string based on a delimiter character in a list of substrings.
+     *      Empty strings within two delimiters or at the beginning are kept while one at the end is discarded
+     * @param string_view The string to split, passed as a view
+     * @param delim Single char used as delimiter
+     * @return Vector of substrings
      */
-    static bool is_number(const std::string_view s) {
-        return ranges::all_of(s, [](const char c) { return std::isdigit(c); });
-    }
+    static std::vector<std::string> split_string(std::string_view string_view, char delim);
+
+    /**
+     * @brief Checks if the string contains only digits (i.e., cannot handle "-12321")
+     * @param s The string to check, passed as a view
+     * @return true iff string is a number
+     */
+    static bool is_number(std::string_view s);
+
+    /**
+     * @brief Changes a string such that all characters are in lower-case
+     * @param str The string to change, a reference, i.e., is changed in-place
+     */
+    static void to_lower(std::string& str);
 
     /**
      * Converts an integer to a string with leading zeros, having at least the number of specified digits
@@ -89,15 +57,5 @@ public:
      * @exception Throws a RelearnException if nr_of_digits == 0
      * @return string with the number and leading zeros if necessary
      */
-    static std::string format_int_with_leading_zeros(const int number, const unsigned int nr_of_digits) {
-        RelearnException::check(nr_of_digits >= 1, "StringUtil::format_with_leading_zeros. Number must has at least 1 digit");
-        std::stringstream ss{};
-        ss << std::setw(nr_of_digits) << std::setfill('0') << number;
-        return ss.str();
-    }
-
-    static void to_lower(std::string& str) {
-        std::transform(str.begin(), str.end(), str.begin(),
-            [](unsigned char c) { return std::tolower(c); });
-    }
+    static std::string format_int_with_leading_zeros(int number, unsigned int nr_of_digits);
 };

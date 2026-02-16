@@ -10,7 +10,7 @@
  *
  */
 
-#include "structure/BaseCell.h"
+#include "algorithm/Internal/octree/BaseCell.h"
 
 // The naive implementation uses the dendrites
 using NaiveCell = BaseCell<true, true, false, false>;

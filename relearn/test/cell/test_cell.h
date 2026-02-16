@@ -42,6 +42,9 @@ protected:
     void test_cell_axons_position_combined();
 
     template <typename AdditionalCellAttributes>
+    void test_cell_neuron_position();
+
+    template <typename AdditionalCellAttributes>
     void test_cell_set_neuron_id();
 
     template <typename AdditionalCellAttributes>
@@ -52,6 +55,9 @@ protected:
 
     template <typename AdditionalCellAttributes>
     void test_cell_octants_size();
+
+    template <typename AdditionalCellAttributes>
+    void test_cell_print();
 
     template <typename VirtualPlasticityElement>
     void test_vpe_number_elements();

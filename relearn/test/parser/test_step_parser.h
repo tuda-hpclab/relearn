@@ -11,9 +11,10 @@
  */
 
 #include "RelearnTest.hpp"
-#include "adapter/random/RandomAdapter.h"
+#include "Types.h"
+#include "factory/random/random_factory.h"
 
-#include "util/Interval.h"
+#include "cpp-utility/Interval.hpp"
 
 #include <climits>
 #include <string>
@@ -21,28 +22,28 @@
 
 class StepParserTest : public RelearnTest {
 protected:
-    Interval generate_random_interval() {
-        using int_type = Interval::step_type;
+    utility::Interval<RelearnTypes::step_type> generate_random_interval() {
+        using int_type = utility::Interval<RelearnTypes::step_type>::step_type;
 
         constexpr auto min = std::numeric_limits<int_type>::min();
         constexpr auto max = std::numeric_limits<int_type>::max();
 
-        const auto begin = RandomAdapter::get_random_integer<int_type>(min, max, mt);
-        const auto end = RandomAdapter::get_random_integer<int_type>(min, max, mt);
-        const auto frequency = RandomAdapter::get_random_integer<int_type>(min, max, mt);
+        const auto begin = RandomFactory::get_random_integer<int_type>(min, max, mt);
+        const auto end = RandomFactory::get_random_integer<int_type>(min, max, mt);
+        const auto frequency = RandomFactory::get_random_integer<int_type>(min, max, mt);
 
-        return Interval{ std::min(begin, end), std::max(begin, end), frequency };
+        return utility::Interval<RelearnTypes::step_type>{ .begin = std::min(begin, end), .end = std::max(begin, end), .frequency = frequency };
     }
 
-    std::string codify_interval(const Interval& interval) {
-        std::stringstream ss{};
+    static std::string codify_interval(const utility::Interval<RelearnTypes::step_type>& interval) {
+        auto ss = std::stringstream{};
         ss << interval.begin << '-' << interval.end << ':' << interval.frequency;
         return ss.str();
     }
 
-    std::pair<Interval, std::string> generate_random_interval_description() {
+    std::pair<utility::Interval<RelearnTypes::step_type>, std::string> generate_random_interval_description() {
         auto interval = generate_random_interval();
         auto description = codify_interval(interval);
-        return { std::move(interval), std::move(description) };
+        return { interval, std::move(description) };
     }
 };

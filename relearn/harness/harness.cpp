@@ -8,4 +8,4 @@
  *
  */
 
-// This file exists solely for the purpose of creating a library to link against 
+// This file exists solely for the purpose of creating a library to link against

@@ -13,8 +13,4 @@
 #include "RelearnTest.hpp"
 
 class SynapseDeletionFinderTest : public RelearnTest {
-protected:
-    static void SetUpTestSuite() {
-        SetUpTestCaseTemplate();
-    }
 };

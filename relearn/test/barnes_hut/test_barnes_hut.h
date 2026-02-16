@@ -23,3 +23,6 @@ class BarnesHutTest : public RelearnMemoryTest {
 
 class BarnesHutInvertedTest : public RelearnMemoryTest {
 };
+
+class BarnesHutRestrictedTest : public RelearnMemoryTest {
+};

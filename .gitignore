@@ -5,6 +5,9 @@
 
 PerformanceAnalyser/[Bb]uild*/*
 
+cmake-*/
+relearn/build/
+
 # User-specific files
 *.suo
 *.user
@@ -359,3 +362,4 @@ ASALocalRun/
 /build
 **/out
 /relearn/build*
+/relearn/external/boost

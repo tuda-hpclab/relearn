@@ -8,179 +8,177 @@
  *
  */
 
+#include "Types.h"
+
+#include "algorithm/Kernel/Linear.h"
+#include "util/RelearnException.h"
+#include "util/Vec3.h"
+
+#include "mpi-wrapper/MPIInfo.h"
+#include "mpi-wrapper/MPIRank.h"
+
+#include <gtest/gtest.h>
+
+#include <vector>
+
 #include "test_kernel.h"
 
-#include "adapter/kernel/KernelAdapter.h"
-#include "adapter/simulation/SimulationAdapter.h"
-#include "adapter/kernel/KernelAdapter.h"
-#include "adapter/neuron_id/NeuronIdAdapter.h"
-#include "adapter/simulation/SimulationAdapter.h"
+TEST_F(LinearKernelTest, testDefaultConstruction) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-#include "algorithm/Cells.h"
-#include "algorithm/Kernel/Gaussian.h"
-#include "algorithm/Kernel/Kernel.h"
-#include "util/Random.h"
+        return;
+    }
 
-#include <array>
-#include <sstream>
-#include <tuple>
+    const auto kernel = LinearDistributionKernel{};
 
-TEST_F(ProbabilityKernelTest, testLinearGetterSetter) {
-    LinearDistributionKernel::set_cutoff(LinearDistributionKernel::default_cutoff);
-
-    const auto cutoff_point = KernelAdapter::get_random_linear_cutoff(mt);
-
-    std::stringstream ss{};
-    ss << "Cutoff Point: " << cutoff_point << '\n';
-
-    ASSERT_EQ(LinearDistributionKernel::get_cutoff(), LinearDistributionKernel::default_cutoff) << ss.str();
-    ASSERT_NO_THROW(LinearDistributionKernel::set_cutoff(cutoff_point)) << ss.str();
-    ASSERT_EQ(LinearDistributionKernel::get_cutoff(), cutoff_point) << ss.str();
+    ASSERT_EQ(kernel.get_cutoff(), LinearDistributionKernel::default_cutoff);
 }
 
-TEST_F(ProbabilityKernelTest, testLinearGetterSetterInf) {
-    LinearDistributionKernel::set_cutoff(LinearDistributionKernel::default_cutoff);
+TEST_F(LinearKernelTest, testConstruction) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    constexpr auto cutoff_point_inf = std::numeric_limits<double>::infinity();
+        return;
+    }
 
-    std::stringstream ss{};
-    ss << "Cutoff Point: " << cutoff_point_inf << '\n';
-
-    ASSERT_NO_THROW(LinearDistributionKernel::set_cutoff(cutoff_point_inf)) << ss.str();
-    ASSERT_EQ(LinearDistributionKernel::get_cutoff(), cutoff_point_inf) << ss.str();
+    ASSERT_NO_THROW(std::ignore = LinearDistributionKernel(0.2));
+    ASSERT_NO_THROW(std::ignore = LinearDistributionKernel(1.1));
+    ASSERT_NO_THROW(std::ignore = LinearDistributionKernel(841248.45));
 }
 
-TEST_F(ProbabilityKernelTest, testLinearGetterSetterException) {
-    LinearDistributionKernel::set_cutoff(LinearDistributionKernel::default_cutoff);
+TEST_F(LinearKernelTest, testConstructionExceptions) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    const auto cutoff_point = -KernelAdapter::get_random_linear_cutoff(mt);
+        return;
+    }
 
-    std::stringstream ss{};
-    ss << "Cutoff Point: " << cutoff_point << '\n';
-
-    ASSERT_THROW(LinearDistributionKernel::set_cutoff(cutoff_point), RelearnException) << ss.str();
-    ASSERT_EQ(LinearDistributionKernel::get_cutoff(), LinearDistributionKernel::default_cutoff) << ss.str();
+    ASSERT_THROW_NO_PRINT(std::ignore = LinearDistributionKernel(-0.001), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = LinearDistributionKernel(-1.0), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = LinearDistributionKernel(-1.1), RelearnException);
 }
 
-TEST_F(ProbabilityKernelTest, testLinearNoFreeElements) {
-    const auto cutoff_point = KernelAdapter::get_random_linear_cutoff(mt);
-    LinearDistributionKernel::set_cutoff(cutoff_point);
+TEST_F(LinearKernelTest, testGetter) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    const auto& source_position = SimulationAdapter::get_random_position(mt);
-    const auto& target_position = SimulationAdapter::get_random_position(mt);
+        return;
+    }
 
-    std::stringstream ss{};
-    ss << "Cutoff Point: " << cutoff_point << '\n';
-    ss << "Source Position: " << source_position << '\n';
-    ss << "Target Position: " << target_position << '\n';
-
-    const auto attractiveness = LinearDistributionKernel::calculate_attractiveness_to_connect(source_position, target_position, 0);
-
-    ASSERT_EQ(attractiveness, 0.0) << ss.str();
+    auto kernel = LinearDistributionKernel{ 841248.45 };
+    ASSERT_EQ(kernel.get_cutoff(), 841248.45);
 }
 
-TEST_F(ProbabilityKernelTest, testLinearLinearFreeElements) {
-    const auto cutoff_point = KernelAdapter::get_random_linear_cutoff(mt);
-    LinearDistributionKernel::set_cutoff(cutoff_point);
+TEST_F(LinearKernelTest, testDefaultProbability) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-    const auto& source_position = SimulationAdapter::get_random_position(mt);
-    const auto& target_position = SimulationAdapter::get_random_position(mt);
+        return;
+    }
 
-    const auto attractiveness_one = LinearDistributionKernel::calculate_attractiveness_to_connect(source_position, target_position, 1);
+    const auto kernel = LinearDistributionKernel{};
 
-    for (auto number_elements = 0U; number_elements < 10000U; number_elements++) {
-        const auto attractiveness = LinearDistributionKernel::calculate_attractiveness_to_connect(source_position, target_position, number_elements);
+    auto source_positions = std::vector<Vec3d>{};
+    auto target_positions = std::vector<Vec3d>{};
 
-        const auto expected_attractiveness = attractiveness_one * number_elements;
+    source_positions.emplace_back(0.0, 0.0, 0.0);
+    source_positions.emplace_back(5.63347, 6.77419, 6.68022);
+    source_positions.emplace_back(0.434595, 1.3763, 9.85119);
+    source_positions.emplace_back(9.71033, 6.27692, 5.29921);
+    source_positions.emplace_back(8.00937, 4.2314, 4.9292);
 
-        std::stringstream ss{};
-        ss << "Cutoff Point: " << cutoff_point << '\n';
-        ss << "Source Position: " << source_position << '\n';
-        ss << "Target Position: " << target_position << '\n';
-        ss << "Number Elements: " << number_elements << '\n';
-        ss << "Attractiveness: " << attractiveness << '\n';
-        ss << "Expected Attractiveness: " << expected_attractiveness << '\n';
+    target_positions.emplace_back(0.0, 0.0, 0.0);
+    target_positions.emplace_back(5.63347, 6.77419, 6.68022);
+    target_positions.emplace_back(0.434595, 1.3763, 9.85119);
+    target_positions.emplace_back(9.71033, 6.27692, 5.29921);
+    target_positions.emplace_back(8.00937, 4.2314, 4.9292);
 
-        ASSERT_NEAR(attractiveness, expected_attractiveness, eps) << ss.str();
+    for (const auto& source_position : source_positions) {
+        for (const auto& target_position : target_positions) {
+            const auto calculated_difference = (target_position - source_position).calculate_2_norm();
+
+            const auto probability_1 = kernel.get_probability(calculated_difference);
+            const auto probability_2 = kernel.get_probability(source_position, target_position);
+
+            ASSERT_NEAR(probability_1, probability_2, eps);
+            ASSERT_NEAR(probability_1, 1.0, eps);
+        }
     }
 }
 
-TEST_F(ProbabilityKernelTest, testLinearSamePosition) {
-    const auto cutoff_point = KernelAdapter::get_random_linear_cutoff(mt);
-    LinearDistributionKernel::set_cutoff(cutoff_point);
-
-    const auto number_elements = RandomAdapter::get_random_integer<unsigned int>(0, 10000, mt);
-    const auto converted_double = static_cast<double>(number_elements);
-
-    const auto& position = SimulationAdapter::get_random_position(mt);
-
-    const auto attractiveness = LinearDistributionKernel::calculate_attractiveness_to_connect(position, position, number_elements);
-
-    std::stringstream ss{};
-    ss << "Cutoff Point: " << cutoff_point << '\n';
-    ss << "Source Position: " << position << '\n';
-    ss << "Target Position: " << position << '\n';
-    ss << "Number Elements: " << number_elements << '\n';
-    ss << "Attractiveness: " << attractiveness << '\n';
-    ss << "Expected Attractiveness: " << converted_double << '\n';
-
-    ASSERT_NEAR(attractiveness, converted_double, eps) << ss.str();
-}
-
-TEST_F(ProbabilityKernelTest, testLinearInf) {
-    constexpr auto cutoff_point_inf = std::numeric_limits<double>::infinity();
-    LinearDistributionKernel::set_cutoff(cutoff_point_inf);
-
-    const auto& source = SimulationAdapter::get_random_position(mt);
-    const auto& target = SimulationAdapter::get_random_position(mt);
-
-    const auto number_elements = RandomAdapter::get_random_integer<unsigned int>(0, 10000, mt);
-
-    const auto attractiveness = LinearDistributionKernel::calculate_attractiveness_to_connect(source, target, number_elements);
-
-    std::stringstream ss{};
-    ss << "Cutoff Point: " << cutoff_point_inf << '\n';
-    ss << "Source Position: " << source << '\n';
-    ss << "Target Position: " << target << '\n';
-    ss << "Number Elements: " << number_elements << '\n';
-    ss << "Attractiveness: " << attractiveness << '\n';
-    ss << "Expected Attractiveness: " << static_cast<double>(number_elements) << '\n';
-
-    ASSERT_EQ(attractiveness, static_cast<double>(number_elements)) << ss.str();
-}
-
-TEST_F(ProbabilityKernelTest, testLinearFinite) {
-    const auto cutoff_point = KernelAdapter::get_random_linear_cutoff(mt);
-    LinearDistributionKernel::set_cutoff(cutoff_point);
-
-    for (auto i = 0; i < 100; i++) {
-        const auto number_elements = RandomAdapter::get_random_integer<unsigned int>(0, 10000, mt);
-
-        const auto& source = SimulationAdapter::get_random_position(mt);
-        const auto& target = SimulationAdapter::get_random_position(mt);
-
-        const auto attractiveness = LinearDistributionKernel::calculate_attractiveness_to_connect(source, target, number_elements);
-
-        const auto difference = (source - target).calculate_2_norm();
-
-        std::stringstream ss{};
-        ss << "Cutoff Point: " << cutoff_point << '\n';
-        ss << "Source Position: " << source << '\n';
-        ss << "Target Position: " << target << '\n';
-        ss << "Number Elements: " << number_elements << '\n';
-        ss << "Attractiveness: " << attractiveness << '\n';
-        ss << "Difference: " << difference << '\n';
-
-        if (difference > cutoff_point) {
-            ss << "Expected Attractiveness: 0.0\n";
-            ASSERT_EQ(attractiveness, 0.0) << ss.str();
-            continue;
+TEST_F(LinearKernelTest, testCutoffProbability) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
         }
 
-        const auto expected_attraction = number_elements * (cutoff_point - difference) / cutoff_point;
+        return;
+    }
 
-        ss << "Expected Attractiveness: " << expected_attraction << '\n';
+    const auto kernel = LinearDistributionKernel{ 120.4 };
 
-        ASSERT_NEAR(attractiveness, expected_attraction, eps) << ss.str();
+    const auto probability_1 = kernel.get_probability(120.4);
+    const auto probability_2 = kernel.get_probability(120.5);
+    const auto probability_3 = kernel.get_probability(0.0);
+    const auto probability_4 = kernel.get_probability(60.2);
+    const auto probability_5 = kernel.get_probability(30.1);
+    const auto probability_6 = kernel.get_probability(90.3);
+    const auto probability_7 = kernel.get_probability(150.5);
+
+    ASSERT_NEAR(probability_1, 0.0, eps);
+    ASSERT_NEAR(probability_2, 0.0, eps);
+    ASSERT_NEAR(probability_3, 1.0, eps);
+    ASSERT_NEAR(probability_4, 0.5, eps);
+    ASSERT_NEAR(probability_5, 0.75, eps);
+    ASSERT_NEAR(probability_6, 0.25, eps);
+    ASSERT_NEAR(probability_7, 0.0, eps);
+}
+
+TEST_F(LinearKernelTest, testPositions) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto kernel = LinearDistributionKernel{ 120.4 };
+
+    auto source_positions = std::vector<Vec3d>{};
+    auto target_positions = std::vector<Vec3d>{};
+
+    source_positions.emplace_back(0.0, 0.0, 0.0);
+    source_positions.emplace_back(5.63347, 6.77419, 6.68022);
+    source_positions.emplace_back(0.434595, 1.3763, 9.85119);
+    source_positions.emplace_back(9.71033, 6.27692, 5.29921);
+    source_positions.emplace_back(8.00937, 4.2314, 4.9292);
+
+    target_positions.emplace_back(0.0, 0.0, 0.0);
+    target_positions.emplace_back(5.63347, 6.77419, 6.68022);
+    target_positions.emplace_back(0.434595, 1.3763, 9.85119);
+    target_positions.emplace_back(9.71033, 6.27692, 5.29921);
+    target_positions.emplace_back(8.00937, 4.2314, 4.9292);
+
+    for (const auto& source_position : source_positions) {
+        for (const auto& target_position : target_positions) {
+            const auto calculated_difference = (target_position - source_position).calculate_2_norm();
+
+            const auto probability_1 = kernel.get_probability(calculated_difference);
+            const auto probability_2 = kernel.get_probability(source_position, target_position);
+
+            ASSERT_NEAR(probability_1, probability_2, eps);
+        }
     }
 }

@@ -10,18 +10,33 @@
 
 #include "test_rank_neuron_id.h"
 
-#include "adapter/mpi/MpiRankAdapter.h"
-#include "adapter/mpi/MpiRankAdapter.h"
-#include "adapter/neuron_id/NeuronIdAdapter.h"
-
 #include "neurons/helper/RankNeuronId.h"
+#include "util/RelearnException.h"
+
+#include "mpi-wrapper/MPIInfo.h"
+#include "mpi-wrapper/MPIRank.h"
+
+#include "factory/mpi_rank/mpi_rank_factory.h"
+#include "factory/neuron_id/neuron_id_factory.h"
+
+#include <gtest/gtest.h>
+
+#include <iostream>
 
 TEST_F(RankNeuronIdTest, testNeuronRankIdValid) {
-    for (auto i = 0; i < 1000; i++) {
-        const auto rank = MPIRankAdapter::get_random_mpi_rank(mt);
-        const auto id = NeuronIdAdapter::get_random_neuron_id(mt);
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
 
-        const RankNeuronId rni{ rank, NeuronID{ id } };
+        return;
+    }
+
+    for (auto i = 0; i < 1000; i++) {
+        const auto rank = MPIRankFactory::get_random_mpi_rank(mt);
+        const auto id = NeuronIdFactory::get_random_neuron_id(mt);
+
+        const auto rni = RankNeuronId{ rank, NeuronID{ id } };
 
         ASSERT_EQ(rni.get_neuron_id(), NeuronID{ id });
         ASSERT_TRUE(rni.get_rank() == rank);
@@ -29,26 +44,42 @@ TEST_F(RankNeuronIdTest, testNeuronRankIdValid) {
 }
 
 TEST_F(RankNeuronIdTest, testNeuronRankIdInvalidId) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     for (auto i = 0; i < 1000; i++) {
-        const auto rank = MPIRankAdapter::get_random_mpi_rank(mt);
+        const auto rank = MPIRankFactory::get_random_mpi_rank(mt);
 
-        RankNeuronId rni(rank, NeuronID::uninitialized_id());
+        const auto rni = RankNeuronId(rank, NeuronID::uninitialized_id());
 
-        ASSERT_NO_THROW(auto tmp = rni.get_rank());
-        ASSERT_THROW(auto tmp = rni.get_neuron_id(), RelearnException);
+        ASSERT_NO_THROW(std::ignore = rni.get_rank());
+        ASSERT_THROW_NO_PRINT(std::ignore = rni.get_neuron_id(), RelearnException);
     }
 }
 
 TEST_F(RankNeuronIdTest, testNeuronRankIdEquality) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
     for (auto i = 0; i < 1000; i++) {
-        const auto rank_1 = MPIRankAdapter::get_random_mpi_rank(mt);
-        const auto id_1 = NeuronIdAdapter::get_random_neuron_id(mt);
+        const auto rank_1 = MPIRankFactory::get_random_mpi_rank(mt);
+        const auto id_1 = NeuronIdFactory::get_random_neuron_id(mt);
 
-        const auto rank_2 = MPIRankAdapter::get_random_mpi_rank(mt);
-        const auto id_2 = NeuronIdAdapter::get_random_neuron_id(mt);
+        const auto rank_2 = MPIRankFactory::get_random_mpi_rank(mt);
+        const auto id_2 = NeuronIdFactory::get_random_neuron_id(mt);
 
-        const RankNeuronId rni_1(rank_1, NeuronID{ id_1 });
-        const RankNeuronId rni_2(rank_2, NeuronID{ id_2 });
+        const auto rni_1 = RankNeuronId(rank_1, NeuronID{ id_1 });
+        const auto rni_2 = RankNeuronId(rank_2, NeuronID{ id_2 });
 
         if (rank_1 == rank_2 && id_1 == id_2) {
             ASSERT_EQ(rni_1, rni_2);

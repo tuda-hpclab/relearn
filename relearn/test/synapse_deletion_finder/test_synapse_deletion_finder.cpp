@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
  * Copyright (c) 2020, Technical University of Darmstadt, Germany
@@ -10,16 +10,19 @@
 
 #include "test_synapse_deletion_finder.h"
 
-#include "RandomAdapter.h"
+#include "mpi-wrapper/MPIInfo.h"
+#include "mpi-wrapper/MPIRank.h"
 
-#include "neurons/neuron_types_adapter.h"
-#include "tagged_id/tagged_id_adapter.h"
+#include <gtest/gtest.h>
 
-#include "neurons/models/SynapticElements.h"
-#include "neurons/enums/UpdateStatus.h"
-
-#include <numeric>
-#include <sstream>
+#include <iostream>
 
 TEST_F(SynapseDeletionFinderTest, testRandom) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
 }

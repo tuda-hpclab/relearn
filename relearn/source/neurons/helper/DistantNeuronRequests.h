@@ -11,7 +11,8 @@
  */
 
 #include "Types.h"
-#include "neurons/enums/SignalType.h"
+
+#include "neurons/enums/SynapticElementType.h"
 #include "neurons/helper/SynapseCreationRequests.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
@@ -50,28 +51,28 @@ public:
      *      (a) The target node is a branch node -- target_neuron_type should be TargetNeuronType::BranchNode and target_neuron_identifier the index of it when considering all branch nodes
      *      (b) The target node is a leaf node -- target_neuron_type should be TargetNeuronType::Leaf and target_neuron_identifier the index of it in the local neurons
      *      (c) The target node is a virtual node -- target_neuron_type should be TargetNeuronType::VirtualNode and target_neuron_identifier the RMA offset
-     * @param source_id The RankNeuronId of the source, must be an actual neuron id
-     * @param source_position The position of the source
-     * @param target_neuron_identifier The identifier of the target node
-     * @param target_neuron_type The type of the target node
-     * @param signal_type The signal type
+     * @param _source_id The RankNeuronId of the source, must be an actual neuron id
+     * @param _source_position The position of the source
+     * @param _target_neuron_identifier The identifier of the target node
+     * @param _target_neuron_type The type of the target node
+     * @param _signal_type The signal type
      * @exception Throws a RelearnException if source_id is virtual or uninitialized
      */
-    constexpr DistantNeuronRequest(const NeuronID& source_id, const RelearnTypes::position_type& source_position,
-        const NeuronID::value_type target_neuron_identifier, const TargetNeuronType target_neuron_type, const SignalType signal_type)
-        : source_id(source_id)
-        , source_position(source_position)
-        , target_neuron_identifier(target_neuron_identifier)
-        , target_neuron_type(target_neuron_type)
-        , signal_type(signal_type) {
-        RelearnException::check(source_id.is_local(), "DistantNeuronRequest::DistantNeuronRequest: The source neuron must be initialized and non-virtual.");
+    constexpr DistantNeuronRequest(const NeuronID _source_id, const RelearnTypes::position_type& _source_position,
+                                   const NeuronID::value_type _target_neuron_identifier, const TargetNeuronType _target_neuron_type, const SignalType _signal_type)
+        : source_id(_source_id)
+        , source_position(_source_position)
+        , target_neuron_identifier(_target_neuron_identifier)
+        , target_neuron_type(_target_neuron_type)
+        , signal_type(_signal_type) {
+        RelearnException::check(source_id.is_actual_id(), "DistantNeuronRequest::DistantNeuronRequest: The source neuron must be initialized and non-virtual.");
     }
 
     /**
      * @brief Returns the source of the request
      * @return The source
      */
-    [[nodiscard]] constexpr const NeuronID get_source_id() const noexcept {
+    [[nodiscard]] constexpr NeuronID get_source_id() const noexcept {
         return source_id;
     }
 
@@ -139,7 +140,7 @@ public:
     }
 
     template <std::size_t Index>
-    [[nodiscard]] constexpr auto const& get() const& {
+    [[nodiscard]] constexpr const auto& get() const& {
         if constexpr (Index == 0) {
             return source_id;
         }
@@ -183,7 +184,7 @@ private:
     TargetNeuronType target_neuron_type{};
     SignalType signal_type{};
 
-    static_assert(sizeof(target_neuron_identifier) >= sizeof(std::intptr_t), "DistantNeuronRequest: The size of target_neuron_identifier cannot hold a pointer");
+    // static_assert(sizeof(target_neuron_identifier) >= sizeof(std::intptr_t), "DistantNeuronRequest: The size of target_neuron_identifier cannot hold a pointer");
 };
 
 namespace std {
@@ -232,21 +233,21 @@ public:
 
     /**
      * @brief Constructs a new response with the arguments
-     * @param source The RankNeuronId of the source, must be an actual neuron id
+     * @param source_neuron_id The RankNeuronId of the source, must be an actual neuron id
      * @param creation_response The response if a synapse was successfully created
-     * @exception Throws a RelearnException if source_id is virtual or not initialized
+     * @exception Throws a RelearnException if source_neuron_id is virtual or not initialized
      */
-    constexpr DistantNeuronResponse(const NeuronID source_id, const SynapseCreationResponse creation_response)
-        : source_id(source_id)
-        , creation_response(creation_response) {
-        RelearnException::check(source_id.is_local(), "DistantNeuronRequest::DistantNeuronRequest: The source neuron must be initialized and non-virtual.");
+    constexpr DistantNeuronResponse(const NeuronID source_neuron_id, const SynapseCreationResponse creation_response)
+        : source_id(source_neuron_id)
+        , response(creation_response) {
+        RelearnException::check(source_id.is_actual_id(), "DistantNeuronRequest::DistantNeuronRequest: The source neuron must be initialized and non-virtual.");
     }
 
     /**
      * @brief Returns the source of the response
      * @return The source
      */
-    [[nodiscard]] constexpr const NeuronID get_source_id() const noexcept {
+    [[nodiscard]] constexpr NeuronID get_source_id() const noexcept {
         return source_id;
     }
 
@@ -255,7 +256,7 @@ public:
      * @return The creation response
      */
     [[nodiscard]] constexpr SynapseCreationResponse get_creation_response() const noexcept {
-        return creation_response;
+        return response;
     }
 
     template <std::size_t Index>
@@ -264,17 +265,17 @@ public:
             return source_id;
         }
         if constexpr (Index == 1) {
-            return creation_response;
+            return response;
         }
     }
 
     template <std::size_t Index>
-    [[nodiscard]] constexpr auto const& get() const& {
+    [[nodiscard]] constexpr const auto& get() const& {
         if constexpr (Index == 0) {
             return source_id;
         }
         if constexpr (Index == 1) {
-            return creation_response;
+            return response;
         }
     }
 
@@ -284,13 +285,13 @@ public:
             return source_id;
         }
         if constexpr (Index == 1) {
-            return creation_response;
+            return response;
         }
     }
 
 private:
     NeuronID source_id{};
-    SynapseCreationResponse creation_response{};
+    SynapseCreationResponse response{};
 };
 
 namespace std {

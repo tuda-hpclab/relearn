@@ -10,9 +10,9 @@
  *
  */
 
-#include "adapter/random/RandomAdapter.h"
-
 #include "util/Timers.h"
+
+#include "factory/random/random_factory.h"
 
 #include <random>
 
@@ -22,7 +22,7 @@ public:
         constexpr auto min = 0;
         constexpr auto max = NUMBER_TIMERS - 1;
 
-        const auto index = RandomAdapter::get_random_integer<unsigned int>(min, max, mt);
+        const auto index = RandomFactory::get_random_integer<unsigned int>(min, max, mt);
         return static_cast<TimerRegion>(index);
     }
 };

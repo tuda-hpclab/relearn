@@ -10,7 +10,7 @@
  *
  */
 
-#include "fmt/ostream.h"
+#include <fmt/ostream.h>
 
 #include <ostream>
 
@@ -23,11 +23,10 @@ enum class FiredStatus : char {
     Inactive = 0,
     Fired = 1,
 };
-
 /**
  * @brief Pretty-prints the fired status to the chosen stream
  * @param out The stream to which to print the fired status
- * @param element_type The fired status to print
+ * @param fired_status The fired status to print
  * @return The argument out, now altered with the fired status
  */
 inline std::ostream& operator<<(std::ostream& out, const FiredStatus fired_status) {

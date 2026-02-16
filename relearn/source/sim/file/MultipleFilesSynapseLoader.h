@@ -13,7 +13,6 @@
 #include "sim/SynapseLoader.h"
 
 #include <filesystem>
-#include <memory>
 #include <optional>
 
 class Partition;
@@ -23,10 +22,10 @@ public:
     /**
      * @brief Constructs a FileSynapseLoader with the given Partition.
      *      Can load synapses from a file
-     * @param partition The partition to use
+     * @param _partition The partition to use
      * @param path_to_synapses The path to the synapses, can be empty
      */
-    MultipleFilesSynapseLoader(std::shared_ptr<Partition> partition, std::optional<std::filesystem::path> path_to_synapses);
+    MultipleFilesSynapseLoader(std::shared_ptr<Partition> _partition, std::optional<std::filesystem::path> path_to_synapses);
 
 protected:
     synapses_pair_type internal_load_synapses() override;

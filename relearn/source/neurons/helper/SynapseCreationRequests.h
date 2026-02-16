@@ -10,9 +10,9 @@
  *
  */
 
-#include "neurons/enums/SignalType.h"
-#include "util/RelearnException.h"
+#include "neurons/enums/SynapticElementType.h"
 #include "util/NeuronID.h"
+#include "util/RelearnException.h"
 
 #include <cstddef>
 #include <utility>
@@ -34,23 +34,23 @@ public:
 
     /**
      * @brief Constructs a new request with the arguments
-     * @param target The neuron target id of the request
-     * @param source The neuron source id of the request
-     * @param signal_type The signal type
+     * @param _target The neuron target id of the request
+     * @param _source The neuron source id of the request
+     * @param _signal_type The signal type
      */
-    constexpr SynapseCreationRequest(const NeuronID target, const NeuronID source, const SignalType signal_type)
-        : target(target)
-        , source(source)
-        , signal_type(signal_type) {
-        RelearnException::check(target.is_local(), "SynapseCreationRequest::SynapseCreationRequest: Can only serve non-virtual ids (target): {}", target);
-        RelearnException::check(source.is_local(), "SynapseCreationRequest::SynapseCreationRequest: Can only serve non-virtual ids (source): {}", source);
+    constexpr SynapseCreationRequest(const NeuronID _target, const NeuronID _source, const SignalType _signal_type)
+        : target(_target)
+        , source(_source)
+        , signal_type(_signal_type) {
+        RelearnException::check(target.is_actual_id(), "SynapseCreationRequest::SynapseCreationRequest: Can only serve non-virtual ids (target): {}", target);
+        RelearnException::check(source.is_actual_id(), "SynapseCreationRequest::SynapseCreationRequest: Can only serve non-virtual ids (source): {}", source);
     }
 
     /**
      * @brief Returns the target of the request
      * @return The target
      */
-    [[nodiscard]] constexpr const NeuronID get_target() const noexcept {
+    [[nodiscard]] constexpr NeuronID get_target() const noexcept {
         return target;
     }
 
@@ -58,7 +58,7 @@ public:
      * @brief Returns the source of the request
      * @return The source
      */
-    [[nodiscard]] constexpr const NeuronID get_source() const noexcept {
+    [[nodiscard]] constexpr NeuronID get_source() const noexcept {
         return source;
     }
 
@@ -84,7 +84,7 @@ public:
     }
 
     template <std::size_t Index>
-    [[nodiscard]] constexpr auto const& get() const& {
+    [[nodiscard]] constexpr const auto& get() const& {
         if constexpr (Index == 0) {
             return target;
         }
