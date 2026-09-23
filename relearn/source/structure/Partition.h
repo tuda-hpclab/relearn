@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2020-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,15 +11,17 @@
  */
 
 #include "Config.h"
-#include "Types.h"
 
 #include "structure/SpaceFillingCurve.h"
 #include "structure/SpaceFillingCurveType.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
+#include "util/NeuronID.h"
 #include "util/RelearnException.h"
 
-#include "cpp-utility/MemoryFootprint.hpp"
+#include <cpp-utility/MemoryFootprint.hpp>
 
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <functional>
 #include <memory>
@@ -32,10 +34,11 @@
 class Partition {
 public:
     using position_type = RelearnTypes::position_type;
-    using box_size_type = RelearnTypes::box_size_type;
+    using space_type = RelearnTypes::space_type;
     using bounding_box_type = RelearnTypes::bounding_box_type;
 
     using number_neurons_type = RelearnTypes::number_neurons_type;
+    using level_type = RelearnTypes::level_type;
 
     /**
      * Subdomain is a type that represents one part of the octree at the level of the branching nodes.
@@ -43,7 +46,7 @@ public:
      * the start and end local neuron ids, and its 1d and 3d index for all Subdomains.
      */
     struct Subdomain {
-        bounding_box_type subdomain_size{};
+        bounding_box_type subdomain_size;
 
         number_neurons_type number_neurons{ Constants::uninitialized };
 
@@ -61,7 +64,7 @@ public:
      * @param curve_type The type of the space filling curve to use
      * @exception Throws a RelearnException if my_rank is not initialized or if the number of MPI ranks is not of the form 2^k
      */
-    Partition(std::size_t num_ranks, mpiPP::MPIRank my_rank, SpaceFillingCurveType curve_type = SpaceFillingCurveType::Morton);
+    Partition(int num_ranks, mpiPP::MPIRank my_rank, SpaceFillingCurveType curve_type = SpaceFillingCurveType::MortonCurve);
 
     ~Partition() = default;
 
@@ -124,7 +127,7 @@ public:
      * @brief Returns the level in the octree on which the local_subdomains start
      * @return The level in the octree on which the local_subdomains start
      */
-    [[nodiscard]] std::uint16_t get_level_of_subdomain_trees() const noexcept {
+    [[nodiscard]] level_type get_level_of_subdomain_trees() const noexcept {
         return level_of_subdomain_trees;
     }
 
@@ -164,20 +167,22 @@ public:
      * @brief Returns the number of MPI ranks that was passed in the constructor
      * @return The number of MPI ranks
      */
-    [[nodiscard]] std::size_t get_number_mpi_ranks() const noexcept {
+    [[nodiscard]] int get_number_mpi_ranks() const noexcept {
         return number_mpi_ranks;
     }
 
     /**
      * @brief Returns the mpi rank that is responsible for the position
      * @param position The position which shall be resolved
-     * @exception Throws a RelearnException if the calculate_local_ids has not been called
+     * @exception Throws a RelearnException if set_simulation_box_size has not been called
      * @return Returns the MPI rank that is responsible for the position
      */
     [[nodiscard]] int get_mpi_rank_from_position(const position_type& position) const {
+        RelearnException::check(simulation_box_is_set, "Partition::get_mpi_rank_from_position: set_simulation_box_size was not called before");
+
         const auto& [simulation_box_min, simulation_box_max] = simulation_box;
 
-        const auto half_constant = static_cast<double>(Constants::uninitialized) / 2;
+        const auto half_constant = static_cast<space_type>(Constants::uninitialized) / 2;
 
         RelearnException::check(simulation_box_min.get_x() < half_constant, "Partition::get_mpi_rank_from_position: Neurons are not loaded yet");
         RelearnException::check(simulation_box_min.get_y() < half_constant, "Partition::get_mpi_rank_from_position: Neurons are not loaded yet");
@@ -186,9 +191,9 @@ public:
         const auto& relative_position = position - simulation_box_min;
         const auto& simulation_box_length = simulation_box_max - simulation_box_min;
 
-        const auto subdomain_length = simulation_box_length / static_cast<double>(number_subdomains_per_dimension);
+        const auto subdomain_length = simulation_box_length / static_cast<space_type>(number_subdomains_per_dimension);
 
-        const auto subdomain_3d = box_size_type{ relative_position.get_x() / subdomain_length.get_x(), relative_position.get_y() / subdomain_length.get_y(), relative_position.get_z() / subdomain_length.get_z() };
+        const auto subdomain_3d = position_type{ relative_position.get_x() / subdomain_length.get_x(), relative_position.get_y() / subdomain_length.get_y(), relative_position.get_z() / subdomain_length.get_z() };
         const auto id_3d = subdomain_3d.floor_componentwise();
         const auto id_1d = space_curve->map_3d_to_1d(id_3d);
 
@@ -268,21 +273,21 @@ public:
         const auto& [sim_box_min, sim_box_max] = get_simulation_box_size();
         const auto& simulation_box_length = (sim_box_max - sim_box_min);
 
-        const auto& subdomain_length = simulation_box_length / static_cast<box_size_type::value_type>(number_subdomains_per_dimension);
+        const auto& subdomain_length = simulation_box_length / static_cast<space_type>(number_subdomains_per_dimension);
 
         const auto& [subdomain_length_x, subdomain_length_y, subdomain_length_z] = subdomain_length;
 
-        const auto min = box_size_type{
-            static_cast<double>(requested_subdomain_x) * subdomain_length_x,
-            static_cast<double>(requested_subdomain_y) * subdomain_length_y,
-            static_cast<double>(requested_subdomain_z) * subdomain_length_z
+        const auto min = position_type{
+            static_cast<space_type>(requested_subdomain_x) * subdomain_length_x,
+            static_cast<space_type>(requested_subdomain_y) * subdomain_length_y,
+            static_cast<space_type>(requested_subdomain_z) * subdomain_length_z
         };
 
-        const auto next_x = static_cast<box_size_type::value_type>(requested_subdomain_x + 1) * subdomain_length_x;
-        const auto next_y = static_cast<box_size_type::value_type>(requested_subdomain_y + 1) * subdomain_length_y;
-        const auto next_z = static_cast<box_size_type::value_type>(requested_subdomain_z + 1) * subdomain_length_z;
+        const auto next_x = static_cast<space_type>(requested_subdomain_x + 1) * subdomain_length_x;
+        const auto next_y = static_cast<space_type>(requested_subdomain_y + 1) * subdomain_length_y;
+        const auto next_z = static_cast<space_type>(requested_subdomain_z + 1) * subdomain_length_z;
 
-        const auto max = box_size_type{ next_x, next_y, next_z };
+        const auto max = position_type{ next_x, next_y, next_z };
 
         const auto& [simulation_box_min, _] = simulation_box;
 
@@ -314,14 +319,11 @@ public:
 
     /**
      * @brief Returns the size of the simulation box
+     * @exception Throws a RelearnException if set_simulation_box_size has not been called
      * @return The size of the simulation box as boundary box
      */
     [[nodiscard]] bounding_box_type get_simulation_box_size() const {
-        const auto& simulation_box_minimum = simulation_box.get_minimum();
-
-        RelearnException::check(simulation_box_minimum.get_x() < Constants::uninitialized / 2, "Partition::get_simulation_box_size: set_simulation_box_size was not called before"); // NOLINT(bugprone-integer-division)
-        RelearnException::check(simulation_box_minimum.get_y() < Constants::uninitialized / 2, "Partition::get_simulation_box_size: set_simulation_box_size was not called before"); // NOLINT(bugprone-integer-division)
-        RelearnException::check(simulation_box_minimum.get_z() < Constants::uninitialized / 2, "Partition::get_simulation_box_size: set_simulation_box_size was not called before"); // NOLINT(bugprone-integer-division)
+        RelearnException::check(simulation_box_is_set, "Partition::get_simulation_box_size: set_simulation_box_size was not called before");
 
         return simulation_box;
     }
@@ -331,7 +333,7 @@ public:
      * @param corrector The correction function
      * @exception Throws a RelearnException if corrector is not valid
      */
-    void set_boundary_correction_function(std::function<box_size_type(box_size_type)> corrector) {
+    void set_boundary_correction_function(std::function<position_type(position_type)> corrector) {
         RelearnException::check(corrector != nullptr, "Partition::set_boundary_correction_function: corrector was empty");
         boundary_corrector = std::move(corrector);
     }
@@ -357,25 +359,26 @@ public:
 
 private:
     mpiPP::MPIRank my_mpi_rank{ mpiPP::MPIRank::root_rank() };
-    std::size_t number_mpi_ranks{ Constants::uninitialized };
+    int number_mpi_ranks{ -1 };
 
     number_neurons_type total_number_neurons{ Constants::uninitialized };
     number_neurons_type number_local_neurons{ Constants::uninitialized };
 
     std::size_t total_number_subdomains{ Constants::uninitialized };
     std::size_t number_subdomains_per_dimension{ Constants::uninitialized };
-    std::uint16_t level_of_subdomain_trees{ std::numeric_limits<std::uint16_t>::max() };
+    level_type level_of_subdomain_trees{ std::numeric_limits<level_type>::max() };
 
     std::size_t number_local_subdomains{ Constants::uninitialized };
     std::size_t local_subdomain_id_start{ Constants::uninitialized };
     std::size_t local_subdomain_id_end{ Constants::uninitialized };
 
     bounding_box_type simulation_box{};
+    bool simulation_box_is_set{ false };
 
-    std::vector<Subdomain> local_subdomains{};
-    std::shared_ptr<SpaceFillingCurve> space_curve{};
+    std::vector<Subdomain> local_subdomains;
+    std::shared_ptr<SpaceFillingCurve> space_curve;
 
-    std::function<box_size_type(box_size_type)> boundary_corrector{
-        [](box_size_type bst) { return bst; }
+    std::function<position_type(position_type)> boundary_corrector{
+        [](position_type bst) { return bst; }
     };
 };

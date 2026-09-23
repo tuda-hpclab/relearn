@@ -3,14 +3,14 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2020-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
+#include "types/BasicTypes.h"
 
 #include <concepts>
 #include <cstdint>
@@ -36,6 +36,7 @@ class NeuronMonitor {
 
     // The callback signature
     using Signature = Parameter(RelearnTypes::number_neurons_type);
+    using Signature2 = void();
 
 public:
     /**
@@ -44,12 +45,14 @@ public:
      * @param name The name of the parameter
      * @param callable The callback that returns a parameter's value for a neuron
      */
-    template <typename Callable>
-    void register_paramter(const std::string& name, Callable&& callable)
-        requires std::invocable<Callable, RelearnTypes::number_neurons_type>
+    template <typename Callable, typename PreProc, typename PostProc>
+    void register_paramter(const std::string& name, Callable&& callable, PreProc&& pre_processing, PostProc&& post_processing)
+        requires std::invocable<Callable, RelearnTypes::number_neurons_type> && std::invocable<PreProc> && std::invocable<PostProc>
     {
         parameter_names.push_back(name);
         callbacks.emplace_back(std::forward<Callable>(callable));
+        pre_processings.emplace_back(std::forward<PreProc>(pre_processing));
+        post_processings.emplace_back(std::forward<PostProc>(post_processing));
     }
 
     /**
@@ -78,13 +81,15 @@ public:
     void flush_current_contents();
 
 private:
-    std::unordered_map<RelearnTypes::number_neurons_type, NeuronInformations> information{};
+    std::unordered_map<RelearnTypes::number_neurons_type, NeuronInformations> information;
 
-    std::vector<RelearnTypes::number_neurons_type> neurons_to_monitor{};
-    std::vector<RelearnTypes::step_type> steps{};
+    std::vector<RelearnTypes::number_neurons_type> neurons_to_monitor;
+    std::vector<RelearnTypes::step_type> steps;
 
-    std::vector<std::function<Signature>> callbacks{};
-    std::vector<std::string> parameter_names{};
+    std::vector<std::function<Signature>> callbacks;
+    std::vector<std::function<Signature2>> pre_processings;
+    std::vector<std::function<Signature2>> post_processings;
+    std::vector<std::string> parameter_names;
 
-    std::filesystem::path output_path{};
+    std::filesystem::path output_path;
 };

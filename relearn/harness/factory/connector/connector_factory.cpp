@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -10,11 +10,11 @@
 
 #include "connector_factory.h"
 
-#include "Types3.h"
-
 #include "neurons/enums/SynapticElementType.h"
 #include "neurons/helper/SynapseCreationRequests.h"
+#include "types/CommunicationTypes.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 
 #include "factory/mpi_rank/mpi_rank_factory.h"
 #include "factory/neuron_id/neuron_id_factory.h"
@@ -27,14 +27,14 @@
 #include <tuple>
 #include <vector>
 
-std::tuple<RelearnTypes::comm_map_creation<SynapseCreationRequest>, std::vector<size_t>, std::vector<size_t>> ConnectorFactory::create_incoming_requests(size_t number_ranks,
-                                                                                                                                                 int current_rank, size_t number_neurons, size_t number_requests_lower_bound, size_t number_requests_upper_bound, std::mt19937& mt) {
+std::tuple<RelearnTypes::comm_map_creation<SynapseCreationRequest>, std::vector<size_t>, std::vector<size_t>> ConnectorFactory::create_incoming_requests(int number_ranks,
+                                                                                                                                                 int current_rank, RelearnTypes::number_neurons_type number_neurons, size_t number_requests_lower_bound, size_t number_requests_upper_bound, std::mt19937& mt) {
 
-    auto cm = RelearnTypes::comm_map_creation<SynapseCreationRequest>(static_cast<int>(number_ranks));
+    auto cm = RelearnTypes::comm_map_creation<SynapseCreationRequest>(number_ranks);
     auto number_excitatory_requests = std::vector<size_t>(number_neurons, 0);
     auto number_inhibitory_requests = std::vector<size_t>(number_neurons, 0);
 
-    for (const auto& target_id : NeuronID::range(number_neurons)) {
+    for (const auto& target_id : NeuronIDRange::range(number_neurons)) {
         const auto number_requests = RandomFactory::get_random_integer<size_t>(number_requests_lower_bound, number_requests_upper_bound, mt);
 
         const auto id = target_id.get_neuron_id();

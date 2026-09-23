@@ -1,41 +1,43 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
+#ifndef RELEARN_CUDA_ENABLED
+
 #include "RelearnTest.hpp"
-#include "Types.h"
+#include "test_activity_input.h"
 
 #include "neurons/input/ActivityInput.h"
 #include "neurons/input/FlexibleActivityInput.h"
+#include "types/BasicTypes.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnAllocator.h"
 #include "util/RelearnException.h"
 #include "util/Vec3.h"
-
-#include "cpp-utility/MemoryFootprint.hpp"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "factory/activity_input/activity_input_factory.h"
 #include "factory/extra_info/extra_info_factory.h"
 #include "factory/neuron_id/neuron_id_factory.h"
 #include "factory/simulation/simulation_factory.h"
 
+#include <cpp-utility/MemoryFootprint.hpp>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
+
 #include <cstddef>
 #include <iostream>
 
-#include "test_activity_input.h"
-
 class ComplexChoiceFunction : public ChoiceFunction {
 public:
-    ComplexChoiceFunction(std::function<std::unordered_set<size_t>(RelearnTypes::step_type step, NeuronID neuron_id)>&& _function, size_t _number_neurons)
+    ComplexChoiceFunction(std::function<std::unordered_set<size_t>(RelearnTypes::step_type step, NeuronID neuron_id)>&& _function, RelearnTypes::number_neurons_type _number_neurons)
         : number_neurons(_number_neurons)
         , function(std::move(_function)) {
         range = { { NeuronID{ 0 }, NeuronID{ number_neurons - 1 } } };
@@ -51,7 +53,7 @@ public:
     void create_neurons(RelearnTypes::number_neurons_type /*creation_count*/) override { }
 
 private:
-    size_t number_neurons;
+    RelearnTypes::number_neurons_type number_neurons;
     std::function<std::unordered_set<size_t>(RelearnTypes::step_type step, NeuronID neuron_id)> function;
     std::unordered_set<std::pair<NeuronID, NeuronID>, boost::hash<std::pair<NeuronID, NeuronID>>> range;
     std::vector<std::unordered_set<size_t>> cache{};
@@ -75,11 +77,11 @@ TEST_F(FlexibleActivityInputTest, testConstructorNoThrow) {
     const auto normal_input_1 = ActivityInputFactory::construct_normal_activity(2.3, 1.7);
     const auto normal_input_2 = ActivityInputFactory::construct_normal_activity(0.0, 2.2);
 
-    ASSERT_NO_THROW(std::ignore = FlexibleActivityInput({}, create_choice_function(10)));
-    ASSERT_NO_THROW(std::ignore = FlexibleActivityInput({ constant_input_1 }, create_choice_function(10)));
-    ASSERT_NO_THROW(std::ignore = FlexibleActivityInput({ normal_input_1 }, create_choice_function(10)));
-    ASSERT_NO_THROW(std::ignore = FlexibleActivityInput({ constant_input_1, normal_input_1 }, create_choice_function(10)));
-    ASSERT_NO_THROW(std::ignore = FlexibleActivityInput({ constant_input_1, normal_input_1, constant_input_2, normal_input_2 }, create_choice_function(10)));
+    ASSERT_NO_THROW(std::ignore = FlexibleActivityInput(1, {}, create_choice_function(10)));
+    ASSERT_NO_THROW(std::ignore = FlexibleActivityInput(1, { constant_input_1 }, create_choice_function(10)));
+    ASSERT_NO_THROW(std::ignore = FlexibleActivityInput(1, { normal_input_1 }, create_choice_function(10)));
+    ASSERT_NO_THROW(std::ignore = FlexibleActivityInput(1, { constant_input_1, normal_input_1 }, create_choice_function(10)));
+    ASSERT_NO_THROW(std::ignore = FlexibleActivityInput(1, { constant_input_1, normal_input_1, constant_input_2, normal_input_2 }, create_choice_function(10)));
 }
 
 TEST_F(FlexibleActivityInputTest, testConstructorThrow) {
@@ -99,21 +101,21 @@ TEST_F(FlexibleActivityInputTest, testConstructorThrow) {
     auto empty_ptr = ActivityInputFactory::construct_constant_activity();
     empty_ptr.reset();
 
-    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput({ empty_ptr }, create_choice_function(10)), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput({ constant_input_1, empty_ptr }, create_choice_function(10)), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput({ normal_input_1, empty_ptr }, create_choice_function(10)), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput({ constant_input_1, empty_ptr, normal_input_1 }, create_choice_function(10)), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput({ constant_input_1, normal_input_1, empty_ptr, constant_input_2, normal_input_2 }, create_choice_function(10)), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput(1, { empty_ptr }, create_choice_function(10)), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput(1, { constant_input_1, empty_ptr }, create_choice_function(10)), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput(1, { normal_input_1, empty_ptr }, create_choice_function(10)), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput(1, { constant_input_1, empty_ptr, normal_input_1 }, create_choice_function(10)), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput(1, { constant_input_1, normal_input_1, empty_ptr, constant_input_2, normal_input_2 }, create_choice_function(10)), RelearnException);
 
-    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput(std::vector<std::shared_ptr<ActivityInput>>{}, {}), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput({ constant_input_1 }, {}), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput({ normal_input_1 }, {}), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput({ constant_input_1, normal_input_1 }, {}), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput({ constant_input_1, normal_input_1, constant_input_2, normal_input_2 }, {}), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput(1, std::vector<std::shared_ptr<ActivityInput>>{}, {}), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput(1, { constant_input_1 }, {}), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput(1, { normal_input_1 }, {}), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput(1, { constant_input_1, normal_input_1 }, {}), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput(1, { constant_input_1, normal_input_1, constant_input_2, normal_input_2 }, {}), RelearnException);
 
-    const auto combined = std::make_shared<FlexibleActivityInput>(std::vector<std::shared_ptr<ActivityInput>>{}, create_choice_function(10));
+    const auto combined = std::make_shared<FlexibleActivityInput>(1, std::vector<std::shared_ptr<ActivityInput>>{}, create_choice_function(10));
     const auto vec = std::vector<std::shared_ptr<ActivityInput>>{ empty_ptr, combined };
-    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput(vec, create_choice_function(10)), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FlexibleActivityInput(1, vec, create_choice_function(10)), RelearnException);
 }
 
 TEST_F(FlexibleActivityInputTest, testInitAndCreate) {
@@ -134,7 +136,7 @@ TEST_F(FlexibleActivityInputTest, testInitAndCreate) {
     const auto number_neurons_create_1 = NeuronIdFactory::get_random_number_neurons(this->mt);
     const auto number_neurons_create_2 = NeuronIdFactory::get_random_number_neurons(this->mt);
 
-    auto flexible_activity_input = FlexibleActivityInput({ normal_input_2, constant_input_1, normal_input_1, constant_input_2 }, create_choice_function(10));
+    auto flexible_activity_input = FlexibleActivityInput(1, { normal_input_2, constant_input_1, normal_input_1, constant_input_2 }, create_choice_function(10));
 
     ASSERT_THROW_NO_PRINT(flexible_activity_input.init(0), RelearnException);
     ASSERT_THROW_NO_PRINT(flexible_activity_input.create_neurons(number_neurons_create_1), RelearnException);
@@ -203,7 +205,7 @@ TEST_F(FlexibleActivityInputTest, testAddInputSourceThrow) {
 
     const auto vec = std::vector{ normal_input_2, constant_input_1, normal_input_1, constant_input_2 };
 
-    auto flexible_activity_input = FlexibleActivityInput(vec, create_choice_function(number_neurons_init));
+    auto flexible_activity_input = FlexibleActivityInput(1, vec, create_choice_function(number_neurons_init));
 
     auto empty_ptr = ActivityInputFactory::construct_constant_activity();
     empty_ptr.reset();
@@ -225,7 +227,7 @@ TEST_F(FlexibleActivityInputTest, testAddInputSourceThrow) {
     flexible_activity_input.update_input(102);
 
     const auto actual_input = flexible_activity_input.get_input();
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         const auto expected_input = normal_input_2->get_input(neuron_id);
 
         ASSERT_NEAR(flexible_activity_input.get_input(neuron_id), expected_input, eps);
@@ -257,12 +259,12 @@ TEST_F(FlexibleActivityInputTest, testUpdateInputAfterAdd) {
     const auto neurons_extra_info = NeuronsExtraInfoFactory::construct_extra_info();
     neurons_extra_info->init(number_neurons_init);
 
-    auto flexible_activity_input = FlexibleActivityInput({ normal_input_2, constant_input_1, normal_input_1, constant_input_2 }, create_choice_function(number_neurons_init));
+    auto flexible_activity_input = FlexibleActivityInput(1, { normal_input_2, constant_input_1, normal_input_1, constant_input_2 }, create_choice_function(number_neurons_init));
     flexible_activity_input.init(number_neurons_init);
     flexible_activity_input.set_extra_infos(neurons_extra_info);
 
     const auto vec = std::vector<std::shared_ptr<ActivityInput>>{ other_normal_input_2, other_constant_input_1, other_normal_input_1, other_constant_input_2 };
-    auto other_flexible_activity_input = std::make_shared<FlexibleActivityInput>(vec, create_choice_function(number_neurons_init));
+    auto other_flexible_activity_input = std::make_shared<FlexibleActivityInput>(1, vec, create_choice_function(number_neurons_init));
     other_flexible_activity_input->init(number_neurons_init);
     other_flexible_activity_input->set_extra_infos(neurons_extra_info);
 
@@ -271,7 +273,7 @@ TEST_F(FlexibleActivityInputTest, testUpdateInputAfterAdd) {
     flexible_activity_input.update_input(102);
 
     const auto actual_input = flexible_activity_input.get_input();
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         const auto input_vector = std::vector{ normal_input_2, constant_input_1, normal_input_1, constant_input_2 };
         const auto expected_input = normal_input_2->get_input(neuron_id);
 
@@ -299,14 +301,14 @@ TEST_F(FlexibleActivityInputTest, testUpdateInput) {
     const auto neurons_extra_info = NeuronsExtraInfoFactory::construct_extra_info();
     neurons_extra_info->init(number_neurons_init);
 
-    auto flexible_activity_input = FlexibleActivityInput({ normal_input_2, constant_input_1, normal_input_1, constant_input_2 }, create_choice_function(number_neurons_init));
+    auto flexible_activity_input = FlexibleActivityInput(1, { normal_input_2, constant_input_1, normal_input_1, constant_input_2 }, create_choice_function(number_neurons_init));
     flexible_activity_input.init(number_neurons_init);
     flexible_activity_input.set_extra_infos(neurons_extra_info);
 
     flexible_activity_input.update_input(102);
 
     const auto actual_input = flexible_activity_input.get_input();
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         const auto vec = std::vector{ normal_input_2, constant_input_1, normal_input_1, constant_input_2 };
         const auto expected_input = normal_input_2->get_input(neuron_id);
 
@@ -336,22 +338,22 @@ TEST_F(FlexibleActivityInputTest, testUpdateInputRAnge) {
     const auto neurons_extra_info = NeuronsExtraInfoFactory::construct_extra_info();
     neurons_extra_info->init(number_neurons_init);
 
-    auto flexible_activity_input = FlexibleActivityInput({ normal_input_2, constant_input_1, normal_input_1, constant_input_2 }, create_choice_function(10));
-    flexible_activity_input.init(number_neurons_init);
-    flexible_activity_input.set_extra_infos(neurons_extra_info);
+    std::unique_ptr<ActivityInput> flexible_activity_input = std::make_unique<FlexibleActivityInput>(1, std::vector{ normal_input_2, constant_input_1, normal_input_1, constant_input_2 }, create_choice_function(10));
+    flexible_activity_input->init(number_neurons_init);
+    flexible_activity_input->set_extra_infos(neurons_extra_info);
 
-    flexible_activity_input.update_input_range(102, first_neuron_id, last_neuron_id);
+    flexible_activity_input->update_input_range(102, first_neuron_id, last_neuron_id);
 
-    const auto actual_input = flexible_activity_input.get_input();
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    const auto actual_input = flexible_activity_input->get_input();
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         const auto vec = std::vector{ normal_input_2, constant_input_1, normal_input_1, constant_input_2 };
         const auto expected_input = normal_input_2->get_input(neuron_id);
 
         if (first_neuron_id <= neuron_id && neuron_id < last_neuron_id) {
-            ASSERT_NEAR(flexible_activity_input.get_input(neuron_id), expected_input, eps);
+            ASSERT_NEAR(flexible_activity_input->get_input(neuron_id), expected_input, eps);
             ASSERT_NEAR(actual_input[neuron_id.get_neuron_id()], expected_input, eps);
         } else {
-            ASSERT_EQ(flexible_activity_input.get_input(neuron_id), 0.0);
+            ASSERT_EQ(flexible_activity_input->get_input(neuron_id), 0.0);
             ASSERT_EQ(actual_input[neuron_id.get_neuron_id()], 0.0);
         }
     }
@@ -378,19 +380,19 @@ TEST_F(FlexibleActivityInputTest, testUpdateInputMultipleRanges) {
     const auto neurons_extra_info = NeuronsExtraInfoFactory::construct_extra_info();
     neurons_extra_info->init(number_neurons_init);
 
-    auto flexible_activity_input = FlexibleActivityInput({ normal_input_2, constant_input_1, normal_input_1, constant_input_2 }, create_choice_function(10));
-    flexible_activity_input.init(number_neurons_init);
-    flexible_activity_input.set_extra_infos(neurons_extra_info);
+    std::unique_ptr<ActivityInput> flexible_activity_input = std::make_unique<FlexibleActivityInput>(1, std::vector{ normal_input_2, constant_input_1, normal_input_1, constant_input_2 }, create_choice_function(10));
+    flexible_activity_input->init(number_neurons_init);
+    flexible_activity_input->set_extra_infos(neurons_extra_info);
 
-    flexible_activity_input.update_input_range(105, first_neuron_id, last_neuron_id);
-    flexible_activity_input.update_input_range(105, NeuronID{ 0 }, first_neuron_id);
-    flexible_activity_input.update_input_range(105, last_neuron_id, NeuronID{ number_neurons_init });
+    flexible_activity_input->update_input_range(105, first_neuron_id, last_neuron_id);
+    flexible_activity_input->update_input_range(105, NeuronID{ 0 }, first_neuron_id);
+    flexible_activity_input->update_input_range(105, last_neuron_id, NeuronID{ number_neurons_init });
 
-    const auto actual_input = flexible_activity_input.get_input();
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    const auto actual_input = flexible_activity_input->get_input();
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         const auto vec = std::vector{ normal_input_2, constant_input_1, normal_input_1, constant_input_2 };
         const auto expected_input = normal_input_2->get_input(neuron_id);
-        ASSERT_NEAR(flexible_activity_input.get_input(neuron_id), expected_input, eps);
+        ASSERT_NEAR(flexible_activity_input->get_input(neuron_id), expected_input, eps);
         ASSERT_NEAR(actual_input[neuron_id.get_neuron_id()], expected_input, eps);
     }
 }
@@ -416,14 +418,14 @@ TEST_F(FlexibleActivityInputTest, testUpdateInputDifferentChoices) {
         const auto neurons_extra_info = NeuronsExtraInfoFactory::construct_extra_info();
         neurons_extra_info->init(number_neurons);
 
-        auto flexible_activity_input = FlexibleActivityInput({ normal_input_2, constant_input_1, normal_input_1, constant_input_2 }, std::move(function));
+        auto flexible_activity_input = FlexibleActivityInput(1, { normal_input_2, constant_input_1, normal_input_1, constant_input_2 }, std::move(function));
         flexible_activity_input.init(number_neurons);
         flexible_activity_input.set_extra_infos(neurons_extra_info);
 
         flexible_activity_input.update_input(102);
 
         const auto actual_input = flexible_activity_input.get_input();
-        for (const auto neuron_id : NeuronID::range(number_neurons)) {
+        for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
             const auto vec = std::vector{ normal_input_2, constant_input_1, normal_input_1, constant_input_2 };
             const auto expected_input = vec[*function2->get_inputs_for_neuron_id(102, neuron_id).begin()]->get_input(neuron_id);
 
@@ -468,10 +470,10 @@ TEST_F(FlexibleActivityInputTest, testUpdateInputAfterCreate) {
     const auto neurons_extra_info = NeuronsExtraInfoFactory::construct_extra_info();
     neurons_extra_info->init(number_neurons_init);
 
-    auto positions = SimulationFactory::get_random_positions<std::allocator<Vec3d>>(this->mt, number_neurons_init);
+    auto positions = SimulationFactory::get_random_positions<std::allocator<RelearnTypes::position_type>>(this->mt, number_neurons_init);
     neurons_extra_info->set_positions(positions);
 
-    auto flexible_activity_input = FlexibleActivityInput({ normal_input_2, constant_input_1, normal_input_1, constant_input_2 }, create_choice_function(number_neurons_init));
+    auto flexible_activity_input = FlexibleActivityInput(1, { normal_input_2, constant_input_1, normal_input_1, constant_input_2 }, create_choice_function(number_neurons_init));
     flexible_activity_input.init(number_neurons_init);
     flexible_activity_input.set_extra_infos(neurons_extra_info);
 
@@ -481,7 +483,7 @@ TEST_F(FlexibleActivityInputTest, testUpdateInputAfterCreate) {
     flexible_activity_input.update_input(103);
 
     const auto actual_input = flexible_activity_input.get_input();
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         const auto vec = std::vector{ normal_input_2, constant_input_1, normal_input_1, constant_input_2 };
         const auto expected_input = normal_input_2->get_input(neuron_id);
 
@@ -509,7 +511,7 @@ TEST_F(FlexibleActivityInputTest, testFootprintNoThrow) {
     const auto neurons_extra_info = NeuronsExtraInfoFactory::construct_extra_info();
     neurons_extra_info->init(number_neurons_init);
 
-    auto flexible_activity_input = FlexibleActivityInput({ normal_input_2, constant_input_1, normal_input_1, constant_input_2 }, create_choice_function(number_neurons_init));
+    auto flexible_activity_input = FlexibleActivityInput(1, { normal_input_2, constant_input_1, normal_input_1, constant_input_2 }, create_choice_function(number_neurons_init));
     flexible_activity_input.init(number_neurons_init);
     flexible_activity_input.set_extra_infos(neurons_extra_info);
 
@@ -543,7 +545,7 @@ TEST_F(FlexibleActivityInputTest, testSetExtraInfoThrow) {
     const auto neurons_extra_info_too_small = NeuronsExtraInfoFactory::construct_extra_info();
     neurons_extra_info_too_small->init(number_neurons_init - 1);
 
-    auto flexible_activity_input = FlexibleActivityInput({ normal_input_2, constant_input_1, normal_input_1, constant_input_2 }, create_choice_function(number_neurons_init));
+    auto flexible_activity_input = FlexibleActivityInput(1, { normal_input_2, constant_input_1, normal_input_1, constant_input_2 }, create_choice_function(number_neurons_init));
     flexible_activity_input.init(number_neurons_init);
 
     ASSERT_THROW_NO_PRINT(flexible_activity_input.set_extra_infos({}), RelearnException);
@@ -557,3 +559,4 @@ TEST_F(FlexibleActivityInputTest, testSetExtraInfoThrow) {
     flexible_activity_input.set_extra_infos(neurons_extra_info);
     ASSERT_NO_THROW(flexible_activity_input.update_input(102));
 }
+#endif

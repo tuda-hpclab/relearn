@@ -3,18 +3,17 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-
+#include "types/BasicTypes.h"
 #include "util/NeuronID.h"
 
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <filesystem>
 #include <functional>
@@ -37,8 +36,10 @@ class MPIRank;
  */
 class CalciumIO {
 public:
-    using initial_value_calculator = std::function<double(mpiPP::MPIRank, NeuronID::value_type)>;
-    using target_value_calculator = std::function<double(mpiPP::MPIRank, NeuronID::value_type)>;
+    using calcium_type = RelearnTypes::calcium_type;
+
+    using initial_value_calculator = std::function<calcium_type(mpiPP::MPIRank, NeuronID::value_type)>;
+    using target_value_calculator = std::function<calcium_type(mpiPP::MPIRank, NeuronID::value_type)>;
 
     /**
      * @brief Loads from a file the functions that map the current MPI rank and a neuron's id to its initial and target calcium value

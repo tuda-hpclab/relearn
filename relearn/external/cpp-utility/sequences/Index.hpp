@@ -3,7 +3,7 @@
 /*
  * This file is part of the CPP-Utility software developed at Technical University Darmstadt
  *
- * Copyright (c) 2024, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,60 +11,54 @@
  */
 
 #include <algorithm>
-#include <cstdint>
+#include <array>
+#include <cstddef>
 #include <utility>
 
 namespace utility {
 
 namespace details {
 
+/** Returns the largest value in a non-empty index sequence. */
 template <std::size_t... Indices>
-constexpr std::size_t max_index(std::index_sequence<Indices...>) {
+    requires(sizeof...(Indices) > 0)
+[[nodiscard]] constexpr std::size_t max_index(std::index_sequence<Indices...>) noexcept {
     return (std::max)({ Indices... });
 }
 
+/** Returns the smallest value in a non-empty index sequence. */
 template <std::size_t... Indices>
-constexpr std::size_t min_index(std::index_sequence<Indices...>) {
+    requires(sizeof...(Indices) > 0)
+[[nodiscard]] constexpr std::size_t min_index(std::index_sequence<Indices...>) noexcept {
     return (std::min)({ Indices... });
 }
 
+/** Returns the value at compile-time position I in an index sequence. */
 template <std::size_t I, std::size_t... Indices>
-constexpr std::size_t get_index(std::index_sequence<Indices...>) {
-    constexpr std::size_t arr[] = { Indices... };
-    return arr[I];
+    requires(I < sizeof...(Indices))
+[[nodiscard]] constexpr std::size_t get_index(std::index_sequence<Indices...>) noexcept {
+    constexpr auto values = std::array<std::size_t, sizeof...(Indices)>{ Indices... };
+    return values[I];
 }
 
+/** Checks every adjacent pair; empty and single-element sequences return true. */
 template <std::size_t... Indices>
-constexpr bool is_strictly_increasing(std::index_sequence<Indices...>) {
+[[nodiscard]] constexpr bool is_strictly_increasing(std::index_sequence<Indices...>) noexcept {
+    constexpr auto values = std::array<std::size_t, sizeof...(Indices)>{ Indices... };
+    for (auto i = std::size_t{ 1 }; i < values.size(); ++i) {
+        if (values[i - 1] >= values[i]) {
+            return false;
+        }
+    }
     return true;
-}
-
-template <std::size_t Index>
-constexpr bool is_strictly_increasing(std::index_sequence<Index>) {
-    return true;
-}
-
-template <std::size_t Index1, std::size_t Index2>
-constexpr bool is_strictly_increasing(std::index_sequence<Index1, Index2>) {
-    constexpr auto first_value = get_index<0, Index1, Index2>(std::index_sequence<Index1, Index2>{});
-    constexpr auto second_value = get_index<1, Index1, Index2>(std::index_sequence<Index1, Index2>{});
-
-    return first_value < second_value;
-}
-
-template <std::size_t Index1, std::size_t Index2, std::size_t... Indices>
-constexpr bool is_strictly_increasing(std::index_sequence<Index1, Index2, Indices...>) {
-    constexpr auto first_value = get_index<0, Index1, Index2, Indices...>(std::index_sequence<Index1, Index2, Indices...>{});
-    constexpr auto second_value = get_index<1, Index1, Index2, Indices...>(std::index_sequence<Index1, Index2, Indices...>{});
-
-    constexpr auto first_result = first_value < second_value;
-    constexpr auto recursive_result = is_strictly_increasing(std::index_sequence<Index2, Indices...>());
-
-    return first_result && recursive_result;
 }
 
 } // namespace details
 
+/**
+ * @brief Matches index packs in which every value is greater than its predecessor.
+ * Empty and single-element packs are strictly increasing.
+ */
 template <std::size_t... Indices>
 concept StrictlyIncreasing = details::is_strictly_increasing(std::index_sequence<Indices...>{});
 

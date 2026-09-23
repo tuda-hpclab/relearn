@@ -3,19 +3,21 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-
 #include "neurons/enums/SynapticElementType.h"
+#include "types/BasicTypes.h"
 #include "util/NeuronID.h"
 
-#include <boost/container_hash/hash.hpp>
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
+#include <boost/functional/hash.hpp>
+#pragma GCC diagnostic pop
 
 #include <cstdint>
 #include <filesystem>
@@ -47,7 +49,7 @@ public:
 
         int from_rank{ -1 };
         RelearnTypes::group_id from_group{};
-        NeuronID to_local_neuron_id{};
+        NeuronID to_local_neuron_id;
         SignalType signal_type{};
     };
 
@@ -129,8 +131,8 @@ private:
      * Number of connections to another ensemble in a single step
      */
     struct ConnectionCount {
-        int den_ex = 0;
-        int den_inh = 0;
+        RelearnTypes::plastic_synapse_weight den_ex = 0;
+        RelearnTypes::plastic_synapse_weight den_inh = 0;
     };
 
     std::shared_ptr<Neurons> neurons;
@@ -139,7 +141,7 @@ private:
 
     bool flag_monitor_connectivity{ true };
 
-    std::size_t step = 0;
+    RelearnTypes::step_type step = 0;
 
     std::filesystem::path path;
 
@@ -148,15 +150,15 @@ private:
     RelearnTypes::group_id group_id;
 
     struct InternalStatistics {
-        double axons_grown = 0;
-        double den_ex_grown = 0;
-        double den_inh_grown = 0;
+        RelearnTypes::grown_type axons_grown = 0;
+        RelearnTypes::grown_type den_ex_grown = 0;
+        RelearnTypes::grown_type den_inh_grown = 0;
         std::uint64_t axons_conn = 0;
         std::uint64_t den_ex_conn = 0;
         std::uint64_t den_inh_conn = 0;
-        double activity_input = 0;
-        double calcium = 0;
-        double fired_fraction = 0.0;
+        RelearnTypes::activity_type activity_input = 0;
+        RelearnTypes::calcium_type calcium = 0;
+        RelearnTypes::fire_rate_type fired_fraction = 0.0;
         RelearnTypes::number_neurons_type num_enabled_neurons = 0;
     };
 

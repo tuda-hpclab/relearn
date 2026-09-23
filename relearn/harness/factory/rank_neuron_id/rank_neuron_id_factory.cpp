@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,6 +11,7 @@
 #include "rank_neuron_id_factory.h"
 
 #include "neurons/helper/RankNeuronId.h"
+#include "util/NeuronIDRange.h"
 
 #include "adapter/helper/RankNeuronIdAdapter.h"
 
@@ -37,9 +38,9 @@ std::pair<RankNeuronId, std::string> RankNeuronIdFactory::generate_random_rank_n
     return { rank_neuron_id, std::move(description) };
 }
 
-std::unordered_set<RankNeuronId> RankNeuronIdFactory::get_random_rank_neuron_ids(NeuronID::value_type number_neurons_per_rank, size_t num_ranks, NeuronID::value_type number_neurons_in_sample, std::mt19937& mt) {
+std::unordered_set<RankNeuronId> RankNeuronIdFactory::get_random_rank_neuron_ids(RelearnTypes::number_neurons_type number_neurons_per_rank, int num_ranks, RelearnTypes::number_neurons_type number_neurons_in_sample, std::mt19937& mt) {
     auto set = std::unordered_set<RankNeuronId>{};
-    for ([[maybe_unused]] const auto _ : NeuronID::range_id(number_neurons_in_sample)) {
+    for ([[maybe_unused]] const auto _ : NeuronIDRange::range_id(number_neurons_in_sample)) {
         auto rni = RankNeuronId{};
         do {
             const auto neuron_id = NeuronIdFactory::get_random_neuron_id(number_neurons_per_rank, mt);

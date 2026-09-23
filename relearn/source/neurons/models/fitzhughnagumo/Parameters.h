@@ -3,20 +3,24 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
+#include "types/BasicTypes.h"
+
+#include <cpp-utility/Cast.hpp>
+
 namespace models::fitzhughnagumo {
 
 /**
  * This class contains the parameters for the FitzHugh-Nagumo model.
- * @tparam real_type The type of the parameters, default is double
+ * @tparam real_type The type of the parameters, i.e., of the membrane potential and the recovery variables
  */
-template <typename real_type = double>
+template <typename real_type = RelearnTypes::activity_type>
 class Parameters {
 public:
     /**
@@ -84,23 +88,23 @@ public:
         return init_w;
     }
 
-    static constexpr real_type default_a{ 0.7 };
-    static constexpr real_type default_b{ 0.8 };
-    static constexpr real_type default_phi{ 0.08 };
-    static constexpr real_type default_init_x{ -1.2 };
-    static constexpr real_type default_init_w{ -0.6 };
+    static constexpr real_type default_a{ utility::as<real_type>(0.7) };
+    static constexpr real_type default_b{ utility::as<real_type>(0.8) };
+    static constexpr real_type default_phi{ utility::as<real_type>(0.08) };
+    static constexpr real_type default_init_x{ utility::as<real_type>(-1.2) };
+    static constexpr real_type default_init_w{ utility::as<real_type>(-0.6) };
 
-    static constexpr real_type min_a{ 0.6 };
-    static constexpr real_type min_b{ 0.7 };
-    static constexpr real_type min_phi{ 0.07 };
-    static constexpr real_type min_init_x{ -200.0 };
-    static constexpr real_type min_init_w{ -100.0 };
+    static constexpr real_type min_a{ utility::as<real_type>(0.6) };
+    static constexpr real_type min_b{ utility::as<real_type>(0.7) };
+    static constexpr real_type min_phi{ utility::as<real_type>(0.07) };
+    static constexpr real_type min_init_x{ utility::as<real_type>(-200.0) };
+    static constexpr real_type min_init_w{ utility::as<real_type>(-100.0) };
 
-    static constexpr real_type max_a{ 0.8 };
-    static constexpr real_type max_b{ 0.9 };
-    static constexpr real_type max_phi{ 0.09 };
-    static constexpr real_type max_init_x{ 100.0 };
-    static constexpr real_type max_init_w{ 20.0 };
+    static constexpr real_type max_a{ utility::as<real_type>(0.8) };
+    static constexpr real_type max_b{ utility::as<real_type>(0.9) };
+    static constexpr real_type max_phi{ utility::as<real_type>(0.09) };
+    static constexpr real_type max_init_x{ utility::as<real_type>(100.0) };
+    static constexpr real_type max_init_w{ utility::as<real_type>(20.0) };
 
 private:
     real_type a{ default_a };

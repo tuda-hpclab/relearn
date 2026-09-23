@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2025-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -14,15 +14,16 @@
 #include "algorithm/Kernel/Gaussian.h"
 #include "algorithm/NaiveInternal/NaiveBase.h"
 #include "algorithm/NaiveInternal/NaiveCell.h"
-#include "benchmark/benchmark.h"
 #include "neurons/enums/SynapticElementType.h"
+
+#include <benchmark/benchmark.h>
 
 #include <cstddef>
 
 namespace {
 void BM_Naive_Find_Target_Neuron(benchmark::State& state) {
     constexpr auto inner_iterations = 1000;
-    constexpr auto pos = Vec3d{ 10, 10, 10 };
+    constexpr auto pos = RelearnTypes::position_type{ 10, 10, 10 };
     const auto number_nodes = state.range(0);
 
     auto node_cache = NodeCache<NaiveCell>{};
@@ -34,7 +35,6 @@ void BM_Naive_Find_Target_Neuron(benchmark::State& state) {
 
     for (auto _ : state) {
         for (auto i = 0; i < inner_iterations; i++) {
-            state.ResumeTiming();
             const auto& target_opt = NaiveBase<NaiveCell>::find_target_neuron(kernel, node_cache, NeuronID{ 0 }, pos, SignalType::Excitatory, &root);
 
             state.PauseTiming();
@@ -46,13 +46,14 @@ void BM_Naive_Find_Target_Neuron(benchmark::State& state) {
 
             benchmark::DoNotOptimize(target_rank.get_rank());
             benchmark::DoNotOptimize(target_id.get_neuron_id());
+            state.ResumeTiming();
         }
     }
 }
 
 void BM_Naive_Find_Target_Neurons(benchmark::State& state) {
     const auto number_nodes = state.range(0);
-    const auto pos = Vec3d{ 10, 10, 10 };
+    const auto pos = RelearnTypes::position_type{ 10, 10, 10 };
 
     auto node_cache = NodeCache<NaiveCell>{};
     node_cache.set_is_already_downloaded();

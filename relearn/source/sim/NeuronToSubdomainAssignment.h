@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2020-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,10 +11,11 @@
  */
 
 #include "Config.h"
-#include "Types.h"
 
 #include "neurons/enums/SynapticElementType.h"
 #include "sim/LoadedNeuron.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
 #include "util/NeuronFilePaths.h"
 #include "util/RelearnAllocator.h"
 #include "util/RelearnException.h"
@@ -38,8 +39,9 @@ class Partition;
 class NeuronToSubdomainAssignment {
 public:
     using position_type = RelearnTypes::position_type;
-    using box_size_type = RelearnTypes::box_size_type;
+    using space_type = RelearnTypes::space_type;
     using number_neurons_type = RelearnTypes::number_neurons_type;
+    using percentage_type = RelearnTypes::percentage_type;
 
     /**
      * @brief Constructs a new object with the given partition
@@ -86,11 +88,11 @@ public:
      *      This might be necessary if special boundaries must be considered
      * @return A function object that corrects subdomain boundaries
      */
-    virtual std::function<box_size_type(box_size_type)> get_subdomain_boundary_fix() const {
-        return [](Vec3d arg) { return arg; };
+    virtual std::function<position_type(position_type)> get_subdomain_boundary_fix() const {
+        return [](position_type arg) { return arg; };
     }
 
-    [[nodiscard]] std::size_t get_number_local_neurons() const {
+    [[nodiscard]] number_neurons_type get_number_local_neurons() const {
         return number_local_neurons;
     }
 
@@ -122,7 +124,7 @@ public:
      * @brief Returns the total fraction of excitatory neurons that should be placed
      * @return The total fraction of excitatory neurons that should be placed
      */
-    [[nodiscard]] double get_requested_ratio_excitatory_neurons() const noexcept {
+    [[nodiscard]] percentage_type get_requested_ratio_excitatory_neurons() const noexcept {
         return requested_ratio_excitatory_neurons;
     }
 
@@ -130,7 +132,7 @@ public:
      * @brief Returns the current fraction of placed excitatory neurons in the local subdomains
      * @return The total current fraction of placed excitatory neurons in the local subdomains
      */
-    [[nodiscard]] double get_ratio_placed_excitatory_neurons() const noexcept {
+    [[nodiscard]] percentage_type get_ratio_placed_excitatory_neurons() const noexcept {
         return ratio_placed_excitatory_neurons;
     }
 
@@ -205,52 +207,52 @@ public:
 protected:
     virtual void fill_all_subdomains() = 0;
 
-    void set_requested_ratio_excitatory_neurons(const double desired_frac_neurons_exc) noexcept {
+    void set_requested_ratio_excitatory_neurons(const percentage_type desired_frac_neurons_exc) noexcept {
         requested_ratio_excitatory_neurons = desired_frac_neurons_exc;
     }
 
-    void set_number_local_neurons(const std::size_t _number_local_neurons) noexcept {
+    void set_number_local_neurons(const number_neurons_type _number_local_neurons) noexcept {
         number_local_neurons = _number_local_neurons;
     }
 
-    void set_requested_number_neurons(const std::size_t get_requested_number_neurons) noexcept {
+    void set_requested_number_neurons(const number_neurons_type get_requested_number_neurons) noexcept {
         requested_number_neurons = get_requested_number_neurons;
     }
 
-    void set_ratio_placed_excitatory_neurons(const double current_frac_neurons_exc) noexcept {
+    void set_ratio_placed_excitatory_neurons(const percentage_type current_frac_neurons_exc) noexcept {
         ratio_placed_excitatory_neurons = current_frac_neurons_exc;
     }
 
-    void set_number_placed_neurons(const std::size_t current_num_neurons) noexcept {
+    void set_number_placed_neurons(const number_neurons_type current_num_neurons) noexcept {
         number_placed_neurons = current_num_neurons;
     }
 
-    void set_total_number_placed_neurons(const std::size_t total_number_placed_neurons) const {
+    void set_total_number_placed_neurons(const number_neurons_type total_number_placed_neurons) const {
         total_number_neurons = total_number_placed_neurons;
     }
 
-    void set_loaded_nodes(std::vector<LoadedNeuron>&& neurons) {
+    void set_loaded_nodes(std::vector<LoadedNeuron>&& neurons) { // NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved) - moved into loaded_neurons below
         loaded_neurons = std::move(neurons);
     }
 
-    std::shared_ptr<Partition> partition{};
+    std::shared_ptr<Partition> partition;
 
-    std::shared_ptr<SynapseLoader> synapse_loader{};
+    std::shared_ptr<SynapseLoader> synapse_loader;
 
     bool initialized{ false };
 
     std::vector<LoadedNeuron> loaded_neurons{};
 
 private:
-    double requested_ratio_excitatory_neurons{ 0.0 };
+    percentage_type requested_ratio_excitatory_neurons{ 0.0 };
     number_neurons_type requested_number_neurons{ 0 };
 
-    double ratio_placed_excitatory_neurons{ 0.0 };
+    percentage_type ratio_placed_excitatory_neurons{ 0.0 };
     number_neurons_type number_placed_neurons{ 0 };
 
     std::shared_ptr<LocalGroupTranslator> local_group_translator;
 
     mutable number_neurons_type total_number_neurons{ Constants::uninitialized };
 
-    std::size_t number_local_neurons{};
+    number_neurons_type number_local_neurons{};
 };

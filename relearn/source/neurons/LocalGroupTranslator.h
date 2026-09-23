@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2025-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,17 +11,18 @@
  */
 
 #include "Config.h"
-#include "Types.h"
 
 #include "io/NeuronIO.h"
+#include "types/BasicTypes.h"
 #include "util/File.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnException.h"
 
-#include "cpp-utility/MemoryFootprint.hpp"
-#include "cpp-utility/ranges/Functional.hpp"
+#include <cpp-utility/MemoryFootprint.hpp>
+#include <cpp-utility/ranges/Functional.hpp>
 
-#include "mpi-wrapper/MPIInfo.h"
+#include <mpi-wrapper/core/MPIInfo.h>
 
 #include <range/v3/algorithm/any_of.hpp>
 #include <range/v3/algorithm/contains.hpp>
@@ -56,7 +57,7 @@ public:
      * @exception Throws a RelearnException if the group_id_to_group_name or neuron_id_to_group_ids is empty
      *     or if any group id is out of bounds or if a neuron has no group ids or if a group name occurs more than once
      */
-    LocalGroupTranslator(RelearnTypes::group_names _group_id_to_group_name,
+    LocalGroupTranslator(RelearnTypes::group_names _group_id_to_group_name, // NOLINT(performance-unnecessary-value-param) - moved into group_id_to_group_name below
                          std::vector<RelearnTypes::group_ids> _neuron_id_to_group_ids)
         : group_id_to_group_name(std::move(_group_id_to_group_name))
         , neuron_id_to_group_ids(std::move(_neuron_id_to_group_ids)) {
@@ -106,7 +107,7 @@ public:
      * @exception Throws a RelearnException if the read neuron_id_to_group_ids or group_id_to_group_name are empty or if the group ids from at least
      * one neuron are empty. Also throws a RelearnException if a group id is out of bounds or if a group name occurs more than once
      */
-    LocalGroupTranslator(const std::filesystem::path& file_path_groups, RelearnTypes::number_neurons_type number_neurons) {
+    LocalGroupTranslator(const std::filesystem::path& file_path_groups, RelearnTypes::number_neurons_type number_neurons) { // NOLINT(cppcoreguidelines-prefer-member-initializer) - values come from a call below, not available at member-init time
         const auto path_to_file = Util::find_file_for_rank(file_path_groups, mpiPP::MPIInfo::get_my_rank(), "rank_", "_groups.txt");
         auto [_neuron_id_to_group_ids, _group_id_to_group_name] = NeuronIO::read_neuron_groups(path_to_file, number_neurons);
 
@@ -285,7 +286,7 @@ public:
             return ranges::contains(group_ids, my_group_id);
         };
 
-        return NeuronID::range(neuron_id_to_group_ids.size())
+        return NeuronIDRange::range(neuron_id_to_group_ids.size())
                | ranges::views::filter(contains_group_id, utility::lookup(neuron_id_to_group_ids_unordered, &NeuronID::get_neuron_id))
                | ranges::to<std::unordered_set>;
     }
@@ -309,7 +310,7 @@ public:
             return false;
         };
 
-        return NeuronID::range(neuron_id_to_group_ids.size())
+        return NeuronIDRange::range(neuron_id_to_group_ids.size())
                | ranges::views::filter(is_id_in_my_ranks_groups)
                | ranges::to_vector;
     }
@@ -329,7 +330,7 @@ public:
         };
 
         auto result = std::unordered_set<NeuronID>{};
-        for (const auto& id : NeuronID::range(neuron_id_to_group_ids_unordered.size())) {
+        for (const auto& id : NeuronIDRange::range(neuron_id_to_group_ids_unordered.size())) {
             if (is_id_in_my_ranks_groups(id)) {
                 result.insert(id);
             }
@@ -443,6 +444,6 @@ public:
 
 private:
     RelearnTypes::group_names group_id_to_group_name{ std::string{ Constants::default_group_name } };
-    std::vector<RelearnTypes::group_ids> neuron_id_to_group_ids;
-    std::vector<RelearnTypes::group_ids_unordered> neuron_id_to_group_ids_unordered;
+    std::vector<RelearnTypes::group_ids> neuron_id_to_group_ids{};
+    std::vector<RelearnTypes::group_ids_unordered> neuron_id_to_group_ids_unordered{};
 };

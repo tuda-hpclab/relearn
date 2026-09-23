@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,19 +11,19 @@
  */
 
 #include "Config.h"
-#include "Types.h"
-#include "Types2.h"
 
 #include "io/LogFiles.h"
 #include "io/parser/IntervalParser.h"
 #include "neurons/NeuronsExtraInfo.h"
+#include "types/BasicTypes.h"
+#include "types/StimulusTypes.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
-#include "util/StringUtil.h"
 
-#include "cpp-utility/Interval.hpp"
-#include "cpp-utility/ranges/Functional.hpp"
-#include "cpp-utility/ranges/views/Optional.hpp"
+#include <cpp-utility/Interval.hpp>
+#include <cpp-utility/StringUtil.hpp>
+#include <cpp-utility/ranges/Functional.hpp>
+#include <cpp-utility/ranges/views/Optional.hpp>
 
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/filter.hpp>
@@ -42,10 +42,11 @@
 class StimulusParser {
 public:
     using step_type = RelearnTypes::step_type;
+    using activity_type = RelearnTypes::activity_type;
 
     struct Stimulus {
         utility::Interval<step_type> interval{};
-        double stimulus_intensity{};
+        activity_type stimulus_intensity{};
         std::unordered_set<NeuronID> matching_ids{};
         std::unordered_set<RelearnTypes::group_name> matching_group_names;
     };
@@ -74,7 +75,7 @@ public:
             return {};
         }
 
-        auto intensity = double{};
+        auto intensity = activity_type{};
         ss >> intensity;
 
         if (!ss) {
@@ -88,7 +89,7 @@ public:
         group_names.reserve(line.size());
 
         for (auto current_value = std::string{}; ss >> current_value;) {
-            const auto& rank_neuron_id_vector = StringUtil::split_string(current_value, ':');
+            const auto& rank_neuron_id_vector = utility::split_string(current_value, ':');
             if (rank_neuron_id_vector.size() == 2) {
                 // Neuron has format <rank>:<neuron_id>
                 const auto rank = std::stoi(rank_neuron_id_vector[0]);
@@ -98,7 +99,7 @@ public:
                 const auto neuron_id = std::stoul(rank_neuron_id_vector[1]);
                 ids.insert({ NeuronID{ neuron_id - 1 } });
             } else {
-                RelearnException::check(!StringUtil::is_number(current_value), "StimulusParser::parseLine:: Illegal neuron id {} in stimulus files. Must have the format <rank>:<neuron_id> or be an group name", current_value);
+                RelearnException::check(!utility::is_number(current_value), "StimulusParser::parseLine:: Illegal neuron id {} in stimulus files. Must have the format <rank>:<neuron_id> or be an group name", current_value);
                 // Neuron descriptor is an group name
                 group_names.insert(current_value);
             }
@@ -135,7 +136,7 @@ public:
             return stimuli
                    | ranges::views::filter(hits_current_step, &Stimulus::interval)
                    | ranges::views::transform([](const Stimulus& stimulus) {
-                         return std::pair{ stimulus.matching_ids, stimulus.stimulus_intensity };
+                         return std::pair<std::unordered_set<NeuronID>, RelearnTypes::activity_type>{ stimulus.matching_ids, stimulus.stimulus_intensity };
                      })
                    | ranges::to<RelearnTypes::stimuli_list_type>;
         };

@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2020-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,31 +11,35 @@
  */
 
 #include "Config.h"
-#include "Types.h"
 
+#include "cuda/network_graph/NetworkGPUType.h"
+#include "cuda/network_graph/NetworkGraphGPU.h"
+#include "cuda/util/Util.h"
+#include "network_graph/NetworkHandle.h"
 #include "neurons/enums/SynapticElementType.h"
+#include "types/BasicTypes.h"
+#include "types/SynapseTypes.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnException.h"
-#include "util/Timers.h"
 
-#include "cpp-utility/MemoryFootprint.hpp"
-#include "cpp-utility/ranges/Functional.hpp"
+#include <cpp-utility/MemoryFootprint.hpp>
+#include <cpp-utility/ranges/Functional.hpp>
 
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <range/v3/numeric/accumulate.hpp>
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/concat.hpp>
 #include <range/v3/view/filter.hpp>
+#include <range/v3/view/join.hpp>
 #include <range/v3/view/map.hpp>
 #include <range/v3/view/transform.hpp>
 
 #include <filesystem>
 #include <functional>
 #include <memory>
-#include <ostream>
-#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -49,12 +53,15 @@
  * distant edges (another MPI rank is the owner of the target or source neuron).
  */
 class NetworkGraph {
+
     template <typename synapse_weight>
     class NetworkGraphBase {
         friend class NetworkGraph;
 
     public:
         using number_neurons_type = RelearnTypes::number_neurons_type;
+        using d_local_edges_type = std::tuple<CudaConfig::number_neurons_type, synapse_weight>;
+        using d_distant_edges_type = std::tuple<int, CudaConfig::number_neurons_type, synapse_weight>;
 
         using LocalEdges = std::vector<std::pair<NeuronID, synapse_weight>>;
 
@@ -73,7 +80,9 @@ class NetworkGraph {
         NetworkGraphBase& operator=(const NetworkGraphBase& other) = delete;
         NetworkGraphBase& operator=(NetworkGraphBase&& other) = delete;
 
+#ifndef RELEARN_CUDA_ENABLED
         ~NetworkGraphBase() = default;
+#endif
 
         /**
          * @brief Returns a constant reference to all distant in-edges to a neuron, i.e., a view on neurons that connect to the specified one via a synapse
@@ -85,7 +94,9 @@ class NetworkGraph {
         [[nodiscard]] const DistantEdges& get_distant_in_edges(const number_neurons_type neuron_id) const {
             RelearnException::check(neuron_id < neuron_distant_in_neighborhood.size(),
                                     "NetworkGraph::NetworkGraphBase::get_distant_in_edges: Tried with a too large id of {}", neuron_id);
-
+#ifdef RELEARN_CUDA_ENABLED
+            RelearnException::check(!network_graph_modified_on_gpu, "NetworkGraph is not up to date on host side");
+#endif
             return neuron_distant_in_neighborhood[neuron_id];
         }
 
@@ -99,7 +110,6 @@ class NetworkGraph {
         [[nodiscard]] const DistantEdges& get_distant_out_edges(const number_neurons_type neuron_id) const {
             RelearnException::check(neuron_id < neuron_distant_out_neighborhood.size(),
                                     "NetworkGraph::NetworkGraphBase::get_distant_out_edges: Tried with a too large id of {}", neuron_id);
-
             return neuron_distant_out_neighborhood[neuron_id];
         }
 
@@ -112,7 +122,8 @@ class NetworkGraph {
          */
         [[nodiscard]] const LocalEdges& get_local_in_edges(const number_neurons_type neuron_id) const {
             RelearnException::check(neuron_id < neuron_local_in_neighborhood.size(),
-                                    "NetworkGraph::NetworkGraphBase::get_local_in_edges: Tried with a too large id of {}", neuron_id);
+                                    "NetworkGraph::NetworkGraphBase::get_local_in_edges: Tried with a too large id of {}",
+                                    neuron_id);
 
             return neuron_local_in_neighborhood[neuron_id];
         }
@@ -127,8 +138,56 @@ class NetworkGraph {
         [[nodiscard]] const LocalEdges& get_local_out_edges(const number_neurons_type neuron_id) const {
             RelearnException::check(neuron_id < neuron_local_out_neighborhood.size(),
                                     "NetworkGraph::NetworkGraphBase::get_local_out_edges: Tried with a too large id of {}", neuron_id);
-
             return neuron_local_out_neighborhood[neuron_id];
+        }
+
+        [[nodiscard]] synapse_weight get_weight_for_local_out_edge(const NeuronID target_neuron, const NeuronID source_neuron) const {
+#ifdef RELEARN_CUDA_ENABLED
+            RelearnException::check(!network_graph_modified_on_gpu, "NetworkGraph is not up to date on host side");
+#endif
+
+            for (const auto& [other_neuron_id, weight] : neuron_local_out_neighborhood[source_neuron.get_neuron_id()]) {
+                if (other_neuron_id == target_neuron) {
+                    return weight;
+                }
+            }
+            return 0;
+        }
+
+        [[nodiscard]] synapse_weight get_weight_for_local_in_edge(const NeuronID target_neuron, const NeuronID source_neuron) const {
+#ifdef RELEARN_CUDA_ENABLED
+            RelearnException::check(!network_graph_modified_on_gpu, "NetworkGraph is not up to date on host side");
+#endif
+            for (const auto& [other_neuron_id, weight] : neuron_local_in_neighborhood[target_neuron.get_neuron_id()]) {
+                if (other_neuron_id == source_neuron) {
+                    return weight;
+                }
+            }
+            return 0;
+        }
+
+        [[nodiscard]] synapse_weight get_weight_for_distant_out_edge(const RankNeuronId target_neuron, const NeuronID source_neuron) const {
+#ifdef RELEARN_CUDA_ENABLED
+            RelearnException::check(!network_graph_modified_on_gpu, "NetworkGraph is not up to date on host side");
+#endif
+            for (const auto& [other_neuron_id, weight] : neuron_distant_out_neighborhood[source_neuron.get_neuron_id()]) {
+                if (other_neuron_id == target_neuron) {
+                    return weight;
+                }
+            }
+            return 0;
+        }
+
+        [[nodiscard]] synapse_weight get_weight_for_distant_in_edge(const NeuronID target_neuron, const RankNeuronId source_neuron) const {
+#ifdef RELEARN_CUDA_ENABLED
+            RelearnException::check(!network_graph_modified_on_gpu, "NetworkGraph is not up to date on host side");
+#endif
+            for (const auto& [other_neuron_id, weight] : neuron_distant_in_neighborhood[target_neuron.get_neuron_id()]) {
+                if (other_neuron_id == source_neuron) {
+                    return weight;
+                }
+            }
+            return 0;
         }
 
         /**
@@ -136,6 +195,9 @@ class NetworkGraph {
          * @return Vector of edges. Edges from neuron with id i are at position i
          */
         [[nodiscard]] const NeuronLocalOutNeighborhood& get_all_local_out_edges() const {
+#ifdef RELEARN_CUDA_ENABLED
+            RelearnException::check(!network_graph_modified_on_gpu, "NetworkGraph is not up to date on host side");
+#endif
             return neuron_local_out_neighborhood;
         }
 
@@ -144,6 +206,9 @@ class NetworkGraph {
          * @return Vector of edges. Edges from neuron with id i are at position i
          */
         [[nodiscard]] const NeuronDistantOutNeighborhood& get_all_distant_out_edges() const {
+#ifdef RELEARN_CUDA_ENABLED
+            RelearnException::check(!network_graph_modified_on_gpu, "NetworkGraph is not up to date on host side");
+#endif
             return neuron_distant_out_neighborhood;
         }
 
@@ -152,6 +217,9 @@ class NetworkGraph {
          * @return Vector of edges. Edges from neuron with id i are at position i
          */
         [[nodiscard]] const NeuronLocalInNeighborhood& get_all_local_in_edges() const {
+#ifdef RELEARN_CUDA_ENABLED
+            RelearnException::check(!network_graph_modified_on_gpu, "NetworkGraph is not up to date on host side");
+#endif
             return neuron_local_in_neighborhood;
         }
 
@@ -160,6 +228,9 @@ class NetworkGraph {
          * @return Vector of edges. Edges from neuron with id i are at position i
          */
         [[nodiscard]] const NeuronDistantInNeighborhood& get_all_distant_in_edges() const {
+#ifdef RELEARN_CUDA_ENABLED
+            RelearnException::check(!network_graph_modified_on_gpu, "NetworkGraph is not up to date on host side");
+#endif
             return neuron_distant_in_neighborhood;
         }
 
@@ -172,6 +243,9 @@ class NetworkGraph {
          * @return A collection with all partnering neurons
          */
         [[nodiscard]] std::unordered_set<RankNeuronId> get_all_partners_incoming(const number_neurons_type neuron_id, const SignalType signal_type) const {
+#ifdef RELEARN_CUDA_ENABLED
+            CPU_NOT_SUPPORTED
+#endif
             RelearnException::check(neuron_id < number_local_neurons,
                                     "NetworkGraph::NetworkGraphBase::get_all_connecting_neurons: Tried with a too large id of {}", neuron_id);
 
@@ -210,6 +284,9 @@ class NetworkGraph {
          * @return A collection with all partnering neurons
          */
         [[nodiscard]] std::unordered_set<RankNeuronId> get_all_partners_outgoing(const number_neurons_type neuron_id) const {
+#ifdef RELEARN_CUDA_ENABLED
+            CPU_NOT_SUPPORTED
+#endif
             RelearnException::check(neuron_id < number_local_neurons,
                                     "NetworkGraph::NetworkGraphBase::get_all_connecting_neurons: Tried with a too large id of {}", neuron_id);
 
@@ -234,6 +311,8 @@ class NetworkGraph {
          * @return The number of incoming synapses that the specified neuron formed from excitatory neurons
          */
         [[nodiscard]] synapse_weight get_number_excitatory_in_edges(const number_neurons_type neuron_id) const {
+            //   RelearnException::check(!network_graph_modified_on_gpu, "NetworkGraph is not up to date on host side");
+
             const auto& all_distant_edges = get_distant_in_edges(neuron_id);
             const auto& all_local_edges = get_local_in_edges(neuron_id);
 
@@ -251,6 +330,9 @@ class NetworkGraph {
          * @return The number of incoming synapses that the specified neuron formed from inhibitory neurons
          */
         [[nodiscard]] synapse_weight get_number_inhibitory_in_edges(const number_neurons_type neuron_id) const {
+#ifdef RELEARN_CUDA_ENABLED
+            RelearnException::check(!network_graph_modified_on_gpu, "NetworkGraph is not up to date on host side");
+#endif
             const auto& all_distant_edges = get_distant_in_edges(neuron_id);
             const auto& all_local_edges = get_local_in_edges(neuron_id);
 
@@ -268,6 +350,9 @@ class NetworkGraph {
          * @return The number of outgoing synapses that the specified neuron formed
          */
         [[nodiscard]] synapse_weight get_number_out_edges(const number_neurons_type neuron_id) const {
+#ifdef RELEARN_CUDA_ENABLED
+            RelearnException::check(!network_graph_modified_on_gpu, "NetworkGraph is not up to date on host side");
+#endif
             const auto& all_distant_edges = get_distant_out_edges(neuron_id);
             const auto& all_local_edges = get_local_out_edges(neuron_id);
 
@@ -306,7 +391,7 @@ class NetworkGraph {
                 }
             };
 
-            for (const auto& distant_out_edges : NeuronID::range_id(number_local_neurons) | ranges::views::transform([this](const auto& neuron_id) { return get_distant_out_edges(neuron_id); })) {
+            for (const auto& distant_out_edges : NeuronIDRange::range_id(number_local_neurons) | ranges::views::transform([this](const auto& neuron_id) { return get_distant_out_edges(neuron_id); })) {
                 for (const auto& [target_id, edge_val] : distant_out_edges) {
                     const auto& [target_rank, target_neuron_id] = target_id;
 
@@ -319,7 +404,7 @@ class NetworkGraph {
                 }
             }
 
-            for (const auto& distant_in_edges : NeuronID::range_id(number_local_neurons) | ranges::views::transform([this](const auto& neuron_id) { return get_distant_in_edges(neuron_id); })) {
+            for (const auto& distant_in_edges : NeuronIDRange::range_id(number_local_neurons) | ranges::views::transform([this](const auto& neuron_id) { return get_distant_in_edges(neuron_id); })) {
                 for (const auto& [source_id, edge_val] : distant_in_edges) {
                     const auto& [source_rank, source_neuron_id] = source_id;
 
@@ -336,7 +421,7 @@ class NetworkGraph {
             auto edges = std::unordered_map<std::pair<NeuronID, NeuronID>, synapse_weight, NeuronIDPairHash>{};
             edges.reserve(number_local_neurons);
 
-            for (const auto& neuron_id : NeuronID::range(number_local_neurons)) {
+            for (const auto& neuron_id : NeuronIDRange::range(number_local_neurons)) {
                 const auto& local_out_edges = get_local_out_edges(neuron_id.get_neuron_id());
 
                 for (const auto& [target_neuron_id, edge_val] : local_out_edges) {
@@ -345,7 +430,7 @@ class NetworkGraph {
                 }
             }
 
-            for (const auto& id : NeuronID::range(number_local_neurons)) {
+            for (const auto& id : NeuronIDRange::range(number_local_neurons)) {
                 const auto& local_in_edges = get_local_in_edges(id.get_neuron_id());
 
                 for (const auto& [source_neuron_id, edge_val] : local_in_edges) {
@@ -375,6 +460,9 @@ class NetworkGraph {
          * @return The mapping of ranks to distant count
          */
         [[nodiscard]] std::span<const std::int32_t> get_distant_count() const noexcept {
+#ifdef RELEARN_CUDA_ENABLED
+            CPU_NOT_SUPPORTED
+#endif
             return distant_count;
         }
 
@@ -383,6 +471,9 @@ class NetworkGraph {
          * @return The MPI ranks
          */
         [[nodiscard]] const std::unordered_set<mpiPP::MPIRank>& get_ranks_in_connected() const noexcept {
+#ifdef RELEARN_CUDA_ENABLED
+            CPU_NOT_SUPPORTED
+#endif
             return ranks_in_connected;
         }
 
@@ -391,6 +482,9 @@ class NetworkGraph {
          * @return The MPI ranks
          */
         [[nodiscard]] const std::unordered_set<mpiPP::MPIRank>& get_ranks_out_connected() const noexcept {
+#ifdef RELEARN_CUDA_ENABLED
+            CPU_NOT_SUPPORTED
+#endif
             return ranks_out_connected;
         }
 
@@ -418,12 +512,15 @@ class NetworkGraph {
          * @param mpi_rank The mpi rank that handles this portion of the graph, must be initialized
          * @exception Throws a RelearnException if mpi_rank is not initialized
          */
-        explicit NetworkGraphBase(const mpiPP::MPIRank mpi_rank)
+        explicit NetworkGraphBase(const mpiPP::MPIRank mpi_rank, const std::size_t _expected_synapses_per_neuron = CudaConfig::expected_synapses_per_neuron)
             : distant_count(mpiPP::MPIInfo::get_number_ranks_cast(), 0)
             , in_distant_neuron_count(mpiPP::MPIInfo::get_number_ranks_cast(), 0)
             , out_distant_neuron_count(mpiPP::MPIInfo::get_number_ranks_cast(), 0)
-            , my_rank(mpi_rank) {
+            , my_rank(mpi_rank)
+            , number_ranks(mpiPP::MPIInfo::get_number_ranks())
+            , expected_synapses_per_neuron(_expected_synapses_per_neuron) {
             RelearnException::check(my_rank.is_initialized(), "NetworkGraph::NetworkGraphBase::NetworkGraphBase: The mpi rank must be initialized");
+            RelearnException::check(number_ranks > 0, "NetworkGraph::NetworkGraphBase::NetworkGraphBase: The number of MPI ranks is {}", number_ranks);
 
             ranks_in_connected.reserve(mpiPP::MPIInfo::get_number_ranks_cast());
             ranks_out_connected.reserve(mpiPP::MPIInfo::get_number_ranks_cast());
@@ -432,11 +529,13 @@ class NetworkGraph {
         /**
          * @brief Constructs an object and saves the given rank
          * @param mpi_rank The mpi rank that handles this portion of the graph, must be initialized
-         * @param number_ranks The number of ranks, must be > 0
+         * @param _number_ranks The number of ranks, must be > 0
          * @exception Throws a RelearnException if mpi_rank is not initialized or number_ranks <= 0
          */
-        NetworkGraphBase(const mpiPP::MPIRank mpi_rank, const int number_ranks)
-            : my_rank(mpi_rank) {
+        NetworkGraphBase(const mpiPP::MPIRank mpi_rank, const int _number_ranks, const std::size_t _expected_synapses_per_neuron = CudaConfig::expected_synapses_per_neuron)
+            : my_rank(mpi_rank)
+            , number_ranks(_number_ranks)
+            , expected_synapses_per_neuron(_expected_synapses_per_neuron) {
             RelearnException::check(my_rank.is_initialized(), "NetworkGraph::NetworkGraphBase::NetworkGraphBase: The mpi rank must be initialized");
             RelearnException::check(number_ranks > 0, "NetworkGraph::NetworkGraphBase::NetworkGraphBase: The number of MPI ranks is {}", number_ranks);
 
@@ -453,7 +552,7 @@ class NetworkGraph {
          * @param number_neurons The number of neurons, must be > 0
          * @exception Throws a RelearnException if already called or if number_neurons == 0
          */
-        void init(const number_neurons_type number_neurons) {
+        void init(const number_neurons_type number_neurons, [[maybe_unused]] const NetworkGPUType network_gpu_type, [[maybe_unused]] bool init_gpu) {
             RelearnException::check(number_local_neurons == 0, "NetworkGraph::NetworkGraphBase::init: Was already initialized");
             RelearnException::check(number_neurons > 0, "NetworkGraph::NetworkGraphBase::init: Cannot initialize with 0 neurons");
 
@@ -463,6 +562,45 @@ class NetworkGraph {
             neuron_distant_out_neighborhood.resize(number_neurons);
             neuron_local_in_neighborhood.resize(number_neurons);
             neuron_local_out_neighborhood.resize(number_neurons);
+
+#ifdef RELEARN_CUDA_ENABLED
+            if (init_gpu) {
+                network_graph_gpu = std::make_unique<NetworkGraphGPUBase>(number_ranks, my_rank.get_rank());
+
+                if (network_gpu_type == NetworkGPUType::MEMORY_POOL) {
+                    network_graph_gpu->init(NetworkGraphGPUParams{
+                        true,
+                        LayoutType::MemoryPool,
+                        { false, false },
+                        LayoutType::MemoryPool,
+                        { false, false },
+                        LayoutType::MemoryPool,
+                        Features{ false, true },
+                        LayoutType::MemoryPool,
+                        Features{
+                            false,
+                            true,
+                        },
+                        expected_synapses_per_neuron,
+                        number_neurons });
+                } else if (network_gpu_type == NetworkGPUType::MEMORY_POOL_WEIGHTED) {
+                    network_graph_gpu->init(NetworkGraphGPUParams{
+                        true,
+                        LayoutType::MemoryPool,
+                        { true, false },
+                        LayoutType::MemoryPool,
+                        { true, false },
+                        LayoutType::MemoryPool,
+                        Features{ true, true },
+                        LayoutType::MemoryPool,
+                        Features{ true, true },
+                        expected_synapses_per_neuron,
+                        number_neurons });
+                } else {
+                    RelearnException::fail("Invalid network type");
+                }
+            }
+#endif
         }
 
         /**
@@ -484,6 +622,10 @@ class NetworkGraph {
             neuron_local_out_neighborhood.resize(new_size);
 
             number_local_neurons = new_size;
+
+#ifdef RELEARN_CUDA_ENABLED
+            CPU_NOT_SUPPORTED
+#endif
         }
 
         /**
@@ -509,6 +651,26 @@ class NetworkGraph {
             return my_footprint;
         }
 
+        std::uint64_t get_gpu_memory_footprint() {
+#ifdef RELEARN_CUDA_ENABLED
+            return network_graph_gpu->get_gpu_memory_footprint();
+#else
+            return 0;
+#endif
+        }
+
+        void record_usage_footprint([[maybe_unused]] const std::unique_ptr<utility::MemoryFootprint>& footprint) const {
+#ifdef RELEARN_CUDA_ENABLED
+            network_graph_gpu->record_usage_footprint(footprint);
+#endif
+        }
+
+        void record_memory_footprint([[maybe_unused]] const std::unique_ptr<utility::MemoryFootprint>& footprint) const {
+#ifdef RELEARN_CUDA_ENABLED
+            network_graph_gpu->record_memory_footprint(footprint);
+#endif
+        }
+
         /**
          * @brief Adds a local synapse to the network graph
          * @param synapse The local synapse
@@ -516,6 +678,7 @@ class NetworkGraph {
          *      (a) The target is larger than the number neurons
          *      (b) The source is larger than the number neurons
          *      (c) The weight is equal to 0
+         *      (d) The source and target are equal (a self-loop / autapse)
          */
         void add_synapse(const Synapse<NeuronID, NeuronID, synapse_weight>& synapse) {
             const auto& [target, source, weight] = synapse;
@@ -530,12 +693,20 @@ class NetworkGraph {
                                     "NetworkGraph::NetworkGraphBase::add_synapse: Local synapse had a too large source: {} vs {}", source,
                                     number_local_neurons);
             RelearnException::check(weight != 0, "NetworkGraph::NetworkGraphBase::add_synapse: Local synapse had weight 0");
+            RelearnException::check(local_target_id != local_source_id,
+                                    "NetworkGraph::NetworkGraphBase::add_synapse: source and target are equal {} {}", local_target_id, local_source_id);
 
             auto& in_edges = neuron_local_in_neighborhood[local_target_id];
             auto& out_edges = neuron_local_out_neighborhood[local_source_id];
 
             add_edge<decltype(in_edges), NeuronID>(in_edges, source, weight);
             add_edge<decltype(out_edges), NeuronID>(out_edges, target, weight);
+        }
+
+        void sync_with_gpu() {
+#ifdef RELEARN_CUDA_ENABLED
+            update_device_edges();
+#endif
         }
 
         /**
@@ -564,7 +735,7 @@ class NetworkGraph {
             update_distant_count(distant_count, source_rank, change);
 
             const auto last_for_rank = update_distant_count(in_distant_neuron_count, source_rank, change);
-            if (last_for_rank) {
+            if (last_for_rank) { // NOLINT(bugprone-branch-clone) - erase vs insert, not identical branches
                 ranks_in_connected.erase(source_rank);
             } else {
                 ranks_in_connected.insert(source_rank);
@@ -597,7 +768,7 @@ class NetworkGraph {
             update_distant_count(distant_count, target_rank, change);
 
             const auto last_for_rank = update_distant_count(out_distant_neuron_count, target_rank, change);
-            if (last_for_rank) {
+            if (last_for_rank) { // NOLINT(bugprone-branch-clone) - erase vs insert, not identical branches
                 ranks_out_connected.erase(target_rank);
             } else {
                 ranks_out_connected.insert(target_rank);
@@ -623,10 +794,11 @@ class NetworkGraph {
                 RelearnException::check(local_source_id < neuron_local_out_neighborhood.size(),
                                         "NetworkGraph::add_edges: local_out_neighborhood is too small: {} vs {}", source_id,
                                         neuron_distant_out_neighborhood.size());
+                RelearnException::check(local_target_id != local_source_id,
+                                        "NetworkGraph::add_edges: source and target are equal {} {}", local_target_id, local_source_id);
 
-                auto& local_in_edges = neuron_local_in_neighborhood[local_target_id];
                 auto& local_out_edges = neuron_local_out_neighborhood[local_source_id];
-
+                auto& local_in_edges = neuron_local_in_neighborhood[local_target_id];
                 add_edge<decltype(local_in_edges), NeuronID>(local_in_edges, source_id, weight);
                 add_edge<decltype(local_out_edges), NeuronID>(local_out_edges, target_id, weight);
             }
@@ -642,6 +814,9 @@ class NetworkGraph {
                 auto& distant_in_edges = neuron_distant_in_neighborhood[local_target_id];
                 const auto change = add_edge<decltype(distant_in_edges), RankNeuronId>(distant_in_edges, source_rni, weight);
                 update_distant_count(distant_count, source_rank, change);
+
+#ifdef RELEARN_CUDA_ENABLED
+#endif
 
                 const auto last_for_rank = update_distant_count(in_distant_neuron_count, source_rank, change);
                 if (last_for_rank) {
@@ -695,6 +870,9 @@ class NetworkGraph {
             }
 
             edges.emplace_back(other_neuron_id, weight);
+            if (edges.size() > highest_number_synapses_per_neuron_until_now) {
+                highest_number_synapses_per_neuron_until_now = edges.size();
+            }
             return 1;
         }
 
@@ -713,21 +891,71 @@ class NetworkGraph {
             return count == 0;
         }
 
-        NeuronDistantInNeighborhood neuron_distant_in_neighborhood{};
-        NeuronDistantOutNeighborhood neuron_distant_out_neighborhood{};
+        mutable NeuronDistantInNeighborhood neuron_distant_in_neighborhood{};
+        mutable NeuronDistantOutNeighborhood neuron_distant_out_neighborhood{};
 
-        NeuronLocalInNeighborhood neuron_local_in_neighborhood{};
-        NeuronLocalOutNeighborhood neuron_local_out_neighborhood{};
+        mutable NeuronLocalInNeighborhood neuron_local_in_neighborhood{};
+        mutable NeuronLocalOutNeighborhood neuron_local_out_neighborhood{};
 
         DistantCount distant_count{};
         DistantCount in_distant_neuron_count{};
         DistantCount out_distant_neuron_count{};
 
-        std::unordered_set<mpiPP::MPIRank> ranks_in_connected{};
-        std::unordered_set<mpiPP::MPIRank> ranks_out_connected{};
+        mutable std::unordered_set<mpiPP::MPIRank> ranks_in_connected{};
+        mutable std::unordered_set<mpiPP::MPIRank> ranks_out_connected{};
 
         number_neurons_type number_local_neurons{ 0 };
         mpiPP::MPIRank my_rank{ mpiPP::MPIRank::uninitialized_rank() };
+        int number_ranks{};
+
+        std::size_t expected_synapses_per_neuron{};
+        static inline std::size_t highest_number_synapses_per_neuron_until_now{};
+
+        void update_host_if_necessary() const {
+#ifdef RELEARN_CUDA_ENABLED
+            if (network_graph_modified_on_gpu) {
+                copy_to_host();
+            }
+#endif
+        }
+
+#ifdef RELEARN_CUDA_ENABLED
+    public:
+        ~NetworkGraphBase() = default;
+
+        void update_device_edges() {
+            network_graph_gpu->update_edges(neuron_local_in_neighborhood, neuron_local_out_neighborhood, neuron_distant_in_neighborhood, neuron_distant_out_neighborhood);
+        }
+
+        [[nodiscard]] NetworkHandle get_gpu_handle() {
+            return network_graph_gpu->get_handle();
+        }
+
+        [[nodiscard]] NetworkHandle get_gpu_handle_const() const {
+            return network_graph_gpu->get_handle();
+        }
+
+        void rebuild() {
+            network_graph_gpu->rebuild();
+        }
+
+        void device_was_modified() {
+            network_graph_modified_on_gpu = true;
+        }
+
+        void copy_to_host() const {
+            const auto [local_in, local_out, distant_in, distant_out] = network_graph_gpu->copy_to_host();
+            neuron_local_in_neighborhood = local_in;
+            neuron_local_out_neighborhood = local_out;
+            neuron_distant_in_neighborhood = distant_in;
+            neuron_distant_out_neighborhood = distant_out;
+            network_graph_modified_on_gpu = false;
+        }
+
+    private:
+        std::unique_ptr<NetworkGraphGPUBase> network_graph_gpu;
+        mutable bool network_graph_modified_on_gpu{ false };
+#endif
     };
 
 public:
@@ -741,9 +969,9 @@ public:
      * @param mpi_rank The mpi rank that handles this portion of the graph, must be initialized
      * @exception Throws a RelearnException if mpi_rank is not initialized
      */
-    explicit NetworkGraph(const mpiPP::MPIRank mpi_rank)
-        : plastic_network_graph(mpi_rank)
-        , static_network_graph(mpi_rank) { }
+    explicit NetworkGraph(const mpiPP::MPIRank mpi_rank, const std::size_t expected_synapses_per_neuron = CudaConfig::expected_synapses_per_neuron)
+        : plastic_network_graph(mpi_rank, expected_synapses_per_neuron)
+        , static_network_graph(mpi_rank, expected_synapses_per_neuron) { }
 
     /**
      * @brief Constructs an network graph for the MPI rank
@@ -751,9 +979,9 @@ public:
      * @param number_ranks The number of ranks, must be > 0
      * @exception Throws a RelearnException if mpi_rank is not initialized or number_ranks <= 0
      */
-    NetworkGraph(const mpiPP::MPIRank mpi_rank, const int number_ranks)
-        : plastic_network_graph(mpi_rank, number_ranks)
-        , static_network_graph(mpi_rank, number_ranks) {
+    NetworkGraph(const mpiPP::MPIRank mpi_rank, const int number_ranks, const std::size_t expected_synapses_per_neuron = CudaConfig::expected_synapses_per_neuron)
+        : plastic_network_graph(mpi_rank, number_ranks, expected_synapses_per_neuron)
+        , static_network_graph(mpi_rank, number_ranks, expected_synapses_per_neuron) {
         RelearnException::check(number_ranks > 0, "NetworkGraph::NetworkGraph: The number of ranks was {}", number_ranks);
     }
 
@@ -762,9 +990,9 @@ public:
      * @param number_neurons The number of neurons, must be > 0
      * @exception Throws a RelearnException if already called or if number_neurons == 0
      */
-    void init(const number_neurons_type number_neurons) {
-        plastic_network_graph.init(number_neurons);
-        static_network_graph.init(number_neurons);
+    void init(const number_neurons_type number_neurons, const NetworkGPUType network_gpu_type = NetworkGPUType::MEMORY_POOL) {
+        plastic_network_graph.init(number_neurons, network_gpu_type, true);
+        static_network_graph.init(number_neurons, network_gpu_type, false);
     }
 
     /**
@@ -841,7 +1069,24 @@ public:
      * @return A tuple of (1) the plastic edges and (2) the static edges
      */
     [[nodiscard]] auto get_all_local_out_edges() const {
+
         return std::tie(plastic_network_graph.get_all_local_out_edges(), static_network_graph.get_all_local_out_edges());
+    }
+
+    [[nodiscard]] auto get_weight_for_local_out_edge(const NeuronID target_neuron, const NeuronID source_neuron) const {
+        return std::pair(plastic_network_graph.get_weight_for_local_out_edge(target_neuron, source_neuron), static_network_graph.get_weight_for_local_out_edge(target_neuron, source_neuron));
+    }
+
+    [[nodiscard]] auto get_weight_for_local_in_edge(const NeuronID target_neuron, const NeuronID source_neuron) const {
+        return std::pair(plastic_network_graph.get_weight_for_local_in_edge(target_neuron, source_neuron), static_network_graph.get_weight_for_local_in_edge(target_neuron, source_neuron));
+    }
+
+    [[nodiscard]] auto get_weight_for_distant_out_edge(const RankNeuronId target_neuron, const NeuronID source_neuron) const {
+        return std::pair(plastic_network_graph.get_weight_for_distant_out_edge(target_neuron, source_neuron), static_network_graph.get_weight_for_distant_out_edge(target_neuron, source_neuron));
+    }
+
+    [[nodiscard]] auto get_weight_for_distant_in_edge(const NeuronID target_neuron, const RankNeuronId source_neuron) const {
+        return std::pair(plastic_network_graph.get_weight_for_distant_in_edge(target_neuron, source_neuron), static_network_graph.get_weight_for_distant_in_edge(target_neuron, source_neuron));
     }
 
     /**
@@ -972,6 +1217,10 @@ public:
         plastic_network_graph.add_synapse(synapse);
     }
 
+    void update_host_if_necessary() const {
+        plastic_network_graph.update_host_if_necessary();
+    }
+
     /**
      * @brief Adds a distant out-synapse to the network graph (it might actually come from the same node, that's no problem)
      * @param synapse The distant out-synapse, must come from another rank
@@ -994,6 +1243,10 @@ public:
      */
     void add_synapse(const StaticLocalSynapse& synapse) {
         static_network_graph.add_synapse(synapse);
+    }
+
+    void sync_with_gpu() {
+        plastic_network_graph.sync_with_gpu();
     }
 
     /**
@@ -1063,8 +1316,45 @@ public:
         const auto size_2 = static_network_graph.get_memory_footprint();
 
         footprint->emplace("NetworkGraph", size_1 + size_2);
+
+#ifdef RELEARN_CUDA_ENABLED
+        plastic_network_graph.record_memory_footprint(footprint);
+#endif
     }
 
-    NetworkGraphBase<plastic_synapse_weight> plastic_network_graph{};
-    NetworkGraphBase<static_synapse_weight> static_network_graph{};
+    void record_usage_footprint([[maybe_unused]] const std::unique_ptr<utility::MemoryFootprint>& footprint) const {
+#ifdef RELEARN_CUDA_ENABLED
+        plastic_network_graph.record_usage_footprint(footprint);
+#endif
+    }
+
+    NetworkGraphBase<plastic_synapse_weight> plastic_network_graph;
+    NetworkGraphBase<static_synapse_weight> static_network_graph;
+
+    static std::size_t highest_number_synapses_per_neuron_until_now() {
+        return NetworkGraphBase<plastic_synapse_weight>::highest_number_synapses_per_neuron_until_now;
+    }
+
+#ifdef RELEARN_CUDA_ENABLED
+
+    [[nodiscard]] NetworkHandle get_gpu_handle() {
+        return plastic_network_graph.get_gpu_handle();
+    }
+
+    [[nodiscard]] NetworkHandle get_gpu_handle_const() const {
+        return plastic_network_graph.get_gpu_handle_const();
+    }
+
+    void device_was_modified() {
+        plastic_network_graph.device_was_modified();
+    }
+
+    void rebuild() {
+        plastic_network_graph.rebuild();
+    }
+#else
+
+    void rebuild() {
+    }
+#endif
 };

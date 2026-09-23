@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,29 +11,37 @@
 #include "NeuronIO.h"
 
 #include "Config.h"
-#include "Types.h"
 
 #include "neurons/LocalGroupTranslator.h"
 #include "neurons/enums/SynapticElementType.h"
 #include "sim/LoadedNeuron.h"
 #include "sim/file/AdditionalPositionInformation.h"
 #include "structure/Partition.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
+#include "types/SynapseTypes.h"
 #include "util/NeuronFilePaths.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnException.h"
-#include "util/StringUtil.h"
-
-#include "cpp-utility/ranges/views/IO.hpp"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include <boost/lexical_cast.hpp>
+
+#include <cpp-utility/Cast.hpp>
+#include <cpp-utility/StringUtil.hpp>
+#include <cpp-utility/ranges/views/IO.hpp>
+
 #include <fmt/core.h>
 #include <fmt/format.h>
+#include <fmt/std.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
+
 #include <range/v3/algorithm/find.hpp>
 #include <range/v3/iterator/operations.hpp>
 #include <range/v3/view/getlines.hpp>
+
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
@@ -97,13 +105,13 @@ AdditionalPositionInformation NeuronIO::parse_additional_position_information(co
         return results;
     };
 
-    const auto search = [&comments](const std::string& specifier) -> double {
+    const auto search = [&comments](const std::string& specifier) -> space_type {
         for (const auto& comment : comments) {
             const auto position = comment.find(specifier);
             if (position != 0) {
                 continue;
             }
-            return std::stod(comment.substr(specifier.size()));
+            return utility::cast<space_type>(std::stod(comment.substr(specifier.size())));
         }
 
         RelearnException::fail("MultipleSubdomainsFromFile::read_neurons_from_file: Did not find comment containing {}", specifier);
@@ -124,11 +132,11 @@ AdditionalPositionInformation NeuronIO::parse_additional_position_information(co
     const auto parse_coordinates = [](std::string str) -> RelearnTypes::position_type {
         std::ranges::replace(str, '(', ' ');
         std::ranges::replace(str, ')', ' ');
-        const auto coords = StringUtil::split_string(str, ',');
+        const auto coords = utility::split_string(str, ',');
         RelearnException::check(coords.size() == 3, "NeuronIO::parse_additional_position_information: Subdomains have invalid coordinates: {}", str);
-        const auto x = std::stod(coords[0]);
-        const auto y = std::stod(coords[1]);
-        const auto z = std::stod(coords[2]);
+        const auto x = utility::cast<RelearnTypes::space_type>(std::stod(coords[0]));
+        const auto y = utility::cast<RelearnTypes::space_type>(std::stod(coords[1]));
+        const auto z = utility::cast<RelearnTypes::space_type>(std::stod(coords[2]));
         return { x, y, z };
     };
 
@@ -138,7 +146,7 @@ AdditionalPositionInformation NeuronIO::parse_additional_position_information(co
     const auto max_x = search("# Maximum x:");
     const auto max_y = search("# Maximum y:");
     const auto max_z = search("# Maximum z:");
-    const auto sim_box = RelearnTypes::bounding_box_type{ Vec3d{ min_x, min_y, min_z }, Vec3d{ max_x, max_y, max_z } };
+    const auto sim_box = RelearnTypes::bounding_box_type{ position_type{ min_x, min_y, min_z }, position_type{ max_x, max_y, max_z } };
 
     auto subdomain_strings = search_multiple("# Local subdomain ");
     auto subdomains = std::vector<RelearnTypes::bounding_box_type>{};
@@ -146,8 +154,8 @@ AdditionalPositionInformation NeuronIO::parse_additional_position_information(co
 
     for (auto i = 0U; i < subdomain_strings.size(); i++) {
         const auto& subdomain_string = subdomain_strings[i];
-        const auto tokens = StringUtil::split_string(subdomain_string, ' ');
-        if (!StringUtil::is_number(tokens[0])) {
+        const auto tokens = utility::split_string(subdomain_string, ' ');
+        if (!utility::is_number(tokens[0])) {
             continue;
         }
 
@@ -376,7 +384,7 @@ std::tuple<std::vector<RelearnTypes::group_ids>, RelearnTypes::group_names> Neur
         if (line.starts_with('#')) {
             continue;
         }
-        const auto& data = StringUtil::split_string(line, ' ');
+        const auto& data = utility::split_string(line, ' ');
         if (!is_valid_group_name(data[0])) {
             RelearnException::check(is_valid_neuron_id_value(data[0]), "NeuronIO::read_neuron_groups: First token in line is neither group name nor neuron id! ({})", data[0]);
             const auto neuron_id = boost::lexical_cast<NeuronID::value_type>(data[0]) - 1;
@@ -451,12 +459,12 @@ void NeuronIO::write_neuron_positions_and_signals(const std::vector<LoadedNeuron
         }
 
     } else {
-        auto min_x = std::numeric_limits<double>::max();
-        auto min_y = std::numeric_limits<double>::max();
-        auto min_z = std::numeric_limits<double>::max();
-        auto max_x = std::numeric_limits<double>::min();
-        auto max_y = std::numeric_limits<double>::min();
-        auto max_z = std::numeric_limits<double>::min();
+        auto min_x = std::numeric_limits<space_type>::max();
+        auto min_y = std::numeric_limits<space_type>::max();
+        auto min_z = std::numeric_limits<space_type>::max();
+        auto max_x = std::numeric_limits<space_type>::min();
+        auto max_y = std::numeric_limits<space_type>::min();
+        auto max_z = std::numeric_limits<space_type>::min();
 
         for (const auto& neuron : neurons) {
             const auto& [x, y, z] = neuron.pos;
@@ -468,13 +476,13 @@ void NeuronIO::write_neuron_positions_and_signals(const std::vector<LoadedNeuron
             max_z = std::max(z, max_z);
         }
 
-        if (min_x - max_x < Constants::eps) {
+        if (min_x - max_x < static_cast<space_type>(Constants::eps)) {
             max_x++;
         }
-        if (min_y - max_y < Constants::eps) {
+        if (min_y - max_y < static_cast<space_type>(Constants::eps)) {
             max_y++;
         }
-        if (min_y - max_y < Constants::eps) {
+        if (min_y - max_y < static_cast<space_type>(Constants::eps)) {
             max_z++;
         }
 
@@ -488,7 +496,7 @@ void NeuronIO::write_neuron_positions_and_signals(const std::vector<LoadedNeuron
         total_number_neurons = neurons.size();
     }
 
-    sstream << std::setprecision(std::numeric_limits<double>::digits10);
+    sstream << std::setprecision(std::numeric_limits<space_type>::max_digits10);
 
     // Write total number of neurons to log file
     sstream << "# " << neurons.size() << " of " << total_number_neurons << '\n';
@@ -629,7 +637,7 @@ void NeuronIO::write_group_name_to_file_name(std::stringstream& sstream, const s
 }
 
 void NeuronIO::write_neuron_positions_and_signals_componentwise(const std::span<const NeuronID> ids, const std::span<const position_type> positions,
-                                                                const std::span<const SignalType> signal_types, std::stringstream& sstream, std::size_t total_number_neurons, RelearnTypes::bounding_box_type simulation_box,
+                                                                const std::span<const SignalType> signal_types, std::stringstream& sstream, number_neurons_type total_number_neurons, RelearnTypes::bounding_box_type simulation_box,
                                                                 std::vector<RelearnTypes::bounding_box_type> local_subdomain_boundaries) {
 
     const auto size_ids = ids.size();
@@ -637,12 +645,12 @@ void NeuronIO::write_neuron_positions_and_signals_componentwise(const std::span<
     const auto size_signal_types = signal_types.size();
 
     if (simulation_box.get_minimum().get_x() == simulation_box.get_maximum().get_x()) {
-        auto min_x = std::numeric_limits<double>::max();
-        auto min_y = std::numeric_limits<double>::max();
-        auto min_z = std::numeric_limits<double>::max();
-        auto max_x = std::numeric_limits<double>::min();
-        auto max_y = std::numeric_limits<double>::min();
-        auto max_z = std::numeric_limits<double>::min();
+        auto min_x = std::numeric_limits<space_type>::max();
+        auto min_y = std::numeric_limits<space_type>::max();
+        auto min_z = std::numeric_limits<space_type>::max();
+        auto max_x = std::numeric_limits<space_type>::min();
+        auto max_y = std::numeric_limits<space_type>::min();
+        auto max_z = std::numeric_limits<space_type>::min();
 
         for (const auto& [x, y, z] : positions) {
             min_x = std::min(x, min_x);
@@ -668,7 +676,7 @@ void NeuronIO::write_neuron_positions_and_signals_componentwise(const std::span<
         sstream << "# " << ids.size() << " of " << total_number_neurons << '\n';
     }
 
-    sstream << std::setprecision(std::numeric_limits<double>::digits10);
+    sstream << std::setprecision(std::numeric_limits<space_type>::max_digits10);
     const auto& [simulation_box_min, simulation_box_max] = simulation_box;
     const auto& [min_x, min_y, min_z] = simulation_box_min;
     const auto& [max_x, max_y, max_z] = simulation_box_max;
@@ -699,7 +707,7 @@ void NeuronIO::write_neuron_positions_and_signals_componentwise(const std::span<
 }
 
 void NeuronIO::write_neuron_positions_and_signals_componentwise(const std::span<const NeuronID> ids, const std::span<const position_type> positions,
-                                                                const std::span<const SignalType> signal_types, const std::filesystem::path& file_path, std::size_t total_number_neurons, RelearnTypes::bounding_box_type simulation_box,
+                                                                const std::span<const SignalType> signal_types, const std::filesystem::path& file_path, number_neurons_type total_number_neurons, RelearnTypes::bounding_box_type simulation_box,
                                                                 std::vector<RelearnTypes::bounding_box_type> local_subdomain_boundaries) {
     auto sstream = std::stringstream{};
     write_neuron_positions_and_signals_componentwise(ids, positions, signal_types, sstream, total_number_neurons, simulation_box, std::move(local_subdomain_boundaries));
@@ -728,7 +736,7 @@ void NeuronIO::write_neurons_componentwise(const std::span<const NeuronID> ids, 
 
 void NeuronIO::write_neurons_componentwise(std::span<const NeuronID> ids, std::span<const position_type> positions,
                                            const std::shared_ptr<LocalGroupTranslator>& local_group_translator, std::span<const SignalType> signal_types, const NeuronFilePaths& paths,
-                                           std::size_t total_number_neurons, RelearnTypes::bounding_box_type simulation_box,
+                                           number_neurons_type total_number_neurons, RelearnTypes::bounding_box_type simulation_box,
                                            std::vector<RelearnTypes::bounding_box_type> local_subdomain_boundaries) {
     const auto& [file_path_positions_signals, file_path_groups] = paths;
     write_neuron_positions_and_signals_componentwise(ids, positions, signal_types, file_path_positions_signals, total_number_neurons, simulation_box, std::move(local_subdomain_boundaries));
@@ -783,7 +791,7 @@ std::optional<std::vector<NeuronID>> NeuronIO::read_neuron_ids(const std::filesy
 }
 
 NeuronIO::InSynapses NeuronIO::read_in_synapses(const std::filesystem::path& file_path,
-                                                number_neurons_type number_local_neurons, mpiPP::MPIRank my_rank, std::size_t number_mpi_ranks) {
+                                                number_neurons_type number_local_neurons, mpiPP::MPIRank my_rank, int number_mpi_ranks) {
     auto local_in_synapses_static = StaticLocalSynapses{};
     auto distant_in_synapses_static = StaticDistantInSynapses{};
     auto local_in_synapses_plastic = PlasticLocalSynapses{};
@@ -819,7 +827,7 @@ NeuronIO::InSynapses NeuronIO::read_in_synapses(const std::filesystem::path& fil
         RelearnException::check(read_target_rank == my_rank.get_rank(), "NeuronIO::read_in_synapses: target_rank is not equal to my_rank: {} vs {}", read_target_rank, my_rank);
         RelearnException::check(read_target_id > 0 && read_target_id <= number_local_neurons, "NeuronIO::read_in_synapses: target_id was not from [1, {}]: {}", number_local_neurons, read_target_id);
 
-        RelearnException::check(read_source_rank < static_cast<int>(number_mpi_ranks), "NeuronIO::read_in_synapses: source rank is not smaller than the number of mpi ranks: {} vs {}", read_source_rank, number_mpi_ranks);
+        RelearnException::check(read_source_rank < number_mpi_ranks, "NeuronIO::read_in_synapses: source rank is not smaller than the number of mpi ranks: {} vs {}", read_source_rank, number_mpi_ranks);
 
         RelearnException::check(weight != 0, "NeuronIO::read_in_synapses: weight was 0");
 
@@ -854,7 +862,7 @@ NeuronIO::InSynapses NeuronIO::read_in_synapses(const std::filesystem::path& fil
 }
 
 NeuronIO::OutSynapses NeuronIO::read_out_synapses(const std::filesystem::path& file_path,
-                                                  number_neurons_type number_local_neurons, mpiPP::MPIRank my_rank, std::size_t number_mpi_ranks) {
+                                                  number_neurons_type number_local_neurons, mpiPP::MPIRank my_rank, int number_mpi_ranks) {
     auto local_out_synapses_static = StaticLocalSynapses{};
     auto distant_out_synapses_static = StaticDistantOutSynapses{};
     auto local_out_synapses_plastic = PlasticLocalSynapses{};
@@ -890,7 +898,7 @@ NeuronIO::OutSynapses NeuronIO::read_out_synapses(const std::filesystem::path& f
         RelearnException::check(read_source_rank == my_rank.get_rank(), "NeuronIO::read_out_synapses: source_rank is not equal to my_rank: {} vs {}", read_target_rank, my_rank);
         RelearnException::check(read_source_id > 0 && read_source_id <= number_local_neurons, "NeuronIO::read_out_synapses: source_id was not from [1, {}]: {}", number_local_neurons, read_source_id);
 
-        RelearnException::check(read_target_rank < static_cast<int>(number_mpi_ranks), "NeuronIO::read_out_synapses: target rank is not smaller than the number of mpi ranks: {} vs {}", read_source_rank, number_mpi_ranks);
+        RelearnException::check(read_target_rank < number_mpi_ranks, "NeuronIO::read_out_synapses: target rank is not smaller than the number of mpi ranks: {} vs {}", read_source_rank, number_mpi_ranks);
 
         RelearnException::check(weight != 0, "NeuronIO::read_out_synapses: weight was 0");
 
@@ -928,8 +936,8 @@ void NeuronIO::write_out_synapses(const std::vector<std::vector<std::pair<Neuron
                                   const std::vector<std::vector<std::pair<RankNeuronId, RelearnTypes::static_synapse_weight>>>& distant_out_edges_static,
                                   const std::vector<std::vector<std::pair<NeuronID, RelearnTypes::plastic_synapse_weight>>>& local_out_edges_plastic,
                                   const std::vector<std::vector<std::pair<RankNeuronId, RelearnTypes::plastic_synapse_weight>>>& distant_out_edges_plastic,
-                                  const mpiPP::MPIRank my_rank, const std::size_t mpi_ranks, const RelearnTypes::number_neurons_type number_local_neurons, const RelearnTypes::number_neurons_type number_total_neurons,
-                                  std::stringstream& sstream, const std::size_t step) {
+                                  const mpiPP::MPIRank my_rank, const int mpi_ranks, const RelearnTypes::number_neurons_type number_local_neurons, const RelearnTypes::number_neurons_type number_total_neurons,
+                                  std::stringstream& sstream, const RelearnTypes::step_type step) {
     const auto is_good = sstream.good();
     const auto is_bad = sstream.bad();
 
@@ -943,7 +951,7 @@ void NeuronIO::write_out_synapses(const std::vector<std::vector<std::pair<Neuron
     sstream << "# Current simulation step: " << step << '\n';
     sstream << "# <target rank> <target neuron id>\t<source rank> <source neuron id>\t<weight>\t<plastic>\n";
 
-    for (const auto& source_local_id : NeuronID::range_id(number_local_neurons)) {
+    for (const auto& source_local_id : NeuronIDRange::range_id(number_local_neurons)) {
         for (const auto& [target_id, weight] : local_out_edges_static[source_local_id]) {
             const auto& target_local_id = target_id.get_neuron_id();
 
@@ -978,8 +986,8 @@ void NeuronIO::write_in_synapses(const std::vector<std::vector<std::pair<NeuronI
                                  const std::vector<std::vector<std::pair<RankNeuronId, RelearnTypes::static_synapse_weight>>>& distant_in_edges_static,
                                  const std::vector<std::vector<std::pair<NeuronID, RelearnTypes::plastic_synapse_weight>>>& local_in_edges_plastic,
                                  const std::vector<std::vector<std::pair<RankNeuronId, RelearnTypes::plastic_synapse_weight>>>& distant_in_edges_plastic,
-                                 const mpiPP::MPIRank my_rank, const std::size_t mpi_ranks, const RelearnTypes::number_neurons_type number_local_neurons, const RelearnTypes::number_neurons_type number_total_neurons,
-                                 std::stringstream& sstream, const std::size_t step) {
+                                 const mpiPP::MPIRank my_rank, const int mpi_ranks, const RelearnTypes::number_neurons_type number_local_neurons, const RelearnTypes::number_neurons_type number_total_neurons,
+                                 std::stringstream& sstream, const RelearnTypes::step_type step) {
     const auto is_good = sstream.good();
     const auto is_bad = sstream.bad();
 
@@ -993,7 +1001,7 @@ void NeuronIO::write_in_synapses(const std::vector<std::vector<std::pair<NeuronI
     sstream << "# Current simulation step: " << step << '\n';
     sstream << "# <target rank> <target neuron id>\t<source rank> <source neuron id>\t<weight>\t<plastic>\n";
 
-    for (const auto& target_local_id : NeuronID::range_id(number_local_neurons)) {
+    for (const auto& target_local_id : NeuronIDRange::range_id(number_local_neurons)) {
         for (const auto& [source_id, weight] : local_in_edges_static[target_local_id]) {
             const auto& source_local_id = source_id.get_neuron_id();
 

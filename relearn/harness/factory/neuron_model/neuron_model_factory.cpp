@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -22,35 +22,37 @@
 #include "neurons/models/izhikevich/Parameters.h"
 #include "neurons/models/poisson/Parameters.h"
 #include "neurons/models/poisson/PoissonModel.h"
+#include "types/BasicTypes.h"
 
 #include "factory/activity_input/activity_input_factory.h"
+#include "factory/fired_status_communicator/fired_status_communicator_factory.h"
 
 #include <memory>
 #include <utility>
 
 std::unique_ptr<NeuronModel> NeuronModelFactory::construct_poisson_model(const unsigned int h) {
-    auto fired_status_comm = std::make_shared<FiredStatusCommunicationMap>(1);
+    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_default_communicator(1);
     auto activity_input = ActivityInputFactory::construct_constant_activity();
 
     return construct_poisson_model(h, std::move(activity_input), std::move(fired_status_comm));
 }
 
 std::unique_ptr<NeuronModel> NeuronModelFactory::construct_izhikevich_model(const unsigned int h) {
-    auto fired_status_comm = std::make_shared<FiredStatusCommunicationMap>(1);
+    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_default_communicator(1);
     auto activity_input = ActivityInputFactory::construct_constant_activity();
 
     return construct_izhikevich_model(h, std::move(activity_input), std::move(fired_status_comm));
 }
 
 std::unique_ptr<NeuronModel> NeuronModelFactory::construct_fitzhughnaguma_model(const unsigned int h) {
-    auto fired_status_comm = std::make_shared<FiredStatusCommunicationMap>(1);
+    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_default_communicator(1);
     auto activity_input = ActivityInputFactory::construct_constant_activity();
 
     return construct_fitzhughnaguma_model(h, std::move(activity_input), std::move(fired_status_comm));
 }
 
 std::unique_ptr<NeuronModel> NeuronModelFactory::construct_aeif_model(const unsigned int h) {
-    auto fired_status_comm = std::make_shared<FiredStatusCommunicationMap>(1);
+    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_default_communicator(1);
     auto activity_input = ActivityInputFactory::construct_constant_activity();
 
     return construct_aeif_model(h, std::move(activity_input), std::move(fired_status_comm));
@@ -60,7 +62,7 @@ std::unique_ptr<NeuronModel> NeuronModelFactory::construct_poisson_model(const u
                                                                          std::shared_ptr<ActivityInput>&& activity_input,
                                                                          std::shared_ptr<FiredStatusCommunicator>&& fired_status_comm) {
 
-    const auto parameters = models::poisson::Parameters<double, unsigned int>{};
+    const auto parameters = models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>{};
     return std::make_unique<models::PoissonModel>(h, std::move(activity_input), std::move(fired_status_comm), parameters);
 }
 
@@ -68,7 +70,7 @@ std::unique_ptr<NeuronModel> NeuronModelFactory::construct_izhikevich_model(cons
                                                                             std::shared_ptr<ActivityInput>&& activity_input,
                                                                             std::shared_ptr<FiredStatusCommunicator>&& fired_status_comm) {
 
-    const auto parameters = models::izhikevich::Parameters<double>{};
+    const auto parameters = models::izhikevich::Parameters<RelearnTypes::activity_type>{};
     return std::make_unique<models::IzhikevichModel>(h, std::move(activity_input), std::move(fired_status_comm), parameters);
 }
 
@@ -76,7 +78,7 @@ std::unique_ptr<NeuronModel> NeuronModelFactory::construct_fitzhughnaguma_model(
                                                                                 std::shared_ptr<ActivityInput>&& activity_input,
                                                                                 std::shared_ptr<FiredStatusCommunicator>&& fired_status_comm) {
 
-    const auto parameters = models::fitzhughnagumo::Parameters<double>{};
+    const auto parameters = models::fitzhughnagumo::Parameters<RelearnTypes::activity_type>{};
     return std::make_unique<models::FitzHughNagumoModel>(h, std::move(activity_input), std::move(fired_status_comm), parameters);
 }
 
@@ -84,6 +86,6 @@ std::unique_ptr<NeuronModel> NeuronModelFactory::construct_aeif_model(const unsi
                                                                       std::shared_ptr<ActivityInput>&& activity_input,
                                                                       std::shared_ptr<FiredStatusCommunicator>&& fired_status_comm) {
 
-    const auto parameters = models::aeif::Parameters<double>{};
+    const auto parameters = models::aeif::Parameters<RelearnTypes::activity_type>{};
     return std::make_unique<models::AEIFModel>(h, std::move(activity_input), std::move(fired_status_comm), parameters);
 }

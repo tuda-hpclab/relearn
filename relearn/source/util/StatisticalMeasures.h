@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -33,8 +33,8 @@ enum class NeuronAttribute : std::uint8_t {
     CalciumDifference,
     X,
     Fired,
-    ActivityInput,
-    Axons,
+    InputActivity,
+    AxonsGrown,
     AxonsConnected,
     DendritesExcitatory,
     DendritesExcitatoryConnected,

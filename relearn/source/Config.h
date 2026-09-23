@@ -3,12 +3,14 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2020-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
+
+#include "types/BasicTypes.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -28,19 +30,19 @@ constexpr bool OPENMPAVAILABLE = false;
 class Constants {
 public:
     constexpr static unsigned int number_oct = 8;
-    constexpr static std::size_t uninitialized = 1111222233334444;
+    constexpr static std::size_t uninitialized = (1U << 31U);
 
     constexpr static std::size_t number_prealloc_space = 30;
 
-    constexpr static std::size_t max_lvl_subdomains = 20;
+    constexpr static RelearnTypes::level_type max_lvl_subdomains = 20;
 
-    constexpr static double eps = 0.00001;
+    constexpr static RelearnTypes::acceptance_criterion_type eps = RelearnTypes::as<RelearnTypes::acceptance_criterion_type>(0.00001);
 
     constexpr static std::size_t print_string_width = 60;
     constexpr static std::size_t print_width = 22;
     constexpr static std::size_t print_precision = 8;
 
-    constexpr static std::size_t mpi_alloc_mem = 1024 * 1024;
+    constexpr static std::size_t mpi_alloc_mem = std::size_t{ 1024U } * 1024U;
 
     // Constants for Fast Gauss
     constexpr static std::size_t p = 4;
@@ -48,11 +50,11 @@ public:
     constexpr static std::size_t max_neurons_in_target = 70; // cutoff for target box
     constexpr static std::size_t max_neurons_in_source = 70; // cutoff for source box
 
-    constexpr static std::size_t unpacking = 0; // indicates how many levels a node is unpacked to give the synaptic elements more choice to connect
+    constexpr static RelearnTypes::level_type unpacking = 0; // indicates how many levels a node is unpacked to give the synaptic elements more choice to connect
     // only used when FMM is selected. When unpacking == 0 normal FMM is used.
 
-    constexpr static double bh_default_theta{ 0.3 };
-    constexpr static double bh_max_theta{ 0.5 };
+    constexpr static RelearnTypes::acceptance_criterion_type bh_default_theta{ RelearnTypes::as<RelearnTypes::acceptance_criterion_type>(0.3) };
+    constexpr static RelearnTypes::acceptance_criterion_type bh_max_theta{ RelearnTypes::as<RelearnTypes::acceptance_criterion_type>(0.5) };
 
     constexpr static int number_rma_download_retries = 10;
 
@@ -78,8 +80,12 @@ public:
     // By default: Print details every <logfile_update_step> ms
     inline static std::uint32_t logfile_update_step = 100; // NOLINT
 
+    inline static bool calculate_fire_history = false;
+
     // By default: Print to cout every <console_update_step> ms
     inline static std::uint32_t console_update_step = 100; // NOLINT
+
+    inline static bool do_binary_search = true;
 
     // Capture individual neuron information every <monitor_step> ms
     inline static std::uint32_t monitor_step = 100; // NOLINT
@@ -128,4 +134,8 @@ public:
 
     // The maximum file size for the logging of the extreme calcium values. Default: 0 is unlimited
     inline static std::uint32_t extreme_calcium_max_file_size = 0;
+
+    inline static std::uint64_t random_seed{};
+
+    inline static bool cuda_aware_mpi_available{};
 };

@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2025-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -17,8 +17,13 @@
 
 #include "factory/random/random_factory.h"
 
+#include <cpp-utility/Cast.hpp>
+
 #include <algorithm>
 #include <limits>
+
+using attraction_type = RelearnTypes::attraction_type;
+using acceptance_criterion_type = RelearnTypes::acceptance_criterion_type;
 
 AlgorithmConfig AlgorithmConfigFactory::create_random_algorithm_config(std::mt19937& mt) {
 	const auto algorithm_enum = get_random_algorithm_enum_for_combined_algorithms(mt);
@@ -29,7 +34,7 @@ AlgorithmConfig AlgorithmConfigFactory::create_random_algorithm_config(std::mt19
 	if (algorithm_enum == AlgorithmEnum::Naive || use_default_theta) {
 		return AlgorithmConfig(algorithm_enum, std::move(kernel));
 	}
-	const auto theta = RandomFactory::get_random_double(std::numeric_limits<double>::min(), 0.5, mt);
+	const auto theta = RandomFactory::get_random_double(std::numeric_limits<acceptance_criterion_type>::min(), utility::as<acceptance_criterion_type>(0.5), mt);
 
 	return AlgorithmConfig(algorithm_enum, std::move(kernel), theta);
 }
@@ -97,25 +102,25 @@ std::unique_ptr<KernelBase> AlgorithmConfigFactory::build_kernel(const KernelTyp
 	}
 }
 
-std::vector<double> AlgorithmConfigFactory::get_random_gamma_parameters(std::mt19937& mt) {
-	const auto k = RandomFactory::get_random_double(std::numeric_limits<double>::min(), std::numeric_limits<double>::max(), mt);
-	const auto theta = RandomFactory::get_random_double(std::numeric_limits<double>::min(), std::numeric_limits<double>::max(), mt);
+std::vector<RelearnTypes::attraction_type> AlgorithmConfigFactory::get_random_gamma_parameters(std::mt19937& mt) {
+	const auto k = RandomFactory::get_random_double(std::numeric_limits<attraction_type>::min(), std::numeric_limits<attraction_type>::max(), mt);
+	const auto theta = RandomFactory::get_random_double(std::numeric_limits<attraction_type>::min(), std::numeric_limits<attraction_type>::max(), mt);
 	return { k, theta };
 }
 
-std::vector<double> AlgorithmConfigFactory::get_random_gaussian_parameters(std::mt19937& mt) {
-	const auto mu = RandomFactory::get_random_double(0.0, std::numeric_limits<double>::max(), mt);
-	const auto sigma = RandomFactory::get_random_double(std::numeric_limits<double>::min(), std::numeric_limits<double>::max(), mt);
+std::vector<RelearnTypes::attraction_type> AlgorithmConfigFactory::get_random_gaussian_parameters(std::mt19937& mt) {
+	const auto mu = RandomFactory::get_random_double(attraction_type{ 0 }, std::numeric_limits<attraction_type>::max(), mt);
+	const auto sigma = RandomFactory::get_random_double(std::numeric_limits<attraction_type>::min(), std::numeric_limits<attraction_type>::max(), mt);
 	return { mu, sigma };
 }
 
-std::vector<double> AlgorithmConfigFactory::get_random_linear_parameters(std::mt19937& mt) {
-	const auto cutoff = RandomFactory::get_random_double(0.0, std::numeric_limits<double>::max(), mt);
+std::vector<RelearnTypes::attraction_type> AlgorithmConfigFactory::get_random_linear_parameters(std::mt19937& mt) {
+	const auto cutoff = RandomFactory::get_random_double(attraction_type{ 0 }, std::numeric_limits<attraction_type>::max(), mt);
 	return { cutoff };
 }
 
-std::vector<double> AlgorithmConfigFactory::get_random_weibull_parameters(std::mt19937& mt) {
-	const auto k = RandomFactory::get_random_double(std::numeric_limits<double>::min(), std::numeric_limits<double>::max(), mt);
-	const auto b = RandomFactory::get_random_double(std::numeric_limits<double>::min(), std::numeric_limits<double>::max(), mt);
+std::vector<RelearnTypes::attraction_type> AlgorithmConfigFactory::get_random_weibull_parameters(std::mt19937& mt) {
+	const auto k = RandomFactory::get_random_double(std::numeric_limits<attraction_type>::min(), std::numeric_limits<attraction_type>::max(), mt);
+	const auto b = RandomFactory::get_random_double(std::numeric_limits<attraction_type>::min(), std::numeric_limits<attraction_type>::max(), mt);
 	return { k, b };
 }

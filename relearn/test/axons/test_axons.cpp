@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,21 +11,22 @@
 #include "test_axons.h"
 
 #include "RelearnTest.hpp"
-#include "Types.h"
 
 #include "neurons/enums/SynapticElementType.h"
 #include "neurons/synaptic_elements/Axons.h"
 #include "neurons/synaptic_elements/MultiPositionAxons.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
 #include "util/RelearnException.h"
-
-#include "cpp-utility/MemoryFootprint.hpp"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "factory/extra_info/extra_info_factory.h"
 
+#include <cpp-utility/MemoryFootprint.hpp>
+
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <cstddef>
 #include <iostream>
@@ -46,8 +47,10 @@ TEST_F(AxonsTest, testConstruction) {
     auto axons = Axons{};
 
     ASSERT_EQ(axons.get_size(), 0);
+#ifndef RELEARN_CUDA_ENABLED
     ASSERT_EQ(axons.get_total_additions(), 0.0);
     ASSERT_EQ(axons.get_total_deletions(), 0.0);
+#endif
     ASSERT_EQ(axons.get_signal_types().size(), 0);
     ASSERT_EQ(axons.get_grown_elements().size(), 0);
     ASSERT_EQ(axons.get_deltas().size(), 0);
@@ -85,8 +88,10 @@ TEST_F(AxonsTest, testEmptyInitAndCreate) {
     const auto retract_ratio = axons.get_vacant_retract_ratio();
     const auto minimum_calcum = axons.get_minimum_calcium();
 
+#ifndef RELEARN_CUDA_ENABLED
     ASSERT_EQ(axons.get_total_additions(), 0.0);
     ASSERT_EQ(axons.get_total_deletions(), 0.0);
+#endif
 
     ASSERT_EQ(signal_types.size(), number_neurons_init);
     ASSERT_EQ(excitatory_axons_id.size(), 0);
@@ -140,8 +145,10 @@ TEST_F(AxonsTest, testEmptyInitAndCreate) {
     const auto new_retract_ratio = axons.get_vacant_retract_ratio();
     const auto new_minimum_calcum = axons.get_minimum_calcium();
 
+#ifndef RELEARN_CUDA_ENABLED
     ASSERT_EQ(axons.get_total_additions(), 0.0);
     ASSERT_EQ(axons.get_total_deletions(), 0.0);
+#endif
 
     ASSERT_EQ(new_signal_types.size(), number_neurons);
     ASSERT_EQ(new_excitatory_axons_id.size(), 0);
@@ -371,7 +378,6 @@ TEST_F(AxonsTest, testMemoryFootprint) {
 
     const auto& map = footprint->get_descriptions();
 
-    ASSERT_EQ(map.size(), 2);
     ASSERT_NE(map.find("Axons"), map.end());
     ASSERT_NE(map.find("Axon Base"), map.end());
 
@@ -390,9 +396,11 @@ TEST_F(MultiPositionAxonsTest, testConstruction) {
 
     auto axons = MultiPositionAxons{};
 
+#ifndef RELEARN_CUDA_ENABLED
     ASSERT_EQ(axons.get_size(), 0);
     ASSERT_EQ(axons.get_total_additions(), 0.0);
     ASSERT_EQ(axons.get_total_deletions(), 0.0);
+#endif
     ASSERT_EQ(axons.get_signal_types().size(), 0);
     ASSERT_EQ(axons.get_grown_elements().size(), 0);
     ASSERT_EQ(axons.get_deltas().size(), 0);

@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,9 +11,10 @@
  */
 
 #include "util/RelearnException.h"
-#include "util/StringUtil.h"
 
-#include "mpi-wrapper/MPIRank.h"
+#include <cpp-utility/Conversion.hpp>
+
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <filesystem>
 #include <sstream>
@@ -55,7 +56,7 @@ static std::filesystem::path find_file_for_rank(const std::filesystem::path& dir
 
     auto builder = std::stringstream{};
     for (auto nr_digits = 1U; nr_digits <= 9; nr_digits++) {
-        builder << prefix << StringUtil::format_int_with_leading_zeros(rank.get_rank(), nr_digits) << suffix;
+        builder << prefix << utility::format_int_with_leading_zeros(rank.get_rank(), nr_digits) << suffix;
 
         const auto path_to_file = directory / builder.str();
         if (std::filesystem::exists(path_to_file)) {

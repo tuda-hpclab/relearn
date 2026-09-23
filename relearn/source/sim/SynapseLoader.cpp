@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -10,9 +10,8 @@
 
 #include "SynapseLoader.h"
 
-#include "Types.h"
-
 #include "sim/Essentials.h"
+#include "types/BasicTypes.h"
 #include "util/Timers.h"
 
 #include <range/v3/numeric/accumulate.hpp>

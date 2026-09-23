@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -14,14 +14,13 @@
 #include "algorithm/FMMInternal/FastMultipoleMethodCell.h"
 #include "algorithm/Internal/ExchangingAlgorithm.h"
 #include "algorithm/Internal/OctreeAlgorithm.h"
+#include "neurons/NeuronsExtraInfo.h"
 #include "neurons/enums/UpdateStatus.h"
 #include "neurons/helper/SynapseCreationRequests.h"
 
 #include <memory>
 #include <utility>
 #include <vector>
-
-class NeuronsExtraInfo;
 
 /**
  * This class represents the implementation and adaptation of the FastMultipoleMethodInverted algorithm. The parameters can be set on the fly.
@@ -33,6 +32,7 @@ class FastMultipoleMethodInverted : public BackwardAlgorithm<SynapseCreationRequ
 public:
     using AdditionalCellAttributes = FastMultipoleMethodCell;
     using number_neurons_type = RelearnTypes::number_neurons_type;
+    using counter_type = RelearnTypes::counter_type;
 
     /**
      * @brief Constructs a new instance with the given octree
@@ -40,11 +40,15 @@ public:
      * @param _space_filling_curve The space-filling curve to use, not nullptr
      * @exception Throws a RelearnException if _space_filling_curve is nullptr
      */
-    FastMultipoleMethodInverted(const RelearnTypes::bounding_box_type& bounding_box, std::shared_ptr<SpaceFillingCurve> _space_filling_curve)
-        : BackwardAlgorithm()
-        , OctreeAlgorithm(bounding_box, std::move(_space_filling_curve)) { }
+    FastMultipoleMethodInverted(const RelearnTypes::bounding_box_type& bounding_box, std::shared_ptr<SpaceFillingCurve> _space_filling_curve) // NOLINT(performance-unnecessary-value-param) - moved into the base-class ctor below
+        : OctreeAlgorithm(bounding_box, std::move(_space_filling_curve), true) { }
 
-    virtual ~FastMultipoleMethodInverted() = default;
+    ~FastMultipoleMethodInverted() override = default;
+
+    FastMultipoleMethodInverted(const FastMultipoleMethodInverted&) = delete;
+    FastMultipoleMethodInverted& operator=(const FastMultipoleMethodInverted&) = delete;
+    FastMultipoleMethodInverted(FastMultipoleMethodInverted&&) = default;
+    FastMultipoleMethodInverted& operator=(FastMultipoleMethodInverted&&) = default;
 
     /**
      * @brief Sets the extra infos for the neurons. They hold the positions and update flags for the neurons.
@@ -85,7 +89,7 @@ public:
     /**
      * @brief Returns the octree that is used by this algorithm
      */
-    [[nodiscard]] const std::unique_ptr<Octree<AdditionalCellAttributes>>& get_octree() {
+    [[nodiscard]] const std::shared_ptr<Octree<AdditionalCellAttributes>>& get_octree() {
         return OctreeAlgorithm::get_octree();
     }
 
@@ -99,9 +103,9 @@ public:
      * @exception Can throw a RelearnException
      */
     void prepare_update_connectivity(const std::span<const SignalType> signal_types,
-                                     const std::span<const unsigned int> vacant_axons,
-                                     const std::span<const unsigned int> vacant_excitatory_dendrites,
-                                     const std::span<const unsigned int> vacant_inhibitory_dendrites) override {
+                                     const std::span<const counter_type> vacant_axons,
+                                     const std::span<const counter_type> vacant_excitatory_dendrites,
+                                     const std::span<const counter_type> vacant_inhibitory_dendrites) override {
         OctreeAlgorithm::update_tree(signal_types, vacant_axons, vacant_excitatory_dendrites, vacant_inhibitory_dendrites);
     }
 
@@ -135,7 +139,7 @@ protected:
      * @exception Can throw a RelearnException
      * @return A pair of (1) The responses to each request and (2) another pair of (a) all local synapses and (b) all distant synapses from the local rank
      */
-    [[nodiscard]] std::pair<RelearnTypes::comm_map_creation<SynapseCreationResponse>, std::pair<PlasticLocalSynapses, PlasticDistantOutSynapses>>
+    [[nodiscard]] BackwardProcessRequestsResult<SynapseCreationResponse>
     process_requests(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests) override;
 
     /**

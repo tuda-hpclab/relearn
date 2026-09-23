@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -9,30 +9,30 @@
  */
 
 #include "RelearnTest.hpp"
+#include "test_activity_input.h"
 
 #include "neurons/input/ConstantActivityInput.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnAllocator.h"
 #include "util/RelearnException.h"
 #include "util/Vec3.h"
-
-#include "cpp-utility/MemoryFootprint.hpp"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "factory/extra_info/extra_info_factory.h"
 #include "factory/neuron_id/neuron_id_factory.h"
 #include "factory/random/random_factory.h"
 #include "factory/simulation/simulation_factory.h"
 
+#include <cpp-utility/MemoryFootprint.hpp>
+
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <iostream>
 #include <memory>
 #include <tuple>
-
-#include "test_activity_input.h"
 
 TEST_F(ConstantActivityInputTest, testConstructorNoThrow) {
     if (mpiPP::MPIInfo::get_number_ranks() != 1) {
@@ -43,11 +43,11 @@ TEST_F(ConstantActivityInputTest, testConstructorNoThrow) {
         return;
     }
 
-    const auto constant_input = RandomFactory::get_random_double<double>(ConstantActivityInput::min_constant_activity, ConstantActivityInput::max_constant_activity, this->mt);
+    const auto constant_input = RandomFactory::get_random_double(ConstantActivityInput::min_constant_activity, ConstantActivityInput::max_constant_activity, this->mt);
 
-    ASSERT_NO_THROW(std::ignore = ConstantActivityInput(0.0));
-    ASSERT_NO_THROW(std::ignore = ConstantActivityInput(1.0));
-    ASSERT_NO_THROW(std::ignore = ConstantActivityInput(constant_input));
+    ASSERT_NO_THROW(std::ignore = ConstantActivityInput(1, 0.0));
+    ASSERT_NO_THROW(std::ignore = ConstantActivityInput(1, 1.0));
+    ASSERT_NO_THROW(std::ignore = ConstantActivityInput(1, static_cast<ActivityInput::activity_type>(constant_input)));
 }
 
 TEST_F(ConstantActivityInputTest, testInitAndCreate) {
@@ -59,13 +59,13 @@ TEST_F(ConstantActivityInputTest, testInitAndCreate) {
         return;
     }
 
-    const auto constant_input = RandomFactory::get_random_double<double>(ConstantActivityInput::min_constant_activity, ConstantActivityInput::max_constant_activity, this->mt);
+    const auto constant_input = RandomFactory::get_random_double(ConstantActivityInput::min_constant_activity, ConstantActivityInput::max_constant_activity, this->mt);
 
     const auto number_neurons_init = NeuronIdFactory::get_random_number_neurons(this->mt);
     const auto number_neurons_create_1 = NeuronIdFactory::get_random_number_neurons(this->mt);
     const auto number_neurons_create_2 = NeuronIdFactory::get_random_number_neurons(this->mt);
 
-    auto constant_activity_input = ConstantActivityInput(constant_input);
+    auto constant_activity_input = ConstantActivityInput(1, static_cast<ActivityInput::activity_type>(constant_input));
 
     ASSERT_THROW_NO_PRINT(constant_activity_input.init(0), RelearnException);
     ASSERT_THROW_NO_PRINT(constant_activity_input.create_neurons(number_neurons_create_1), RelearnException);
@@ -122,27 +122,28 @@ TEST_F(ConstantActivityInputTest, testUpdateInput) {
         return;
     }
 
-    const auto constant_input = RandomFactory::get_random_double<double>(ConstantActivityInput::min_constant_activity, ConstantActivityInput::max_constant_activity, this->mt);
+    const auto constant_input = RandomFactory::get_random_double(ConstantActivityInput::min_constant_activity, ConstantActivityInput::max_constant_activity, this->mt);
 
     const auto number_neurons_init = NeuronIdFactory::get_random_number_neurons(this->mt);
 
     const auto neurons_extra_info = NeuronsExtraInfoFactory::construct_extra_info();
     neurons_extra_info->init(number_neurons_init);
 
-    auto constant_activity_input = ConstantActivityInput(constant_input);
+    auto constant_activity_input = ConstantActivityInput(1, static_cast<ActivityInput::activity_type>(constant_input));
     constant_activity_input.init(number_neurons_init);
     constant_activity_input.set_extra_infos(neurons_extra_info);
 
     const auto actual_input = constant_activity_input.get_input();
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
-        ASSERT_EQ(constant_activity_input.get_input(neuron_id), 0.0);
-        ASSERT_EQ(actual_input[neuron_id.get_neuron_id()], 0.0);
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
+        ASSERT_NEAR_EPS(constant_activity_input.get_input(neuron_id), 0.0);
+        ASSERT_NEAR_EPS(actual_input[neuron_id.get_neuron_id()], 0.0);
     }
 
     constant_activity_input.update_input(102);
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
-        ASSERT_EQ(constant_activity_input.get_input(neuron_id), constant_input);
-        ASSERT_EQ(actual_input[neuron_id.get_neuron_id()], constant_input);
+
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
+        ASSERT_NEAR_EPS(constant_activity_input.get_input(neuron_id), constant_input);
+        ASSERT_NEAR_EPS(actual_input[neuron_id.get_neuron_id()], constant_input);
     }
 }
 
@@ -155,7 +156,7 @@ TEST_F(ConstantActivityInputTest, testUpdateInputRange) {
         return;
     }
 
-    const auto constant_input = RandomFactory::get_random_double<double>(ConstantActivityInput::min_constant_activity, ConstantActivityInput::max_constant_activity, this->mt);
+    const auto constant_input = RandomFactory::get_random_double(ConstantActivityInput::min_constant_activity, ConstantActivityInput::max_constant_activity, this->mt);
 
     const auto number_neurons_init = 50;
     const auto first_neuron_id = NeuronID{ 10 };
@@ -164,24 +165,25 @@ TEST_F(ConstantActivityInputTest, testUpdateInputRange) {
     const auto neurons_extra_info = NeuronsExtraInfoFactory::construct_extra_info();
     neurons_extra_info->init(number_neurons_init);
 
-    auto constant_activity_input = ConstantActivityInput(constant_input);
-    constant_activity_input.init(number_neurons_init);
-    constant_activity_input.set_extra_infos(neurons_extra_info);
+    std::unique_ptr<ActivityInput> constant_activity_input = std::make_unique<ConstantActivityInput>(1, constant_input);
+    constant_activity_input->init(number_neurons_init);
+    constant_activity_input->set_extra_infos(neurons_extra_info);
 
-    const auto actual_input = constant_activity_input.get_input();
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
-        ASSERT_EQ(constant_activity_input.get_input(neuron_id), 0.0);
-        ASSERT_EQ(actual_input[neuron_id.get_neuron_id()], 0.0);
+    const auto actual_input = constant_activity_input->get_input();
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
+        ASSERT_NEAR_EPS(constant_activity_input->get_input(neuron_id), 0.0);
+        ASSERT_NEAR_EPS(actual_input[neuron_id.get_neuron_id()], 0.0);
     }
 
-    constant_activity_input.update_input_range(105, first_neuron_id, last_neuron_id);
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    constant_activity_input->update_input_range(105, first_neuron_id, last_neuron_id);
+
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         if (first_neuron_id <= neuron_id && neuron_id < last_neuron_id) {
-            ASSERT_EQ(constant_activity_input.get_input(neuron_id), constant_input);
-            ASSERT_EQ(actual_input[neuron_id.get_neuron_id()], constant_input);
+            ASSERT_NEAR_EPS(constant_activity_input->get_input(neuron_id), constant_input);
+            ASSERT_NEAR_EPS(actual_input[neuron_id.get_neuron_id()], constant_input);
         } else {
-            ASSERT_EQ(constant_activity_input.get_input(neuron_id), 0.0);
-            ASSERT_EQ(actual_input[neuron_id.get_neuron_id()], 0.0);
+            ASSERT_NEAR_EPS(constant_activity_input->get_input(neuron_id), 0.0);
+            ASSERT_NEAR_EPS(actual_input[neuron_id.get_neuron_id()], 0.0);
         }
     }
 }
@@ -195,7 +197,7 @@ TEST_F(ConstantActivityInputTest, testUpdateInputMultipleRanges) {
         return;
     }
 
-    const auto constant_input = RandomFactory::get_random_double<double>(ConstantActivityInput::min_constant_activity, ConstantActivityInput::max_constant_activity, this->mt);
+    const auto constant_input = RandomFactory::get_random_double(ConstantActivityInput::min_constant_activity, ConstantActivityInput::max_constant_activity, this->mt);
 
     const auto number_neurons_init = 50;
     const auto first_neuron_id = NeuronID{ 10 };
@@ -204,23 +206,23 @@ TEST_F(ConstantActivityInputTest, testUpdateInputMultipleRanges) {
     const auto neurons_extra_info = NeuronsExtraInfoFactory::construct_extra_info();
     neurons_extra_info->init(number_neurons_init);
 
-    auto constant_activity_input = ConstantActivityInput(constant_input);
-    constant_activity_input.init(number_neurons_init);
-    constant_activity_input.set_extra_infos(neurons_extra_info);
+    std::unique_ptr<ActivityInput> constant_activity_input = std::make_unique<ConstantActivityInput>(1, constant_input);
+    constant_activity_input->init(number_neurons_init);
+    constant_activity_input->set_extra_infos(neurons_extra_info);
 
-    const auto actual_input = constant_activity_input.get_input();
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
-        ASSERT_EQ(constant_activity_input.get_input(neuron_id), 0.0);
-        ASSERT_EQ(actual_input[neuron_id.get_neuron_id()], 0.0);
+    const auto actual_input = constant_activity_input->get_input();
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
+        ASSERT_NEAR_EPS(constant_activity_input->get_input(neuron_id), 0.0);
+        ASSERT_NEAR_EPS(actual_input[neuron_id.get_neuron_id()], 0.0);
     }
 
-    constant_activity_input.update_input_range(105, first_neuron_id, last_neuron_id);
-    constant_activity_input.update_input_range(105, NeuronID{ 0 }, first_neuron_id);
-    constant_activity_input.update_input_range(105, last_neuron_id, NeuronID{ number_neurons_init });
+    constant_activity_input->update_input_range(105, first_neuron_id, last_neuron_id);
+    constant_activity_input->update_input_range(105, NeuronID{ 0 }, first_neuron_id);
+    constant_activity_input->update_input_range(105, last_neuron_id, NeuronID{ number_neurons_init });
 
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
-        ASSERT_EQ(constant_activity_input.get_input(neuron_id), constant_input);
-        ASSERT_EQ(actual_input[neuron_id.get_neuron_id()], constant_input);
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
+        ASSERT_NEAR_EPS(constant_activity_input->get_input(neuron_id), constant_input);
+        ASSERT_NEAR_EPS(actual_input[neuron_id.get_neuron_id()], constant_input);
     }
 }
 
@@ -233,7 +235,7 @@ TEST_F(ConstantActivityInputTest, testUpdateInputAfterCreate) {
         return;
     }
 
-    const auto constant_input = RandomFactory::get_random_double<double>(ConstantActivityInput::min_constant_activity, ConstantActivityInput::max_constant_activity, this->mt);
+    const auto constant_input = RandomFactory::get_random_double(ConstantActivityInput::min_constant_activity, ConstantActivityInput::max_constant_activity, this->mt);
 
     const auto number_neurons_init = NeuronIdFactory::get_random_number_neurons(this->mt);
     const auto number_neurons_create = NeuronIdFactory::get_random_number_neurons(this->mt);
@@ -241,10 +243,10 @@ TEST_F(ConstantActivityInputTest, testUpdateInputAfterCreate) {
     const auto neurons_extra_info = NeuronsExtraInfoFactory::construct_extra_info();
     neurons_extra_info->init(number_neurons_init);
 
-    auto positions = SimulationFactory::get_random_positions<std::allocator<Vec3d>>(this->mt, number_neurons_init);
+    auto positions = SimulationFactory::get_random_positions<std::allocator<RelearnTypes::position_type>>(this->mt, number_neurons_init);
     neurons_extra_info->set_positions(positions);
 
-    auto constant_activity_input = ConstantActivityInput(constant_input);
+    auto constant_activity_input = ConstantActivityInput(1, static_cast<ActivityInput::activity_type>(constant_input));
     constant_activity_input.init(number_neurons_init);
     constant_activity_input.set_extra_infos(neurons_extra_info);
 
@@ -254,9 +256,9 @@ TEST_F(ConstantActivityInputTest, testUpdateInputAfterCreate) {
     constant_activity_input.update_input(103);
 
     const auto actual_input = constant_activity_input.get_input();
-    for (const auto neuron_id : NeuronID::range(number_neurons_init + number_neurons_create)) {
-        ASSERT_EQ(constant_activity_input.get_input(neuron_id), constant_input);
-        ASSERT_EQ(actual_input[neuron_id.get_neuron_id()], constant_input);
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init + number_neurons_create)) {
+        ASSERT_NEAR_EPS(constant_activity_input.get_input(neuron_id), constant_input);
+        ASSERT_NEAR_EPS(actual_input[neuron_id.get_neuron_id()], constant_input);
     }
 }
 
@@ -269,14 +271,14 @@ TEST_F(ConstantActivityInputTest, testFootprintNoThrow) {
         return;
     }
 
-    const auto constant_input = RandomFactory::get_random_double<double>(ConstantActivityInput::min_constant_activity, ConstantActivityInput::max_constant_activity, this->mt);
+    const auto constant_input = RandomFactory::get_random_double(ConstantActivityInput::min_constant_activity, ConstantActivityInput::max_constant_activity, this->mt);
 
     const auto number_neurons_init = NeuronIdFactory::get_random_number_neurons(this->mt);
 
     const auto neurons_extra_info = NeuronsExtraInfoFactory::construct_extra_info();
     neurons_extra_info->init(number_neurons_init);
 
-    auto constant_activity_input = ConstantActivityInput(constant_input);
+    auto constant_activity_input = ConstantActivityInput(1, static_cast<ActivityInput::activity_type>(constant_input));
     constant_activity_input.init(number_neurons_init);
     constant_activity_input.set_extra_infos(neurons_extra_info);
 
@@ -294,7 +296,7 @@ TEST_F(ConstantActivityInputTest, testSetExtraInfoThrow) {
         return;
     }
 
-    const auto constant_input = RandomFactory::get_random_double<double>(ConstantActivityInput::min_constant_activity, ConstantActivityInput::max_constant_activity, this->mt);
+    const auto constant_input = RandomFactory::get_random_double(ConstantActivityInput::min_constant_activity, ConstantActivityInput::max_constant_activity, this->mt);
 
     const auto number_neurons_init = NeuronIdFactory::get_random_number_neurons(this->mt);
 
@@ -307,7 +309,7 @@ TEST_F(ConstantActivityInputTest, testSetExtraInfoThrow) {
     const auto neurons_extra_info_too_small = NeuronsExtraInfoFactory::construct_extra_info();
     neurons_extra_info_too_small->init(number_neurons_init + 0);
 
-    auto constant_activity_input = ConstantActivityInput(constant_input);
+    auto constant_activity_input = ConstantActivityInput(1, static_cast<ActivityInput::activity_type>(constant_input));
     constant_activity_input.init(number_neurons_init + 1);
 
     ASSERT_THROW_NO_PRINT(constant_activity_input.set_extra_infos({}), RelearnException);

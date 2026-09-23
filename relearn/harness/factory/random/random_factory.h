@@ -3,12 +3,14 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
+
+#include "Macros.h"
 
 #include "util/RelearnException.h"
 
@@ -21,25 +23,32 @@
 #include <unordered_set>
 #include <vector>
 
+#ifdef HOST_COMPILER
+#include "cpp-utility/ranges/Functional.hpp"
 #include "util/shuffle/shuffle.h"
 
-#include "cpp-utility/ranges/Functional.hpp"
-
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#pragma GCC diagnostic ignored "-Wold-style-cast"
 #include <boost/random/normal_distribution.hpp>
 #include <boost/random/uniform_int_distribution.hpp>
 #include <boost/random/uniform_real_distribution.hpp>
+#pragma GCC diagnostic pop
+
 #include <range/v3/algorithm/any_of.hpp>
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/enumerate.hpp>
 #include <range/v3/view/indices.hpp>
 #include <range/v3/view/transform.hpp>
+#endif
 
 class RandomFactory {
 public:
     template <typename T>
     static T get_random_double(T min, T max, std::mt19937& mt) {
-        const boost::random::uniform_real_distribution<double> urd(min, max);
-        return urd(mt);
+        const boost::random::uniform_real_distribution<double> urd(static_cast<double>(min), static_cast<double>(max));
+        return static_cast<T>(urd(mt));
     }
 
     static double get_random_double(std::mt19937& mt) {
@@ -76,12 +85,17 @@ public:
 
     template <typename T>
     static T get_random_percentage(std::mt19937& mt) {
-        return get_random_double<T>(0.0, std::nextafter(1.0, 1.1), mt);
+        return get_random_double<T>(T{ 0 }, std::nextafter(T{ 1 }, T{ 2 }), mt);
     }
 
     static bool get_random_bool(std::mt19937& mt) {
         const auto val = get_random_integer(0, 1, mt);
         return val == 0;
+    }
+
+    static bool get_random_bool(double probability,std::mt19937& mt) {
+        const auto val = get_random_double(0.0, 1.0, mt);
+        return val < probability;
     }
 
     static std::string get_random_string(size_t length, std::mt19937& mt) {
@@ -97,6 +111,7 @@ public:
         return str;
     }
 
+#ifdef HOST_COMPILER
     static std::vector<size_t> get_random_derangement(size_t size, std::mt19937& mt) {
         auto derangement = ranges::views::indices(size) | ranges::to_vector;
 
@@ -167,4 +182,5 @@ public:
         const auto sample_size = get_random_integer<size_t>(size_t{ 0 }, vector.size() - 1, mt);
         return sample(vector, sample_size, mt);
     }
+#endif
 };

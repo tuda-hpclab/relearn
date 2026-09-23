@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -12,44 +12,73 @@
 
 #include "RelearnException.h"
 
-#include "cpp-utility/ranges/Functional.hpp"
+#include <cpp-utility/data-structure/TaggedID.hpp>
 
 #include <fmt/ostream.h>
-#include <range/v3/view/iota.hpp>
-#include <range/v3/view/transform.hpp>
 
 #include <compare>
 #include <concepts>
+#include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <limits>
 #include <ostream>
-#include <type_traits>
+#include <string_view>
 
-template <typename U>
-class TaggedIDTest;
+/**
+ * @brief The TaggedID customization that carries the semantics of NeuronID.
+ *
+ * An id built from these traits behaves exactly like the hand-written NeuronID did: it is uninitialized when
+ * default constructed, initialized when constructed from a value, and the virtual flag is set on top of that.
+ * As flag 0 is the most significant bit of the underlying type, the defaulted comparison of the id orders by
+ * is_initialized first, by is_virtual second and by the value last, i.e., exactly as the member-wise comparison
+ * of the previous bitfield-based implementation did.
+ */
+struct NeuronIDTraits : utility::TaggedIDTraits {
+    /** @brief The index of the flag that marks an id as carrying a meaningful value, i.e., as being initialized */
+    static constexpr std::size_t initialized_flag = 0;
 
-namespace detail {
-template <std::integral T>
-[[nodiscard]] constexpr T get_max_size(const std::size_t& bit_count) {
-    auto res = std::size_t{ 1 };
+    /** @brief The index of the flag that marks an id as virtual, i.e., as an offset into the RMA window */
+    static constexpr std::size_t virtual_flag = 1;
 
-    for (auto i = std::size_t{ 0 }; i < bit_count - std::size_t{ 1 }; ++i) {
-        res <<= 1U;
-        ++res;
-    }
+    /**
+     * @brief The underlying id prints as "NeuronID: <value>", which is what shows up in the messages of the
+     *      exceptions that the id itself throws. NeuronID has its own formatter with the i/s/m/l presentations
+     */
+    static constexpr std::string_view name = "NeuronID";
 
-    return static_cast<T>(res);
-}
+    /** @brief Constructing an id from a value marks it as initialized, default constructing one does not */
+    static constexpr std::size_t constructed_flags = std::size_t{ 1 } << initialized_flag;
 
-template <std::integral T, std::size_t num_bits>
-struct TaggedIDNumericalLimitsUnsigned {
-    using value_type = T;
-    static constexpr value_type min = 0;
-    static constexpr value_type max = get_max_size<value_type>(num_bits);
+    /** @brief An uninitialized id prints as "NeuronID: uninitialized" instead of its (meaningless) value */
+    static constexpr std::size_t unset_flag = initialized_flag;
 };
-} // namespace detail
+
+/**
+ * @brief The TaggedID that carries NeuronID's semantics, see NeuronIDTraits.
+ *
+ * 62 value bits and the two flags, which makes it the same size as the previous bitfield-based NeuronID.
+ */
+using NeuronIDData = utility::TaggedID<std::uint64_t, 2, NeuronIDTraits>;
+
+static_assert(NeuronIDData::value_bit_count == 62, "NeuronIDTraits: The number of id bits does not match the one of NeuronID");
+static_assert(NeuronIDData::min_value == 0, "NeuronIDTraits: The smallest admissible id does not match the one of NeuronID");
+static_assert(NeuronIDData::max_value == 0x3FFFFFFFFFFFFFFFULL, "NeuronIDTraits: The largest admissible id does not match the one of NeuronID");
+
+// The ordering that the previous member-wise comparison of (is_initialized, is_virtual, id) produced
+static_assert(NeuronIDData{} < NeuronIDData{ 0 }, "NeuronIDTraits: An uninitialized id must order before an initialized one");
+static_assert(NeuronIDData{ 0 } < NeuronIDData{ 0 }.with_flag<NeuronIDTraits::virtual_flag>(), "NeuronIDTraits: A local id must order before a virtual one");
+static_assert(NeuronIDData{ 0 } < NeuronIDData{ 1 }, "NeuronIDTraits: Ids with equal flags must be ordered by their value");
 
 /**
  * @brief ID class to represent a neuron id with flags as a bitfield.
+ *
+ * It is a thin wrapper around NeuronIDData, i.e., around a utility::TaggedID configured with NeuronIDTraits:
+ * the bit layout, the admissible values, the ordering and the hash all come from there, this class adds the
+ * names of the neuron domain and the checks that guard the access to an uninitialized or virtual id.
+ *
+ * The factories for ranges of ids are static methods of NeuronIDRange in util/NeuronIDRange.h,
+ * so that this header stays free of range-v3.
  *
  * Flag members include is_virtual and is_initialized.
  * The limits type can be used to query the range of id values the tagged id can represent.
@@ -60,10 +89,64 @@ struct TaggedIDNumericalLimitsUnsigned {
  */
 class NeuronID {
 public:
-    using value_type = std::uint64_t;
-    static constexpr auto num_flags = 2;
-    static constexpr auto id_bit_count = (sizeof(value_type) * 8) - num_flags;
-    using limits = detail::TaggedIDNumericalLimitsUnsigned<value_type, id_bit_count>;
+    using value_type = NeuronIDData::value_type;
+
+    /** @brief The tagged id that carries the neuron id, see NeuronIDTraits */
+    using id_type = NeuronIDData;
+
+    static constexpr auto num_flags = NeuronIDData::num_flags;
+    static constexpr auto id_bit_count = NeuronIDData::value_bit_count;
+
+    /** @brief The range of id values that a NeuronID can represent */
+    struct limits {
+        using value_type = NeuronID::value_type;
+        static constexpr value_type min = NeuronIDData::min_value;
+        static constexpr value_type max = NeuronIDData::max_value;
+    };
+
+    /**
+     * @brief Construct a new NeuronID object where the flag is_initialized is false
+     *
+     */
+    constexpr NeuronID() noexcept = default;
+
+    /**
+     * @brief Construct a new initialized NeuronID object with the given id
+     *
+     * @param id the id value
+     * @exception RelearnException if id < 0 or id > limits::max
+     */
+    constexpr explicit NeuronID(const std::integral auto id)
+        : id_{ id } {
+    }
+
+    /**
+     * @brief Construct a new initialized NeuronID object with the given flags and id
+     *
+     * @param is_virtual flag if the id should be marked virtual
+     * @param id the id value
+     * @exception RelearnException if id < 0 or id > limits::max
+     */
+    constexpr explicit NeuronID(const bool is_virtual, const std::integral auto id)
+        : id_{ NeuronIDData{ id }.with_flag<NeuronIDTraits::virtual_flag>(is_virtual) } {
+    }
+
+    /**
+     * @brief Construct a NeuronID from an already built tagged id, which is initialized iff the id's flag is set
+     *
+     * @param id The tagged id that carries the neuron id
+     */
+    constexpr explicit NeuronID(const NeuronIDData id) noexcept
+        : id_{ id } {
+    }
+
+    constexpr NeuronID(const NeuronID&) noexcept = default;
+    constexpr NeuronID& operator=(const NeuronID&) noexcept = default;
+
+    constexpr NeuronID(NeuronID&&) noexcept = default;
+    constexpr NeuronID& operator=(NeuronID&&) noexcept = default;
+
+    constexpr ~NeuronID() = default;
 
     /**
      * @brief Get an uninitialized id
@@ -78,117 +161,19 @@ public:
      * @brief Get a virtual id (is initialized, but virtual)
      * @return constexpr NeuronID virtual id
      */
-    [[nodiscard]] static constexpr NeuronID virtual_id() noexcept {
-        return NeuronID{ true, 0 };
+    [[nodiscard]] static constexpr NeuronID virtual_id() {
+        return NeuronID{ true, limits::min };
     }
 
     /**
      * @brief Get a virtual id (is initialized, but virtual)
      * @param hijacked_value The offset in the RMA window/index of the branch node
+     * @exception RelearnException if hijacked_value < 0 or hijacked_value > limits::max
      * @return constexpr NeuronID virtual id
      */
-    [[nodiscard]] static constexpr NeuronID virtual_id(const std::integral auto hijacked_value) noexcept {
+    [[nodiscard]] static constexpr NeuronID virtual_id(const std::integral auto hijacked_value) {
         return NeuronID{ true, hijacked_value };
     }
-
-    /**
-     * @brief Create a range of NeuronIDs within the range [begin, end)
-     *
-     * @param begin begin of the range
-     * @param end end of the range
-     * @return range of NeuronIDs
-     */
-    [[nodiscard]] static auto range(const value_type begin, const value_type end) {
-        return ranges::views::iota(begin, end) | ranges::views::transform(utility::construct<NeuronID>);
-    }
-
-    /**
-     * @brief Create a range of NeuronIDs within the range [begin, end)
-     *
-     * @param begin begin of the range
-     * @param end end of the range
-     * @return range of NeuronIDs
-     */
-    [[nodiscard]] static auto range(const NeuronID begin, const NeuronID end) {
-        return range(begin.get_neuron_id(), end.get_neuron_id());
-    }
-
-    /**
-     * @brief Create a range of local NeuronIDs within the range [0, size)
-     *
-     * @param size size of the range
-     * @return range of NeuronIDs
-     */
-    [[nodiscard]] static auto range(const value_type size) {
-        return range(0U, size);
-    }
-
-    /**
-     * @brief Create a range of local NeuronIDs within the range [0, size)
-     *
-     * @param size size of the range
-     * @return range of NeuronIDs
-     */
-    [[nodiscard]] static auto range(const NeuronID size) {
-        return range(0U, size.get_neuron_id());
-    }
-
-    /**
-     * @brief Create a range of NeuronIDs within the range [begin, end) but as ids of type value_type
-     *
-     * @param begin begin of the range
-     * @param end end of the range
-     * @return range of NeuronIDs of type value_type
-     */
-    [[nodiscard]] static auto range_id(const value_type begin, const value_type end) {
-        return ranges::views::iota(begin, end);
-    }
-
-    /**
-     * @brief Create a range of local NeuronIDs within the range [0, size) but as ids of type value_type
-     *
-     * @param size size of the range
-     * @return range of NeuronIDs of type value_type
-     */
-    [[nodiscard]] static auto range_id(const value_type size) {
-        return range_id(0U, size);
-    }
-
-    /**
-     * @brief Construct a new NeuronID object where the flag is_initialized is false
-     *
-     */
-    constexpr NeuronID() = default;
-
-    /**
-     * @brief Construct a new initialized NeuronID object with the given id
-     *
-     * @param id the id value
-     */
-    constexpr explicit NeuronID(const std::integral auto id) noexcept
-        : is_initialized_{ true }
-        , id_{ (static_cast<value_type>(id) & 0x3FFFFFFFFFFFFFFF) } {
-    }
-
-    /**
-     * @brief Construct a new initialized NeuronID object with the given flags and id
-     *
-     * @param is_virtual flag if the id should be marked virtual
-     * @param id the id value
-     */
-    constexpr explicit NeuronID(const bool is_virtual, const std::integral auto id) noexcept
-        : is_initialized_{ true }
-        , is_virtual_{ is_virtual }
-        , id_{ (static_cast<value_type>(id) & 0x3FFFFFFFFFFFFFFF) } {
-    }
-
-    constexpr NeuronID(const NeuronID&) noexcept = default;
-    constexpr NeuronID& operator=(const NeuronID&) noexcept = default;
-
-    constexpr NeuronID(NeuronID&&) noexcept = default;
-    constexpr NeuronID& operator=(NeuronID&&) noexcept = default;
-
-    constexpr ~NeuronID() = default;
 
     /**
      * @brief Get the id
@@ -196,7 +181,7 @@ public:
      * @return value_type id
      */
     [[nodiscard]] constexpr explicit operator value_type() const noexcept {
-        return id_;
+        return id_.get_value();
     }
 
     /**
@@ -218,7 +203,7 @@ public:
     [[nodiscard]] constexpr value_type get_neuron_id() const {
         RelearnException::check(is_initialized(), "NeuronID::get_neuron_id: Is not initialized {:s}", *this);
         RelearnException::check(!is_virtual(), "NeuronID::get_neuron_id: Is virtual {:s}", *this);
-        return id_;
+        return id_.get_value();
     }
 
     /**
@@ -229,7 +214,7 @@ public:
     [[nodiscard]] constexpr value_type get_rma_offset() const {
         RelearnException::check(is_initialized(), "NeuronID::get_rma_offset: Is not initialized {:s}", *this);
         RelearnException::check(is_virtual(), "NeuronID::get_rma_offset: Is not virtual {:s}", *this);
-        return id_;
+        return id_.get_value();
     }
 
     /**
@@ -238,7 +223,7 @@ public:
      * @return true iff the id is initialized
      */
     [[nodiscard]] constexpr bool is_initialized() const noexcept {
-        return is_initialized_;
+        return id_.get_flag<NeuronIDTraits::initialized_flag>();
     }
 
     /**
@@ -247,7 +232,7 @@ public:
      * @return true iff the id is virtual
      */
     [[nodiscard]] constexpr bool is_virtual() const noexcept {
-        return is_virtual_;
+        return id_.get_flag<NeuronIDTraits::virtual_flag>();
     }
 
     /**
@@ -256,13 +241,21 @@ public:
      * @return true iff the id is valid
      */
     [[nodiscard]] constexpr bool is_actual_id() const noexcept {
-        return is_initialized_ && !is_virtual_;
+        return is_initialized() && !is_virtual();
+    }
+
+    /**
+     * @brief Returns the tagged id that carries the neuron id, e.g., to reuse the algorithms of utility
+     * @return The tagged id
+     */
+    [[nodiscard]] constexpr NeuronIDData get_id() const noexcept {
+        return id_;
     }
 
     /**
      * @brief Compare two NeuronIDs
      *
-     * Compares the members in order of declaration
+     * Compares is_initialized first, is_virtual second and the id last
      * @return std::strong_ordering ordering
      */
     [[nodiscard]] friend constexpr std::strong_ordering operator<=>(const NeuronID&, const NeuronID&) noexcept = default;
@@ -272,32 +265,14 @@ public:
      * @return The hash value
      */
     [[nodiscard]] constexpr std::size_t hash_value() const noexcept {
-        // The size of the stored value inside NeuronID has two bits less than value_type
-
-        constexpr auto max = std::numeric_limits<std::size_t>::max();
-        if (!is_initialized()) {
-            // All bits are set
-            return max;
-        }
-
-        if (is_virtual()) {
-            // Shift the RMA offset by +1 and subtract from max by using XOR
-            // The highest bit is set, but some others are not
-            const auto offset = get_rma_offset();
-            const auto hash_value = max ^ (offset + 1);
-            return hash_value;
-        }
-
-        // The highest bit is cleared, but some are set
-        return get_neuron_id();
+        return id_.hash_value();
     }
 
 private:
-    // the ordering of members is important for the defaulted <=> comparison
-    bool is_initialized_ : 1 = false;
-    bool is_virtual_ : 1 = false;
-    value_type id_ : id_bit_count = 0;
+    NeuronIDData id_{};
 };
+
+static_assert(sizeof(NeuronID) == sizeof(NeuronIDData), "NeuronID grew beyond the tagged id it wraps");
 
 /**
  * @brief Formatter for NeuronID

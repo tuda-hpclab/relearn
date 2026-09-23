@@ -3,16 +3,15 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2020-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-
 #include "sim/random/BoxBasedRandomSubdomainAssignment.h"
+#include "types/BasicTypes.h"
 
 #include <memory>
 
@@ -34,7 +33,7 @@ public:
      * @param _partition The partition that stores all information for the subdomain calculations
      * @exception Throws a RelearnException if number_neurons_per_rank == 0, fraction_excitatory_neurons is not from [0.0, 1.0], um_per_neuron <= 0.0, or there is more than 1 MPI rank active
      */
-    SubdomainFromNeuronDensity(number_neurons_type number_neurons, double fraction_excitatory_neurons, double um_per_neuron, std::shared_ptr<Partition> _partition);
+    SubdomainFromNeuronDensity(number_neurons_type number_neurons, percentage_type fraction_excitatory_neurons, space_type um_per_neuron, std::shared_ptr<Partition> _partition);
 
     SubdomainFromNeuronDensity(const SubdomainFromNeuronDensity& other) = delete;
     SubdomainFromNeuronDensity(SubdomainFromNeuronDensity&& other) = delete;

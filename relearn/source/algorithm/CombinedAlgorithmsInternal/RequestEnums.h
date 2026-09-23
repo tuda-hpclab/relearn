@@ -3,19 +3,21 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2025-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
+#include <cstdint>
+
 enum class RequestTypeEnum : std::uint8_t {
-	SynapseCreationRequest,
-	DistantNeuronRequest,
+    SynapseCreationRequest,
+    DistantNeuronRequest,
 };
 
 enum class DirectionEnum : std::uint8_t {
-	Forward,
-	Backward,
+    Forward,
+    Backward,
 };

@@ -3,7 +3,7 @@
 /*
  * This file is part of the CPP-Utility software developed at Technical University Darmstadt
  *
- * Copyright (c) 2024, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -17,5 +17,12 @@
 #include <range/v3/view/filter.hpp>
 
 namespace utility::views {
+
+/**
+ * @brief Filters empty lines and lines whose first character is '#'.
+ *
+ * The non-empty filter runs first, so applying ranges::front is safe. Whitespace is not trimmed: an indented '#'
+ * remains data, and inline '#' characters do not start comments.
+ */
 inline constexpr auto filter_not_comment_not_empty_line = ranges::views::filter(ranges::not_fn(ranges::empty)) | ranges::views::filter(not_equal_to('#'), ranges::front);
 } // namespace utility::views

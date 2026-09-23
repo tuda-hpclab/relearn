@@ -7,12 +7,21 @@ target_sources(
         algorithm/BarnesHutInternal/BarnesHut.cpp
         algorithm/BarnesHutInternal/BarnesHutInverted.cpp
         algorithm/BarnesHutInternal/BarnesHutLocationAware.cpp
+        algorithm/BarnesHutInternal/BarnesHutLocationAwareModified.cpp
+        algorithm/BarnesHutInternal/BarnesHutRestricted.cpp
         algorithm/CombinedAlgorithmsInternal/AlgorithmConfig.cpp
         algorithm/CombinedAlgorithmsInternal/CombinedAlgorithms.cpp
         algorithm/FMMInternal/FastMultipoleMethod.cpp
         algorithm/FMMInternal/FastMultipoleMethodInverted.cpp
         algorithm/NaiveInternal/Naive.cpp
         algorithm/Connector.cpp
+
+        cuda/CudaBridgeFunctions.cpp
+        cuda/algorithm/BarnesHutInternalCUDA/BarnesHutCUDA.cpp
+        cuda/algorithm/BarnesHutInternalCUDA/BarnesHutCUDA_CU.cpp
+        cuda/algorithm/NaiveInternalCUDA/NaiveCUDA.cpp
+        cuda/algorithm/NaiveInternalCUDA/NaiveCUDA_CU.cpp
+        cuda/random/RandomNumbersHost.cpp
 
         # io
         io/parser/ActivityInputParser.cpp
@@ -27,42 +36,48 @@ target_sources(
         io/SynapticElementsIO.cpp
 
         # neurons
-        neurons/calcium/AbsoluteDecayCalciumCalculator.cpp
-        neurons/calcium/CalciumCalculator.cpp
-        neurons/calcium/RelativeDecayCalciumCalculator.cpp
+        neurons/calcium/AbsoluteDecayCalciumCalculatorCPU.cpp
+        neurons/calcium/CalciumCalculatorCPU.cpp
+        neurons/calcium/RelativeDecayCalciumCalculatorCPU.cpp
 
         neurons/firing/FiredStatusApproximator.cpp
         neurons/firing/FiredStatusCommunicationMap.cpp
-        neurons/firing/FiredStatusRecorder.cpp
+        cuda/firing/FireStatusCommunicatorGPUUncompressed.cpp
+        neurons/firing/FiredStatusRecorderCPU.cpp
 
         neurons/helper/GroupMonitor.cpp
         neurons/helper/CachedChoiceFunction.cpp
         neurons/helper/NeuronMonitor.cpp
         neurons/helper/SynapseDeletionFinder.cpp
+        neurons/helper/SynapseDeletionFinderBase.cpp
+        neurons/helper/SynapseDeletionFinderCPU.cpp
 
-        neurons/input/FlexibleActivityInput.cpp
+        neurons/input/FlexibleActivityInputBase.cpp
         neurons/input/NormalActivityInput.cpp
-        neurons/input/ScaleActivityInput.cpp
-        neurons/input/StimulationActivityInput.cpp
-        neurons/input/SynapticActivityInput.cpp
-        neurons/input/SynapticEquallyWeightedActivityInput.cpp
-        neurons/input/SynapticScalingActivityInput.cpp
-        neurons/input/SynapticIndividuallyWeightedActivityInput.cpp
-        
-        neurons/models/aeif/AEIFModel.cpp
-        neurons/models/fitzhughnagumo/FitzHughNagumoModel.cpp
-        neurons/models/izhikevich/IzhikevichModel.cpp
-        neurons/models/poisson/PoissonModel.cpp
-		
-        neurons/synaptic_elements/Axons.cpp
-        neurons/synaptic_elements/Dendrites.cpp
+        neurons/input/NormalActivityInputBase.cpp
+        neurons/input/SynapticActivityInputBase.cpp
+
+        neurons/models/aeif/AEIFModelBase.cpp
+        neurons/models/aeif/AEIFModelCPU.cpp
+        neurons/models/fitzhughnagumo/FitzHughNagumoModelBase.cpp
+        neurons/models/fitzhughnagumo/FitzHughNagumoModelCPU.cpp
+        neurons/models/izhikevich/IzhikevichModelBase.cpp
+        neurons/models/izhikevich/IzhikevichModelCPU.cpp
+        neurons/models/poisson/PoissonModelBase.cpp
+        neurons/models/poisson/PoissonModelCPU.cpp
+
+        neurons/synaptic_elements/DendritesBase.cpp
         neurons/synaptic_elements/MultiPositionAxons.cpp
-        neurons/synaptic_elements/SynapticElements.cpp
+        neurons/synaptic_elements/SynapticElementsBase.cpp
 
-        neurons/models/NeuronModel.cpp
+        neurons/models/NeuronModelCPU.cpp
 
+        cuda/network_graph/NetworkGraphGPU.cpp
+        cuda/network_graph/GPUEdges.cpp
         neurons/Neurons.cpp
-        neurons/NeuronsExtraInfo.cpp
+
+        cuda/memory/SharedBlockPool.cpp
+        cuda/memory/DeviceVecVec.cpp
 
         # sim
         sim/file/MultipleFilesSynapseLoader.cpp
@@ -79,195 +94,327 @@ target_sources(
 
         structure/Partition.cpp
 
-        util/RelearnException.cpp
-        util/StringUtil.cpp
         util/Timers.cpp
 )
 
 target_sources(
-  relearn_lib
-  PUBLIC
-    "${CMAKE_CURRENT_SOURCE_DIR}/Config.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Types.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Types2.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Types3.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Algorithm.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/AlgorithmEnum.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Algorithms.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/BarnesHutInternal/BarnesHut.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/BarnesHutInternal/BarnesHutBase.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/BarnesHutInternal/BarnesHutCell.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/BarnesHutInternal/BarnesHutInverted.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/BarnesHutInternal/BarnesHutInvertedCell.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/BarnesHutInternal/BarnesHutLocationAware.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Cells.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/CombinedAlgorithmsInternal/AlgorithmConfig.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/CombinedAlgorithmsInternal/CombinedAlgorithms.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/CombinedAlgorithmsInternal/RequestEnums.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Connector.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/FMMInternal/FastMultipoleMethod.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/FMMInternal/FastMultipoleMethodBase.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/FMMInternal/FastMultipoleMethodCell.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/FMMInternal/FastMultipoleMethodInverted.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Internal/ExchangingAlgorithm.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Internal/OctreeAlgorithm.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Internal/octree/BaseCell.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Internal/octree/Cell.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Internal/octree/NodeCache.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Internal/octree/Octree.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Internal/octree/OctreeNode.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Internal/octree/OctreeNodeHelper.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Kernel/Gamma.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Kernel/Gaussian.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Kernel/Kernel.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Kernel/KernelBase.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Kernel/KernelType.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Kernel/Linear.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Kernel/Weibull.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/NaiveInternal/Naive.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/NaiveInternal/NaiveBase.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/NaiveInternal/NaiveCell.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/VirtualPlasticityElement.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/io/AxonPositionIO.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/io/BackgroundActivityIO.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/io/CalciumIO.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/io/Event.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/io/FileValidator.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/io/InteractiveNeuronIO.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/io/LogFiles.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/io/NeuronIO.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/io/NeuronToAlgorithmIO.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/io/SynapticElementsIO.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/io/parser/ActivityInputParser.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/io/parser/IntervalParser.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/io/parser/MonitorParser.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/io/parser/NeuronIdParser.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/io/parser/StepParser.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/io/parser/StimulusParser.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/LocalGroupTranslator.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/NetworkGraph.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/Neurons.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/NeuronsExtraInfo.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/calcium/AbsoluteDecayCalciumCalculator.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/calcium/CalciumCalculator.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/calcium/RelativeDecayCalciumCalculator.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/AxonsType.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/BackgroundActivityCalculatorType.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/CalciumCalculatorType.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/FiredStatus.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/FiredStatusCommunicatorType.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/GrowthrateCalculatorType.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/NeuronModelType.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/SynapticElementType.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/SynapticInputCalculatorType.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/TargetCalciumDecay.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/UpdateStatus.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/firing/FiredStatusApproximator.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/firing/FiredStatusCommunicationMap.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/firing/FiredStatusCommunicator.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/firing/FiredStatusRecorder.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/growthrate/ConstantGrowthrateCalculator.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/growthrate/GrowthrateCalculator.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/GroupMonitor.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/CachedChoiceFunction.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/ChoiceFunction.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/DistantNeuronRequests.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/GlobalGroupMapper.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/NeuronMonitor.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/RankNeuronId.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/Synapse.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/SynapseCreationRequests.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/SynapseDeletionFinder.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/SynapseDeletionRequests.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/ActivityInput.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/CombinedActivityInput.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/ConstantActivityInput.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/FlexibleActivityInput.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/NormalActivityInput.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/ScaleActivityInput.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/StimulationActivityInput.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/SynapticActivityInput.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/SynapticEquallyWeightedActivityInput.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/SynapticIndividuallyWeightedActivityInput.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/SynapticScalingActivityInput.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/NeuronModel.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/aeif/AEIFModel.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/aeif/Calculation.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/aeif/Parameters.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/fitzhughnagumo/Calculation.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/fitzhughnagumo/FitzHughNagumoModel.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/fitzhughnagumo/Parameters.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/izhikevich/Calculation.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/izhikevich/IzhikevichModel.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/izhikevich/Parameters.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/poisson/Calculation.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/poisson/Parameters.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/poisson/PoissonModel.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/Axons.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/Dendrites.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/ElementBase.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/GrowthCurves.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/MultiPositionAxons.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/SynapticElements.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sim/Essentials.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sim/LoadedNeuron.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sim/NeuronToSubdomainAssignment.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sim/Simulation.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sim/SynapseLoader.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sim/file/AdditionalPositionInformation.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sim/file/MultipleFilesSynapseLoader.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sim/file/MultipleSubdomainsFromFile.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sim/random/BoxBasedRandomSubdomainAssignment.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sim/random/RandomSynapseLoader.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sim/random/SubdomainFromNeuronDensity.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sim/random/SubdomainFromNeuronPerRank.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/structure/Hilbert.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/structure/Morton.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/structure/Partition.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/structure/SpaceFillingCurve.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/structure/SpaceFillingCurveType.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util/Accumulate.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util/BoundingBox.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util/CalculatorUtil.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util/File.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util/MemoryHolder.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util/NeuronFilePaths.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util/NeuronID.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util/ProbabilityPicker.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util/Random.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util/RelearnAllocator.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util/RelearnException.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util/SetUtil.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util/StatisticalMeasures.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util/StringUtil.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util/Timers.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util/Vec3.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util/VectorUtil.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util/shuffle/shuffle.h"
+        relearn_lib
+        PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/Config.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Macros.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Algorithm.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/AlgorithmEnum.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Algorithms.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/BarnesHutInternal/BarnesHut.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/BarnesHutInternal/BarnesHutBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/BarnesHutInternal/BarnesHutCell.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/BarnesHutInternal/BarnesHutInverted.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/BarnesHutInternal/BarnesHutInvertedCell.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/BarnesHutInternal/BarnesHutLocationAware.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/BarnesHutInternal/BarnesHutLocationAwareModified.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/BarnesHutInternal/BarnesHutRestricted.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Cells.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/CombinedAlgorithmsInternal/AlgorithmConfig.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/CombinedAlgorithmsInternal/CombinedAlgorithms.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/CombinedAlgorithmsInternal/RequestEnums.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Connector.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/FMMInternal/FastMultipoleMethod.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/FMMInternal/FastMultipoleMethodBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/FMMInternal/FastMultipoleMethodCell.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/FMMInternal/FastMultipoleMethodInverted.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Internal/ExchangingAlgorithm.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Internal/OctreeAlgorithm.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Internal/octree/BaseCell.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Internal/octree/Cell.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Internal/octree/NodeCache.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Internal/octree/Octree.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Internal/octree/OctreeNode.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Internal/octree/OctreeNodeHelper.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Kernel/Gamma.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Kernel/Gaussian.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Kernel/Kernel.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Kernel/KernelBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Kernel/KernelType.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Kernel/Linear.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/Kernel/Weibull.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/NaiveInternal/Naive.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/NaiveInternal/NaiveBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/NaiveInternal/NaiveCell.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/VirtualPlasticityElement.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/io/AxonPositionIO.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/io/BackgroundActivityIO.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/io/CalciumIO.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/io/Event.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/io/FileValidator.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/io/InteractiveNeuronIO.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/io/LogFiles.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/io/NeuronIO.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/io/NeuronToAlgorithmIO.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/io/SynapticElementsIO.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/io/parser/ActivityInputParser.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/io/parser/IntervalParser.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/io/parser/MonitorParser.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/io/parser/NeuronIdParser.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/io/parser/StepParser.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/io/parser/StimulusParser.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/LocalGroupTranslator.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/NetworkGraph.h"
+        "cuda/network_graph/GPUEdges.h"
+        "cuda/network_graph/LayoutType.h"
+        "cuda/network_graph/NetworkGPUType.h"
+        "cuda/network_graph/NetworkGraphGPU.h"
+        "cuda/network_graph/NetworkHandle.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/Neurons.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/NeuronsExtraInfo.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/NeuronsExtraInfoBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/NeuronsExtraInfoCPU.h"
+        "cuda/neurons/NeuronsExtraInfoGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/calcium/AbsoluteDecayCalciumCalculator.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/calcium/AbsoluteDecayCalciumCalculatorBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/calcium/AbsoluteDecayCalciumCalculatorCPU.h"
+        "cuda/calcium/AbsoluteDecayCalciumCalculatorGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/calcium/CalciumCalculator.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/calcium/CalciumCalculatorBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/calcium/CalciumCalculatorCPU.h"
+        "cuda/calcium/CalciumCalculatorGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/calcium/RelativeDecayCalciumCalculator.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/calcium/RelativeDecayCalciumCalculatorBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/calcium/RelativeDecayCalciumCalculatorCPU.h"
+        "cuda/calcium/RelativeDecayCalciumCalculatorGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/AxonsType.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/BackgroundActivityCalculatorType.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/CalciumCalculatorType.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/FiredStatus.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/FiredStatusCommunicatorType.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/GrowthrateCalculatorType.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/NeuronModelType.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/SynapticElementType.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/SynapticInputCalculatorType.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/TargetCalciumDecay.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/enums/UpdateStatus.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/firing/FiredStatusApproximator.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/firing/FiredStatusCommunicationMap.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/firing/FiredStatusCommunicator.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/firing/FiredStatusRecorder.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/firing/FiredStatusRecorderBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/firing/FiredStatusRecorderCPU.h"
+        "cuda/firing/FiredStatusRecorderGPU.h"
+        "cuda/firing/FireStatusCommunicatorGPUUncompressed.h"
+        "cuda/firing/FiredStatusCommunicatorGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/growthrate/ConstantGrowthrateCalculator.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/growthrate/GrowthrateCalculator.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/GroupMonitor.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/CachedChoiceFunction.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/ChoiceFunction.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/DistantNeuronRequests.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/GlobalGroupMapper.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/NeuronMonitor.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/RankNeuronId.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/Synapse.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/SynapseCreationRequests.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/SynapseDeletionFinder.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/SynapseDeletionFinderBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/SynapseDeletionFinderCPU.h"
+        "cuda/deletion/SynapseDeletionFinderGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/SynapseCreationResponse.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/helper/SynapseDeletionRequests.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/ActivityInput.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/ActivityInputBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/ActivityInputCPU.h"
+        "cuda/input/ActivityInputGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/CombinedActivityInput.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/CombinedActivityInputBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/CombinedActivityInputCPU.h"
+        "cuda/input/CombinedActivityInputGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/ConstantActivityInput.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/ConstantActivityInputBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/ConstantActivityInputCPU.h"
+        "cuda/input/ConstantActivityInputGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/FlexibleActivityInput.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/FlexibleActivityInputBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/FlexibleActivityInputCPU.h"
+        "cuda/input/FlexibleActivityInputGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/NormalActivityInput.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/NormalActivityInputBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/NormalActivityInputCPU.h"
+        "cuda/input/NormalActivityInputGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/ScaleActivityInput.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/ScaleActivityInputBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/ScaleActivityInputCPU.h"
+        "cuda/input/ScaleActivityInputGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/StimulationActivityInput.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/StimulationActivityInputBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/StimulationActivityInputCPU.h"
+        "cuda/input/StimulationActivityInputGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/SynapticActivityInput.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/SynapticActivityInputBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/SynapticActivityInputCPU.h"
+        "cuda/input/SynapticActivityInputGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/SynapticEquallyWeightedActivityInput.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/SynapticEquallyWeightedActivityInputBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/SynapticEquallyWeightedActivityInputCPU.h"
+        "cuda/input/SynapticEquallyWeightedActivityInputGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/SynapticIndividuallyWeightedActivityInput.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/SynapticIndividuallyWeightedActivityInputBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/SynapticIndividuallyWeightedActivityInputCPU.h"
+        "cuda/input/SynapticIndividuallyWeightedActivityInputGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/SynapticScalingActivityInput.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/SynapticScalingActivityInputBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/input/SynapticScalingActivityInputCPU.h"
+        "cuda/input/SynapticScalingActivityInputGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/NeuronModel.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/NeuronModelBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/NeuronModelCPU.h"
+        "cuda/neuron_model/NeuronModelGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/aeif/AEIFModel.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/aeif/AEIFModelBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/aeif/AEIFModelCPU.h"
+        "cuda/neuron_model/aeif/AEIFModelGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/aeif/Calculation.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/aeif/Parameters.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/fitzhughnagumo/Calculation.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/fitzhughnagumo/FitzHughNagumoModel.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/fitzhughnagumo/FitzHughNagumoModelBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/fitzhughnagumo/FitzHughNagumoModelCPU.h"
+        "cuda/neuron_model/fitzhughnagumo/FitzHughNagumoModelGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/fitzhughnagumo/Parameters.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/izhikevich/Calculation.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/izhikevich/IzhikevichModel.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/izhikevich/IzhikevichModelBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/izhikevich/IzhikevichModelCPU.h"
+        "cuda/neuron_model/izhikevich/IzhikevichModelGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/izhikevich/Parameters.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/poisson/Calculation.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/poisson/Parameters.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/poisson/PoissonModel.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/poisson/PoissonModelBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/models/poisson/PoissonModelCPU.h"
+        "cuda/neuron_model/poisson/PoissonModelGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/Axons.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/AxonsBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/AxonsCPU.h"
+        "cuda/synaptic_elements/AxonsGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/Dendrites.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/DendritesBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/DendritesCPU.h"
+        "cuda/synaptic_elements/DendritesGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/ElementBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/ElementBaseBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/ElementBaseCPU.h"
+        "cuda/synaptic_elements/ElementBaseGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/GrowthCurves.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/MultiPositionAxons.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/SynapticElements.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/SynapticElementsBase.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/neurons/synaptic_elements/SynapticElementsCPU.h"
+        "cuda/synaptic_elements/SynapticElementsGPU.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/sim/Essentials.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/sim/LoadedNeuron.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/sim/NeuronToSubdomainAssignment.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/sim/Simulation.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/sim/SynapseLoader.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/sim/file/AdditionalPositionInformation.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/sim/file/MultipleFilesSynapseLoader.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/sim/file/MultipleSubdomainsFromFile.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/sim/random/BoxBasedRandomSubdomainAssignment.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/sim/random/RandomSynapseLoader.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/sim/random/SubdomainFromNeuronDensity.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/sim/random/SubdomainFromNeuronPerRank.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/structure/Hilbert.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/structure/Morton.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/structure/Partition.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/structure/SpaceFillingCurve.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/structure/SpaceFillingCurveType.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/types/AlgorithmTypes.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/types/BasicTypes.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/types/CalciumTypes.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/types/CommunicationTypes.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/types/SpaceTypes.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/types/StimulusTypes.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/types/SynapseTypes.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/types/SynapticElementsTypes.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/util/Accumulate.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/util/BoundingBox.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/util/File.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/util/MemoryHolder.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/util/NeuronFilePaths.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/util/NeuronID.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/util/NeuronIDRange.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/util/OMPHelper.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/util/ProbabilityPicker.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/util/Random.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/util/RandomHolderKey.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/util/RelearnAllocator.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/util/RelearnException.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/util/StatisticalMeasures.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/util/Timers.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/util/Vec3.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/util/shuffle/shuffle.h"
 )
 
 set_target_properties(relearn_lib PROPERTIES ENABLE_EXPORTS 1)
 target_link_libraries(relearn_lib PUBLIC project_options project_libraries
-                                         project_warnings)
+        project_warnings)
 set_target_properties(relearn_lib PROPERTIES CXX_STANDARD 20)
 target_compile_definitions(relearn_lib PRIVATE RELEARN_LIB)
-target_include_directories(relearn_lib PRIVATE "${CMAKE_SOURCE_DIR}/source")
+target_include_directories(relearn_lib PRIVATE "${PROJECT_SOURCE_DIR}/source" "${CMAKE_SOURCE_DIR}/source/cuda")
 
 # Required for the ActivityInputParser to be created during compile-time (ctpg
 # library) Source:
 # https://github.com/peter-winter/ctpg/blob/master/examples/CMakeLists.txt
-if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-  target_compile_options(relearn_lib PRIVATE -fconstexpr-steps=100000000)
-elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  target_compile_options(relearn_lib PRIVATE -fconstexpr-ops-limit=100000000)
-elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-  target_compile_options(relearn_lib PRIVATE /EHsc /constexpr:steps100000000)
-endif()
+if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(relearn_lib PRIVATE -fconstexpr-steps=100000000)
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(relearn_lib PRIVATE -fconstexpr-ops-limit=100000000)
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    target_compile_options(relearn_lib PRIVATE /EHsc /constexpr:steps100000000)
+endif ()
 
 get_target_property(relearn_lib_sources relearn_lib SOURCES)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${relearn_lib_sources})
 get_target_property(relearn_lib_headers relearn_lib HEADERS)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${relearn_lib_headers})
+
+# SynapticActivityInputCPU/NormalActivityInputCPU derive (via their own Base) from the
+# ActivityInput alias -- they only override the right (CPU-shaped) virtuals when ActivityInput
+# itself resolves to ActivityInputCPU, so unlike the other *CPU.cpp files below, these two
+# can't be compiled unconditionally.
+# SynapticElementsCPU.cpp has the same problem one level removed: it calls axons->commit_updates()/
+# dendrites->commit_updates(signal_type), and Axons/Dendrites are themselves aliases -- those calls
+# only match the CPU-shaped (stream-less) overloads when Axons/Dendrites resolve to AxonsCPU/DendritesCPU.
+# Listed here (rather than inline in the else() branch below) so the same list can also be passed
+# as IGNORE to verify_source_files_in_targets() -- these are legitimately absent from relearn_lib's
+# SOURCES in a CUDA build, not orphaned.
+set(relearn_lib_cpu_only_sources
+        neurons/input/FlexibleActivityInputCPU.cpp
+        neurons/input/NormalActivityInputCPU.cpp
+        neurons/input/SynapticActivityInputCPU.cpp
+        neurons/input/SynapticEquallyWeightedActivityInputCPU.cpp
+        neurons/input/SynapticIndividuallyWeightedActivityInputCPU.cpp
+        neurons/input/SynapticScalingActivityInputCPU.cpp
+        neurons/synaptic_elements/SynapticElementsCPU.cpp)
+
+if (RELEARN_CUDA_ENABLED)
+    target_sources(relearn_lib PRIVATE
+            cuda/calcium/AbsoluteDecayCalciumCalculatorGPU.cpp
+            cuda/calcium/CalciumCalculatorGPU.cpp
+            cuda/calcium/RelativeDecayCalciumCalculatorGPU.cpp
+            cuda/firing/FiredStatusRecorderGPU.cpp
+            cuda/deletion/SynapseDeletionFinderGPU.cpp
+            cuda/input/NormalActivityInputGPU.cpp
+            cuda/input/SynapticActivityInputGPU.cpp
+            cuda/input/SynapticEquallyWeightedActivityInputGPU.cpp
+            cuda/neuron_model/aeif/AEIFModelGPU.cpp
+            cuda/neuron_model/fitzhughnagumo/FitzHughNagumoModelGPU.cpp
+            cuda/neuron_model/izhikevich/IzhikevichModelGPU.cpp
+            cuda/neuron_model/poisson/PoissonModelGPU.cpp
+            cuda/neuron_model/NeuronModelGPU.cpp
+            cuda/synaptic_elements/SynapticElementsGPU.cpp)
+    add_subdirectory(cuda)
+    target_link_libraries(relearn_lib PUBLIC project_options relearn_gpu)
+else ()
+    target_sources(relearn_lib PRIVATE ${relearn_lib_cpu_only_sources})
+endif ()
 
 # benchmark# dont clutter the compile_commands file with libraries
 set(CMAKE_EXPORT_COMPILE_COMMANDS OFF)
@@ -275,7 +422,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS OFF)
 FetchContent_Declare(
         cli11
         GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
-        GIT_TAG 4160d259d961cd393fd8d67590a8c7d210207348
+        GIT_TAG v2.6.2
 )
 FetchContent_MakeAvailable(cli11)
 
@@ -293,10 +440,27 @@ target_link_libraries(relearn PRIVATE CLI11::CLI11)
 set_target_properties(relearn PROPERTIES ENABLE_EXPORTS 1)
 set_target_properties(relearn PROPERTIES CXX_STANDARD 20)
 
-target_include_directories(relearn PRIVATE "${CMAKE_SOURCE_DIR}/source")
+target_include_directories(relearn PRIVATE "${PROJECT_SOURCE_DIR}/source" "${CMAKE_SOURCE_DIR}/source/cuda")
 get_target_property(relearn_sources relearn SOURCES)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${relearn_sources})
 get_target_property(relearn_headers relearn HEADERS)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${relearn_headers})
 
-verify_source_files_in_targets(TARGETS relearn_lib relearn DIR ${CMAKE_CURRENT_SOURCE_DIR})
+add_executable(relearn_analysis ${SRC_ANALYSIS})
+target_sources(relearn_analysis
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/relearn_analysis.cpp)
+target_link_libraries(relearn_analysis PRIVATE relearn_lib)
+target_link_libraries(relearn_analysis PRIVATE CLI11::CLI11)
+target_link_libraries(relearn_analysis PUBLIC project_options project_libraries)
+set_target_properties(relearn_analysis PROPERTIES CXX_STANDARD 20)
+set_target_properties(relearn_analysis PROPERTIES ENABLE_EXPORTS 1)
+
+get_target_property(relearn_analysis_sources relearn_analysis SOURCES)
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${relearn_analysis_sources})
+get_target_property(relearn_analysis_headers relearn_analysis HEADERS)
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${relearn_analysis_headers})
+
+verify_source_files_in_targets(
+        TARGETS relearn_lib relearn relearn_analysis
+        DIR ${CMAKE_CURRENT_SOURCE_DIR}
+        IGNORE ${relearn_lib_cpu_only_sources})

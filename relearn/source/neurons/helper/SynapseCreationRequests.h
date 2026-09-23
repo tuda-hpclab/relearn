@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,6 +11,7 @@
  */
 
 #include "neurons/enums/SynapticElementType.h"
+#include "neurons/helper/SynapseCreationResponse.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
 
@@ -110,8 +111,8 @@ public:
     }
 
 private:
-    NeuronID target{};
-    NeuronID source{};
+    NeuronID target;
+    NeuronID source;
     SignalType signal_type{};
 };
 
@@ -137,11 +138,3 @@ struct tuple_element<2, typename ::SynapseCreationRequest> {
 };
 
 } // namespace std
-
-/**
- * The response for a SynapseCreationRequest can be that it failed or succeeded
- */
-enum class SynapseCreationResponse : char {
-    Failed = 0,
-    Succeeded = 1,
-};

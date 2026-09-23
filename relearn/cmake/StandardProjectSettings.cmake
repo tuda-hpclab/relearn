@@ -41,17 +41,16 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
     # using Intel C++
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     # using Visual Studio C++
-    add_compile_options(/MP)
-    add_compile_options(/bigobj)
+    add_compile_options(
+	  "$<$<COMPILE_LANGUAGE:CXX>:/MP;/bigobj>"
+	)
 endif()
 
 # Generate compile_commands.json to make it easier to work with clang based
 # tools
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-if (CMAKE_CXX_COMPILER_ID MATCHES ".*Clang")
-    add_compile_options(-fcolor-diagnostics)
-elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     add_compile_options(-fdiagnostics-color=always)
 else ()
     message(

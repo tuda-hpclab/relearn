@@ -3,19 +3,19 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-#include "Types2.h"
-
+#include "cuda/CudaConfig.h"
+#include "io/BackgroundActivityIO.h"
 #include "neurons/input/ActivityInput.h"
 #include "neurons/input/ConstantActivityInput.h"
 #include "neurons/input/NormalActivityInput.h"
+#include "types/StimulusTypes.h"
 
 #include <functional>
 #include <memory>
@@ -26,21 +26,30 @@ class FiredStatusCommunicator;
 class NetworkGraph;
 
 struct ActivityInputParseContext {
-    using scaling_function_type = std::function<double(double)>;
+    using activity_type = RelearnTypes::activity_type;
+    using scaling_function_type = std::function<activity_type(activity_type)>;
 
-    double background_base = ConstantActivityInput::default_constant_activity;
-    double background_mean = NormalActivityInput::default_mean_activity;
-    double background_stddev = NormalActivityInput::default_stddev_activity;
+    activity_type background_base = ConstantActivityInput::default_constant_activity;
+    activity_type background_mean = NormalActivityInput::default_mean_activity;
+    activity_type background_stddev = NormalActivityInput::default_stddev_activity;
 
     std::shared_ptr<FiredStatusCommunicator> communicator;
 
+    double synapse_conductance{};
+#ifdef RELEARN_CUDA_ENABLED
+    CudaConfig::scaling_function_enum linear;
+    CudaConfig::scaling_function_enum logarithmic;
+    CudaConfig::scaling_function_enum hyperbolic_tangent;
+    double input_scale;
+#else
     scaling_function_type linear;
     scaling_function_type logarithmic;
     scaling_function_type hyperbolic_tangent;
+#endif
 
-    std::function<RelearnTypes::stimuli_function_type()> load_stimulus;
+    std::function<RelearnTypes::stimuli_function_type()> load_stimulus{};
 
-    std::function<std::pair<std::vector<std::shared_ptr<ActivityInput>>, std::unique_ptr<ChoiceFunction>>()> flexible_background;
+    std::function<LoadedBackgroundActivity()> flexible_background;
 };
 
 /**
@@ -53,16 +62,16 @@ struct ActivityInputParseContext {
  *          Values inside the parsing context come from the CLI arguments passed to relearn and are the defaults otherwise.
  *          The DSL has the following structure (quotes " are  for illustrative purposes only):
  *
- *          activity -> const(double constant)
- *          activity -> normal(double mean, double stddev)
- *          activity -> fastnormal(double mean, double stddev, std::size_t multiplier)
+ *          activity -> const(activity_type constant)
+ *          activity -> normal(activity_type mean, activity_type stddev)
+ *          activity -> fastnormal(activity_type mean, activity_type stddev, std::size_t multiplier)
  *          activity -> combined(activity, activities ...)
  *          activity -> synaptic
  *          activity -> scale(activity, scaling_function fun)
  *          activity -> stimulated
  *
  *          scaling_function -> "linear" | "logarithmic" | "hyperbolic_tangent"
- *          double -> "background_base" | "background_mean" | "background_stddev" | literal
+ *          activity_type -> "background_base" | "background_mean" | "background_stddev" | literal
  *          std::size_t -> literal
  *
  * @param input expression to parse

@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -14,14 +14,14 @@
 #include "neurons/helper/DistantNeuronRequests.h"
 #include "util/RelearnException.h"
 
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
-
 #include "factory/neuron_id/neuron_id_factory.h"
 #include "factory/neuron_types/neuron_types_factory.h"
 #include "factory/simulation/simulation_factory.h"
 
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <iostream>
 

@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -15,16 +15,17 @@
 #include "util/Accumulate.h"
 #include "util/File.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnException.h"
 #include "util/shuffle/shuffle.h"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "factory/neuron_id/neuron_id_factory.h"
 #include "factory/random/random_factory.h"
 
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/concat.hpp>
@@ -89,7 +90,7 @@ TEST_F(MiscTest, testMinMaxAccSizeAllDisabled) {
     const auto extra_infos = std::make_shared<NeuronsExtraInfo>();
     extra_infos->init(num_neurons);
 
-    const auto disabled_neurons = NeuronID::range(num_neurons) | ranges::to_vector;
+    const auto disabled_neurons = NeuronIDRange::range(num_neurons) | ranges::to_vector;
     extra_infos->set_disabled_neurons(disabled_neurons);
 
     ASSERT_THROW_NO_PRINT(std::ignore = Util::min_max_acc(std::span<const double>{ { 4.0, 1.2, 5.2 } }, extra_infos->get_disable_flags()), RelearnException);
@@ -145,7 +146,7 @@ TEST_F(MiscTest, testMinMaxAccDouble) {
 
     auto disabled_neurons = std::vector<NeuronID>{};
     auto static_neurons = std::vector<NeuronID>{};
-    for (const auto& neuron_id : NeuronID::range(number_values)) {
+    for (const auto& neuron_id : NeuronIDRange::range(number_values)) {
         const auto& us = update_status[neuron_id.get_neuron_id()];
         if (us == UpdateStatus::Static) {
             static_neurons.push_back(neuron_id);
@@ -165,7 +166,7 @@ TEST_F(MiscTest, testMinMaxAccDouble) {
     auto sum = 0.0;
 
     for (auto i : ranges::views::indices(number_values)) {
-        const auto random_value = RandomFactory::get_random_double<double>(-100000.0, 100000.0, mt);
+        const auto random_value = RandomFactory::get_random_double(-100000.0, 100000.0, mt);
 
         if (update_status[i] == UpdateStatus::Enabled) {
             min = std::min(min, random_value);
@@ -229,7 +230,7 @@ TEST_F(MiscTest, testMinMaxAccSizet) {
 
     auto disabled_neurons = std::vector<NeuronID>{};
     auto static_neurons = std::vector<NeuronID>{};
-    for (const auto& neuron_id : NeuronID::range(number_values)) {
+    for (const auto& neuron_id : NeuronIDRange::range(number_values)) {
         const auto& us = update_status[neuron_id.get_neuron_id()];
         if (us == UpdateStatus::Static) {
             static_neurons.push_back(neuron_id);
@@ -267,6 +268,24 @@ TEST_F(MiscTest, testFindFileForRank) {
     const auto* const expected_path2 = "./test0.txt";
     const auto* const expected_path3 = "./0";
     const auto* const expected_path4 = "./step_100000_rank_19201.txt";
+
+    // These names are also asserted to NOT be found one directory up (see the ".." checks below).
+    // A previous run of this very test, executed with a shallower working directory, can leave
+    // stray copies behind that then sit in what is now this run's parent directory -- delete any
+    // such leftovers up front so this test is self-cleaning instead of depending on the ambient
+    // working tree being pristine.
+    for (const auto* const name : { "hello002.txt", "test0.txt", "0", "step_100000_rank_19201.txt" }) {
+        std::filesystem::remove(std::filesystem::path(".") / name);
+        std::filesystem::remove(std::filesystem::path("..") / name);
+    }
+
+    struct CleanupGuard {
+        ~CleanupGuard() {
+            for (const auto* const name : { "hello002.txt", "test0.txt", "0", "step_100000_rank_19201.txt" }) {
+                std::filesystem::remove(std::filesystem::path(".") / name);
+            }
+        }
+    } cleanup_guard{};
 
     write_to_file(expected_path1);
     write_to_file(expected_path2);

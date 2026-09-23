@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -10,19 +10,15 @@
 
 #include "test_connector.h"
 
-#include "Types3.h"
-
 #include "algorithm/Connector.h"
 #include "neurons/enums/SynapticElementType.h"
 #include "neurons/helper/SynapseCreationRequests.h"
 #include "neurons/synaptic_elements/SynapticElements.h"
+#include "types/CommunicationTypes.h"
+#include "types/SynapseTypes.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnException.h"
-
-#include "cpp-utility/data/vectorify.hpp"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "adapter/synaptic_elements/SynapticElementsAdapter.h"
 
@@ -31,7 +27,13 @@
 #include "factory/neuron_id/neuron_id_factory.h"
 #include "factory/synaptic_elements/synaptic_elements_factory.h"
 
+#include <cpp-utility/data/vectorify.hpp>
+
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
+#include <mpi-wrapper/core/MPIRankRange.h>
 
 #include <range/v3/algorithm/sort.hpp>
 #include <range/v3/view/indices.hpp>
@@ -106,7 +108,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessRequestsEmptyMap) {
 
     const auto incoming_requests = RelearnTypes::comm_map_creation<SynapseCreationRequest>{ number_ranks };
 
-    const auto [responses, synapses] = ForwardConnector::process_requests(incoming_requests, synaptic_elements);
+    const auto [responses, created_synapses, synapses] = ForwardConnector::process_requests(incoming_requests, synaptic_elements);
     const auto [local_synapses, distant_in_synapses] = synapses;
 
     ASSERT_EQ(responses.size(), incoming_requests.size());
@@ -124,7 +126,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessRequestsEmptyMap) {
     const auto& now_grown_inhibitory = synaptic_elements->get_grown_elements(SynapticElementType::DendriteInhibitory);
     const auto& now_deltas_inhibitory = synaptic_elements->get_deltas(SynapticElementType::DendriteInhibitory);
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         ASSERT_EQ(previous_connected_excitatory[neuron_id], now_connected_excitatory[neuron_id]);
         ASSERT_EQ(previous_grown_excitatory[neuron_id], now_grown_excitatory[neuron_id]);
         ASSERT_EQ(previous_deltas_excitatory[neuron_id], now_deltas_excitatory[neuron_id]);
@@ -162,11 +164,11 @@ TEST_F(ConnectorTest, testForwardConnectorProcessRequestsMatchingRequests) {
     const auto vacant_excitatory_dendrites = synaptic_elements->get_vacant_elements(SynapticElementType::DendriteExcitatory);
     const auto vacant_inhibitory_dendrites = synaptic_elements->get_vacant_elements(SynapticElementType::DendriteInhibitory);
 
-    for (const auto& id : NeuronID::range(number_neurons)) {
+    for (const auto& id : NeuronIDRange::range(number_neurons)) {
         const auto number_vacant_excitatory = vacant_excitatory_dendrites[id.get_neuron_id()];
         number_excitatory_requests += number_vacant_excitatory;
 
-        for (const auto neuron_id : NeuronID::range(number_vacant_excitatory)) {
+        for (const auto neuron_id : NeuronIDRange::range(number_vacant_excitatory)) {
             const auto scr = SynapseCreationRequest(id, neuron_id, SignalType::Excitatory);
             incoming_requests.append(mpiPP::MPIRank(1), scr);
 
@@ -176,7 +178,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessRequestsMatchingRequests) {
         const auto number_vacant_inhibitory = vacant_inhibitory_dendrites[id.get_neuron_id()];
         number_inhibitory_requests += number_vacant_inhibitory;
 
-        for (const auto neuron_id : NeuronID::range(number_vacant_inhibitory)) {
+        for (const auto neuron_id : NeuronIDRange::range(number_vacant_inhibitory)) {
             const auto scr = SynapseCreationRequest(id, neuron_id, SignalType::Inhibitory);
             incoming_requests.append(mpiPP::MPIRank(1), scr);
 
@@ -184,7 +186,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessRequestsMatchingRequests) {
         }
     }
 
-    const auto [responses, synapses] = ForwardConnector::process_requests(incoming_requests, synaptic_elements);
+    const auto [responses, created_synapses, synapses] = ForwardConnector::process_requests(incoming_requests, synaptic_elements);
     const auto [local_synapses, distant_in_synapses] = synapses;
 
     ASSERT_EQ(incoming_requests.size(), responses.size());
@@ -210,7 +212,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessRequestsMatchingRequests) {
     ASSERT_EQ(local_synapses.size(), 0);
     ASSERT_EQ(distant_in_synapses.size(), number_excitatory_requests + number_inhibitory_requests);
 
-    for (const auto& id : NeuronID::range(number_neurons)) {
+    for (const auto& id : NeuronIDRange::range(number_neurons)) {
         const auto number_vacant_excitatory = vacant_excitatory_dendrites[id.get_neuron_id()];
         ASSERT_EQ(number_vacant_excitatory, 0);
 
@@ -259,7 +261,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessRequestsSelfRequests) {
     const auto vacant_excitatory_dendrites = synaptic_elements->get_vacant_elements(SynapticElementType::DendriteExcitatory);
     const auto vacant_inhibitory_dendrites = synaptic_elements->get_vacant_elements(SynapticElementType::DendriteInhibitory);
 
-    for (const auto& id : NeuronID::range(number_neurons)) {
+    for (const auto& id : NeuronIDRange::range(number_neurons)) {
         const auto number_vacant_excitatory = vacant_excitatory_dendrites[id.get_neuron_id()];
 
         for (auto i = 0U; i < number_vacant_excitatory; i++) {
@@ -279,7 +281,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessRequestsSelfRequests) {
         }
     }
 
-    const auto [responses, synapses] = ForwardConnector::process_requests(incoming_requests, synaptic_elements);
+    auto [responses, created_synapses, synapses] = ForwardConnector::process_requests(incoming_requests, synaptic_elements);
     const auto [local_synapses, distant_in_synapses] = synapses;
 
     ASSERT_EQ(incoming_requests.size(), responses.size());
@@ -348,9 +350,9 @@ TEST_F(ConnectorTest, testForwardConnectorProcessRequestsIncoming) {
     const auto previous_grown_inhibitory = utility::vectorify_span(synaptic_elements->get_grown_elements(SynapticElementType::DendriteInhibitory));
 
     const auto& [incoming_requests, number_excitatory_requests, number_inhibitory_requests]
-        = ConnectorFactory::create_incoming_requests(static_cast<std::size_t>(number_ranks), 0, number_neurons, 0, 9, mt);
+        = ConnectorFactory::create_incoming_requests(number_ranks, 0, number_neurons, 0, 9, mt);
 
-    const auto [responses, synapses] = ForwardConnector::process_requests(incoming_requests, synaptic_elements);
+    const auto [responses, created_synapses, synapses] = ForwardConnector::process_requests(incoming_requests, synaptic_elements);
     auto [local_synapses, distant_in_synapses] = synapses;
 
     // There are as many requests as responses
@@ -378,7 +380,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessRequestsIncoming) {
     auto newly_connected_inhibitory_dendrites = std::vector<unsigned int>(number_neurons, 0);
 
     // The grown elements did not change. There are now not less connected then before, and not more than grown
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         ASSERT_EQ(previous_grown_excitatory[neuron_id], now_grown_excitatory[neuron_id]) << neuron_id;
         ASSERT_EQ(previous_grown_inhibitory[neuron_id], now_grown_inhibitory[neuron_id]) << neuron_id;
 
@@ -396,7 +398,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessRequestsIncoming) {
     const auto vacant_inhibitory_dendrites = synaptic_elements->get_vacant_elements(SynapticElementType::DendriteInhibitory);
 
     // If there are still vacant elements, then all requests are connected
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         const auto vacant_excitatory_elements = vacant_excitatory_dendrites[neuron_id.get_neuron_id()];
         if (vacant_excitatory_elements > 0) {
             ASSERT_EQ(newly_connected_excitatory_dendrites[neuron_id.get_neuron_id()], number_excitatory_requests[neuron_id.get_neuron_id()]) << neuron_id;
@@ -417,7 +419,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessRequestsIncoming) {
     const auto my_rank = mpiPP::MPIInfo::get_my_rank();
 
     // Extract things from the return value
-    for (const auto rank : mpiPP::MPIRank::range(number_ranks)) {
+    for (const auto rank : mpiPP::MPIRankRange::range(number_ranks)) {
         const auto found_in_requests = request_sizes.contains(rank);
         if (!found_in_requests) {
             continue;
@@ -478,7 +480,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessRequestsIncoming) {
         ASSERT_EQ(weight_1, weight_2) << neuron_id;
     }
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         ASSERT_EQ(accepted_excitatory_requests[neuron_id], newly_connected_excitatory_dendrites[neuron_id]) << neuron_id;
         ASSERT_EQ(accepted_inhibitory_requests[neuron_id], newly_connected_inhibitory_dendrites[neuron_id]) << neuron_id;
     }
@@ -542,7 +544,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessResponsesDifferentSizes) {
 
     const auto vacant_axons = synaptic_elements->get_vacant_elements(SynapticElementType::Axon);
 
-    for (const auto id : NeuronID::range(number_neurons)) {
+    for (const auto id : NeuronIDRange::range(number_neurons)) {
         const auto signal_type = signal_types[id.get_neuron_id()];
         const auto free_elements = vacant_axons[id.get_neuron_id()];
 
@@ -594,7 +596,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessResponsesAllException) {
 
     const auto vacant_axons = synaptic_elements->get_vacant_elements(SynapticElementType::Axon);
 
-    for (const auto id : NeuronID::range(number_neurons)) {
+    for (const auto id : NeuronIDRange::range(number_neurons)) {
         const auto signal_type = signal_types[id.get_neuron_id()];
         const auto free_elements = vacant_axons[id.get_neuron_id()];
 
@@ -649,7 +651,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessResponsesAllSuccessful) {
 
     const auto vacant_axons = synaptic_elements->get_vacant_elements(SynapticElementType::Axon);
 
-    for (const auto id : NeuronID::range(number_neurons)) {
+    for (const auto id : NeuronIDRange::range(number_neurons)) {
         const auto signal_type = signal_types[id.get_neuron_id()];
         const auto free_elements = vacant_axons[id.get_neuron_id()];
 
@@ -673,7 +675,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessResponsesAllSuccessful) {
     ASSERT_EQ(previous_grown_axon, now_grown_axon);
 
     const auto deltas = synaptic_elements->get_deltas(SynapticElementType::Axon);
-    for (const auto id : NeuronID::range(number_neurons)) {
+    for (const auto id : NeuronIDRange::range(number_neurons)) {
         ASSERT_LT(deltas[id.get_neuron_id()], 1.0);
     }
 
@@ -691,7 +693,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessResponsesAllSuccessful) {
         }
     }
 
-    for (const auto id : NeuronID::range(number_neurons)) {
+    for (const auto id : NeuronIDRange::range(number_neurons)) {
         ASSERT_EQ(synaptic_elements->get_connected_elements(SynapticElementType::Axon)[id.get_neuron_id()], map[id] + previous_connected_axon[id.get_neuron_id()]);
     }
 }
@@ -722,7 +724,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessResponsesAllLocal) {
 
     const auto vacant_axons = synaptic_elements->get_vacant_elements(SynapticElementType::Axon);
 
-    for (const auto id : NeuronID::range(number_neurons)) {
+    for (const auto id : NeuronIDRange::range(number_neurons)) {
         const auto signal_type = signal_types[id.get_neuron_id()];
         const auto free_elements = vacant_axons[id.get_neuron_id()];
 
@@ -745,7 +747,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessResponsesAllLocal) {
     ASSERT_EQ(previous_grown_axon, now_grown_axon);
 
     const auto deltas = synaptic_elements->get_deltas(SynapticElementType::Axon);
-    for (const auto id : NeuronID::range(number_neurons)) {
+    for (const auto id : NeuronIDRange::range(number_neurons)) {
         ASSERT_LT(deltas[id.get_neuron_id()], 1.0);
     }
 }
@@ -813,7 +815,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessResponsesTooLargeIds) {
 
     const auto vacant_axons = synaptic_elements->get_vacant_elements(SynapticElementType::Axon);
 
-    for (const auto id : NeuronID::range(number_neurons)) {
+    for (const auto id : NeuronIDRange::range(number_neurons)) {
         const auto signal_type = signal_types[id.get_neuron_id()];
         const auto free_elements = vacant_axons[id.get_neuron_id()];
 
@@ -858,7 +860,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessResponsesDoubleException) {
 
     const auto vacant_axons = synaptic_elements->get_vacant_elements(SynapticElementType::Axon);
 
-    for (const auto id : NeuronID::range(number_neurons)) {
+    for (const auto id : NeuronIDRange::range(number_neurons)) {
         const auto signal_type = signal_types[id.get_neuron_id()];
         const auto free_elements = vacant_axons[id.get_neuron_id()];
 
@@ -905,7 +907,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessResponsesIgnoreException) {
 
     const auto vacant_axons = synaptic_elements->get_vacant_elements(SynapticElementType::Axon);
 
-    for (const auto id : NeuronID::range(number_neurons)) {
+    for (const auto id : NeuronIDRange::range(number_neurons)) {
         const auto signal_type = signal_types[id.get_neuron_id()];
         const auto free_elements = vacant_axons[id.get_neuron_id()];
 
@@ -933,7 +935,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessResponsesIgnoreException) {
     ASSERT_EQ(previous_grown_axon, now_grown_axon);
 
     const auto deltas = synaptic_elements->get_deltas(SynapticElementType::Axon);
-    for (const auto id : NeuronID::range(number_neurons)) {
+    for (const auto id : NeuronIDRange::range(number_neurons)) {
         ASSERT_LT(deltas[id.get_neuron_id()], 1.0);
     }
 
@@ -952,7 +954,7 @@ TEST_F(ConnectorTest, testForwardConnectorProcessResponsesIgnoreException) {
         }
     }
 
-    for (const auto id : NeuronID::range(number_neurons)) {
+    for (const auto id : NeuronIDRange::range(number_neurons)) {
         ASSERT_EQ(now_connected_axon[id.get_neuron_id()], map[id] + previous_connected_axon[id.get_neuron_id()]);
     }
 }
@@ -997,7 +999,7 @@ TEST_F(ConnectorTest, testBackwardConnectorProcessRequestsEmptyMap) {
 
     const auto incoming_requests = RelearnTypes::comm_map_creation<SynapseCreationRequest>{ number_ranks };
 
-    const auto [responses, synapses] = BackwardConnector::process_requests(incoming_requests, synaptic_elements);
+    auto [responses, created_synapses, synapses] = BackwardConnector::process_requests(incoming_requests, synaptic_elements);
     const auto [local_synapses, distant_in_synapses] = synapses;
 
     ASSERT_EQ(responses.size(), incoming_requests.size());
@@ -1044,7 +1046,7 @@ TEST_F(ConnectorTest, testBackwardConnectorProcessRequestsMatchingRequests) {
 
     const auto vacant_axons = synaptic_elements->get_vacant_elements(SynapticElementType::Axon);
 
-    for (const auto& id : NeuronID::range(number_neurons)) {
+    for (const auto& id : NeuronIDRange::range(number_neurons)) {
         const auto number_vacant_elements = vacant_axons[id.get_neuron_id()];
 
         const auto number_vacant_excitatory = signal_types[id.get_neuron_id()] == SignalType::Excitatory ? number_vacant_elements : 0;
@@ -1068,7 +1070,7 @@ TEST_F(ConnectorTest, testBackwardConnectorProcessRequestsMatchingRequests) {
         }
     }
 
-    const auto [responses, synapses] = BackwardConnector::process_requests(incoming_requests, synaptic_elements);
+    auto [responses, created_synapses, synapses] = BackwardConnector::process_requests(incoming_requests, synaptic_elements);
     const auto [local_synapses, distant_in_synapses] = synapses;
 
     ASSERT_EQ(incoming_requests.size(), responses.size());
@@ -1094,7 +1096,7 @@ TEST_F(ConnectorTest, testBackwardConnectorProcessRequestsMatchingRequests) {
     ASSERT_EQ(local_synapses.size(), 0);
     ASSERT_EQ(distant_in_synapses.size(), number_excitatory_requests + number_inhibitory_requests);
 
-    for (const auto& id : NeuronID::range(number_neurons)) {
+    for (const auto& id : NeuronIDRange::range(number_neurons)) {
         const auto number_vacant_axons = vacant_axons[id.get_neuron_id()];
         ASSERT_EQ(number_vacant_axons, 0);
     }

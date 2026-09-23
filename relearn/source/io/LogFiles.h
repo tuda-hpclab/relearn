@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2020-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -12,11 +12,23 @@
 
 #include "util/RelearnException.h"
 
-#include "mpi-wrapper/MPIRank.h"
+#include <fmt/format.h>
 
-#include <fmt/core.h>
+#include <mpi-wrapper/core/MPIRank.h>
+
+// spdlog v1.17.0's logger::log() internally converts a format_string through fmt's
+// now-deprecated basic_string_view conversion operator (fixed upstream in later spdlog
+// releases, not yet in this pinned version) -- suppress at the vendored template's
+// definition site rather than at every call site.
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif
 #include <spdlog/logger.h>
 #include <spdlog/spdlog.h>
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 #include <cstdint>
 #include <filesystem>
@@ -66,6 +78,8 @@ public:
         Groups,
         GroupToFileMapping,
         Events,
+        MemoryFootprint,
+        UsageFootprint,
     };
 
     /**
@@ -144,6 +158,12 @@ public:
         return log_disable[type];
     }
 
+    static void flush_all() {
+        for (const auto& [type, logger] : log_files) {
+            logger->flush();
+        }
+    }
+
     /**
      * @brief Flushes the associated file if it exists
      * @param type The event type which should be flushed
@@ -214,7 +234,7 @@ public:
      * @param args Variably many additional arguments that are inserted for the place-holders
      */
     template <typename... Args>
-    static void print_message_rank(const mpiPP::MPIRank rank, const std::string format, Args&&... args) { // NOLINT(readability-avoid-const-params-in-decls)
+    static void print_message_rank(const mpiPP::MPIRank rank, const std::string& format, Args&&... args) {
         if (do_i_print(LogFiles::EventType::Cout, rank)) {
             write_to_file(LogFiles::EventType::Cout, true, "[INFO:Rank {}] {}", get_my_rank_str(), fmt::format(fmt::runtime(format), std::forward<Args>(args)...));
         }

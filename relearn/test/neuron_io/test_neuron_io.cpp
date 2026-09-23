@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -12,19 +12,19 @@
 
 #include "Config.h"
 #include "RelearnTest.hpp"
-#include "Types.h"
 
 #include "io/NeuronIO.h"
 #include "neurons/LocalGroupTranslator.h"
 #include "neurons/enums/SynapticElementType.h"
 #include "sim/LoadedNeuron.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
+#include "types/SynapseTypes.h"
 #include "util/NeuronFilePaths.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnException.h"
 #include "util/shuffle/shuffle.h"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "factory/local_group_translator/local_group_translator_factory.h"
 #include "factory/mpi_rank/mpi_rank_factory.h"
@@ -35,10 +35,16 @@
 #include "factory/simulation/simulation_factory.h"
 #include "factory/synapses/synapses_factory.h"
 
-#include <gtest/gtest.h>
+#include <cpp-utility/Cast.hpp>
 
 #include <fmt/core.h>
 #include <fmt/format.h>
+
+#include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
+
 #include <range/v3/algorithm/contains.hpp>
 #include <range/v3/algorithm/count.hpp>
 #include <range/v3/range/conversion.hpp>
@@ -106,7 +112,7 @@ TEST_F(IOTest, testNeuronIOWritePositionsSignalsComponentwiseFileNotFound) {
     auto preliminary_position = std::vector<RelearnTypes::position_type>{};
     auto preliminary_signal_types = std::vector<SignalType>{};
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position(mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -133,7 +139,7 @@ TEST_F(IOTest, testNeuronIOWritePositionsSignalsComponentwise) {
     auto preliminary_position = std::vector<RelearnTypes::position_type>{};
     auto preliminary_signal_types = std::vector<SignalType>{};
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position(mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -163,7 +169,7 @@ TEST_F(IOTest, testNeuronIOReadPositionsSignalsComponentwise) {
     const auto& min_pos = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
     const auto& max_pos = SimulationFactory::get_maximum_position();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -181,11 +187,13 @@ TEST_F(IOTest, testNeuronIOReadPositionsSignalsComponentwise) {
 
     ASSERT_EQ(preliminary_position.size(), read_positions.size());
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         const auto& diff = preliminary_position[neuron_id] - read_positions[neuron_id];
         const auto norm = diff.calculate_2_norm();
 
-        ASSERT_NEAR(0.0, norm, eps);
+        // NeuronIO writes a position with as many digits as space_type carries, so it comes back accurate
+        // relative to its magnitude and not to an absolute epsilon.
+        ASSERT_NEAR(0.0, norm, tolerance_for<RelearnTypes::space_type>(preliminary_position[neuron_id].calculate_2_norm()));
     }
 
     const auto& [read_min_position, read_max_position, read_excitatory_neurons, read_inhibitory_neurons] = additional_infos;
@@ -241,7 +249,7 @@ TEST_F(IOTest, testNeuronIOReadPositionsSignalsComponentwiseIDException) {
     const auto& min_pos = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
     const auto& max_pos = SimulationFactory::get_maximum_position();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -282,7 +290,7 @@ TEST_F(IOTest, testNeuronIOReadPositionsSignalsComponentwisePositionXException) 
     const auto& min_pos = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
     const auto& max_pos = SimulationFactory::get_maximum_position();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -317,7 +325,7 @@ TEST_F(IOTest, testNeuronIOReadPositionsSignalsComponentwisePositionYException) 
     const auto& min_pos = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
     const auto& max_pos = SimulationFactory::get_maximum_position();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -352,7 +360,7 @@ TEST_F(IOTest, testNeuronIOReadComponentwisePositionZException) {
     const auto& min_pos = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
     const auto& max_pos = SimulationFactory::get_maximum_position();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -386,7 +394,7 @@ TEST_F(IOTest, testNeuronIOWritePositionsSignals1) {
 
     auto preliminary_neurons = std::vector<LoadedNeuron>{};
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position(mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -421,7 +429,7 @@ TEST_F(IOTest, testNeuronIOWritePositionsSignals2) {
     const auto& min_pos = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
     const auto& max_pos = SimulationFactory::get_maximum_position();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -441,11 +449,13 @@ TEST_F(IOTest, testNeuronIOWritePositionsSignals2) {
 
     ASSERT_EQ(preliminary_position.size(), read_positions.size());
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         const auto& diff = preliminary_position[neuron_id] - read_positions[neuron_id];
         const auto norm = diff.calculate_2_norm();
 
-        ASSERT_NEAR(0.0, norm, eps);
+        // NeuronIO writes a position with as many digits as space_type carries, so it comes back accurate
+        // relative to its magnitude and not to an absolute epsilon.
+        ASSERT_NEAR(0.0, norm, tolerance_for<RelearnTypes::space_type>(preliminary_position[neuron_id].calculate_2_norm()));
     }
 
     const auto& [read_min_position, read_max_position, read_excitatory_neurons, read_inhibitory_neurons] = additional_infos;
@@ -487,7 +497,7 @@ TEST_F(IOTest, testNeuronIOWritePositionsSignalsFileNotFound) {
 
     auto preliminary_neurons = std::vector<LoadedNeuron>{};
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position(mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -517,7 +527,7 @@ TEST_F(IOTest, testNeuronIOReadPositionsSignals) {
     const auto& min_pos = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
     const auto& max_pos = SimulationFactory::get_maximum_position();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_neurons.emplace_back(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt), NeuronID{ false, neuron_id }, NeuronTypesFactory::get_random_signal_type(mt));
     }
 
@@ -536,14 +546,16 @@ TEST_F(IOTest, testNeuronIOReadPositionsSignals) {
     auto number_excitatory = 0;
     auto number_inhibitory = 0;
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         const auto& preliminary_neuron = preliminary_neurons[neuron_id];
         const auto& read_neuron = read_neurons[neuron_id];
 
         const auto& diff = preliminary_neuron.pos - read_neuron.pos;
         const auto norm = diff.calculate_2_norm();
 
-        ASSERT_NEAR(0.0, norm, eps);
+        // NeuronIO writes a position with as many digits as space_type carries, so it comes back accurate
+        // relative to its magnitude and not to an absolute epsilon.
+        ASSERT_NEAR(0.0, norm, tolerance_for<RelearnTypes::space_type>(preliminary_neuron.pos.calculate_2_norm()));
 
         ASSERT_EQ(read_neuron.id, preliminary_neuron.id);
         ASSERT_EQ(read_neuron.signal_type, preliminary_neuron.signal_type);
@@ -601,7 +613,7 @@ TEST_F(IOTest, testNeuronIOReadPositionsSignalsIDException) {
     const auto& min_pos = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
     const auto& max_pos = SimulationFactory::get_maximum_position();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -642,7 +654,7 @@ TEST_F(IOTest, testNeuronIOReadPositionsSignalsPositionXException) {
     const auto& min_pos = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
     const auto& max_pos = SimulationFactory::get_maximum_position();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -677,7 +689,7 @@ TEST_F(IOTest, testNeuronIOReadPositionsSignalsPositionYException) {
     const auto& min_pos = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
     const auto& max_pos = SimulationFactory::get_maximum_position();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -712,7 +724,7 @@ TEST_F(IOTest, testNeuronIOReadPositionsSignalsPositionZException) {
     const auto& min_pos = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
     const auto& max_pos = SimulationFactory::get_maximum_position();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -757,7 +769,7 @@ TEST_F(IOTest, testNeuronIOReadNeuronGroups) {
 
     ASSERT_EQ(neuron_id_to_group_names_unordered, read_neuron_id_to_group_names_unordered);
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         const auto& actual_group_names = neuron_id_to_group_names_unordered[neuron_id];
         const auto& read_group_names = read_neuron_id_to_group_names_unordered[neuron_id];
         ASSERT_TRUE(ranges::contains(read_group_names, std::string{ Constants::default_group_name }));
@@ -979,7 +991,7 @@ TEST_F(IOTest, testNeuronIOWriteNeuronGroupsSpecificNeurons) {
 
     const auto number_neurons = translator->get_number_neurons_in_total();
 
-    auto all_ids = NeuronID::range(number_neurons) | ranges::to_vector;
+    auto all_ids = NeuronIDRange::range(number_neurons) | ranges::to_vector;
 
     const auto& ids = RandomFactory::sample(all_ids, mt);
 
@@ -1018,7 +1030,7 @@ TEST_F(IOTest, testNeuronIOWriteNeuronGroupsSpecificNeuronsEmptyPath) {
 
     const auto number_neurons = translator->get_number_neurons_in_total();
 
-    const auto ids = NeuronID::range(number_neurons) | ranges::to_vector;
+    const auto ids = NeuronIDRange::range(number_neurons) | ranges::to_vector;
 
     const auto bad_path = std::filesystem::path{ "" };
 
@@ -1124,7 +1136,7 @@ TEST_F(IOTest, testNeuronIOReadNeuronsAllInformation) {
     const auto& min_pos = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
     const auto& max_pos = SimulationFactory::get_maximum_position();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_neurons.emplace_back(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt), NeuronID{ false, neuron_id }, NeuronTypesFactory::get_random_signal_type(mt));
     }
 
@@ -1153,14 +1165,16 @@ TEST_F(IOTest, testNeuronIOReadNeuronsAllInformation) {
     auto number_excitatory = 0;
     auto number_inhibitory = 0;
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         const auto& preliminary_neuron = preliminary_neurons[neuron_id];
         const auto& read_neuron = read_neurons[neuron_id];
 
         const auto& diff = preliminary_neuron.pos - read_neuron.pos;
         const auto norm = diff.calculate_2_norm();
 
-        ASSERT_NEAR(0.0, norm, eps);
+        // NeuronIO writes a position with as many digits as space_type carries, so it comes back accurate
+        // relative to its magnitude and not to an absolute epsilon.
+        ASSERT_NEAR(0.0, norm, tolerance_for<RelearnTypes::space_type>(preliminary_neuron.pos.calculate_2_norm()));
 
         ASSERT_EQ(read_neuron.id, preliminary_neuron.id);
         ASSERT_EQ(read_neuron.signal_type, preliminary_neuron.signal_type);
@@ -1188,7 +1202,7 @@ TEST_F(IOTest, testNeuronIOReadNeuronsAllInformation) {
 
     ASSERT_EQ(neuron_id_to_group_names_unordered, read_neuron_id_to_group_names_unordered);
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         const auto& actual_group_names = neuron_id_to_group_names_unordered[neuron_id];
         const auto& read_group_names = read_neuron_id_to_group_names_unordered[neuron_id];
         ASSERT_TRUE(ranges::contains(read_group_names, std::string{ Constants::default_group_name }));
@@ -1221,7 +1235,7 @@ TEST_F(IOTest, testNeuronIOReadNeuronsAllInformationComponentwise) {
     const auto& min_pos = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
     const auto& max_pos = SimulationFactory::get_maximum_position();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -1249,11 +1263,13 @@ TEST_F(IOTest, testNeuronIOReadNeuronsAllInformationComponentwise) {
 
     ASSERT_EQ(preliminary_position.size(), read_positions.size());
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         const auto& diff = preliminary_position[neuron_id] - read_positions[neuron_id];
         const auto norm = diff.calculate_2_norm();
 
-        ASSERT_NEAR(0.0, norm, eps);
+        // NeuronIO writes a position with as many digits as space_type carries, so it comes back accurate
+        // relative to its magnitude and not to an absolute epsilon.
+        ASSERT_NEAR(0.0, norm, tolerance_for<RelearnTypes::space_type>(preliminary_position[neuron_id].calculate_2_norm()));
     }
 
     const auto& [read_min_position, read_max_position, read_excitatory_neurons, read_inhibitory_neurons] = additional_infos;
@@ -1280,7 +1296,7 @@ TEST_F(IOTest, testNeuronIOReadNeuronsAllInformationComponentwise) {
 
     ASSERT_EQ(neuron_id_to_group_names_unordered, read_neuron_id_to_group_names_unordered);
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         const auto& actual_group_names = neuron_id_to_group_names_unordered[neuron_id];
         const auto& read_group_names = read_neuron_id_to_group_names_unordered[neuron_id];
         ASSERT_TRUE(ranges::contains(read_group_names, std::string{ Constants::default_group_name }));
@@ -1315,7 +1331,7 @@ TEST_F(IOTest, testNeuronIOWriteNeurons) {
     const auto& min_pos = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
     const auto& max_pos = SimulationFactory::get_maximum_position();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -1356,7 +1372,7 @@ TEST_F(IOTest, testNeuronIOWriteNeuronsComponentwise) {
     const auto& min_pos = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
     const auto& max_pos = SimulationFactory::get_maximum_position();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -1395,7 +1411,7 @@ TEST_F(IOTest, testNeuronIOReadIDs) {
     const auto& min_pos = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
     const auto& max_pos = SimulationFactory::get_maximum_position();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -1420,7 +1436,7 @@ TEST_F(IOTest, testNeuronIOReadIDsEmpty1) {
         return;
     }
 
-    const auto number_neurons = RandomFactory::get_random_integer<NeuronID::value_type>(2, NeuronIdFactory::upper_bound_num_neurons, mt);
+    const auto number_neurons = RandomFactory::get_random_integer<RelearnTypes::number_neurons_type>(2, NeuronIdFactory::upper_bound_num_neurons, mt);
 
     auto preliminary_ids = std::vector<NeuronID>{};
     auto preliminary_position = std::vector<RelearnTypes::position_type>{};
@@ -1429,7 +1445,7 @@ TEST_F(IOTest, testNeuronIOReadIDsEmpty1) {
     const auto& min_pos = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
     const auto& max_pos = SimulationFactory::get_maximum_position();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -1471,7 +1487,7 @@ TEST_F(IOTest, testNeuronIOReadIDsEmpty2) {
     const auto& min_pos = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
     const auto& max_pos = SimulationFactory::get_maximum_position();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         preliminary_ids.emplace_back(false, neuron_id);
         preliminary_position.emplace_back(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
         preliminary_signal_types.emplace_back(NeuronTypesFactory::get_random_signal_type(mt));
@@ -1667,7 +1683,7 @@ TEST_F(IOTest, testReadInSynapses) {
     ofstream.flush();
     ofstream.close();
 
-    auto [synapses_static, synapses_plastic] = NeuronIO::read_in_synapses(path, number_neurons, my_rank, static_cast<std::size_t>(number_ranks));
+    auto [synapses_static, synapses_plastic] = NeuronIO::read_in_synapses(path, number_neurons, my_rank, number_ranks);
     auto [read_local_synapses_plastic, read_distant_synapses_plastic] = synapses_plastic;
     auto [read_local_synapses_static, read_distant_synapses_static] = synapses_static;
 
@@ -1791,7 +1807,7 @@ TEST_F(IOTest, testReadOutSynapses) {
     ofstream.flush();
     ofstream.close();
 
-    auto [synapses_static, synapses_plastic] = NeuronIO::read_out_synapses(path, number_neurons, my_rank, static_cast<std::size_t>(number_ranks));
+    auto [synapses_static, synapses_plastic] = NeuronIO::read_out_synapses(path, number_neurons, my_rank, number_ranks);
     auto [read_local_synapses_plastic, read_distant_synapses_plastic] = synapses_plastic;
     auto [read_local_synapses_static, read_distant_synapses_static] = synapses_static;
 
@@ -1904,7 +1920,7 @@ TEST_F(IOTest, testWriteInSynapses) {
 
     NeuronIO::write_in_synapses(preliminary_local_synapses_static, preliminary_distant_synapses_static, preliminary_local_synapses_plastic, preliminary_distant_synapses_plastic, my_rank, number_neurons, path);
 
-    auto [synapses_static, synapses_plastic] = NeuronIO::read_in_synapses(path, number_neurons, my_rank, static_cast<std::size_t>(number_ranks));
+    auto [synapses_static, synapses_plastic] = NeuronIO::read_in_synapses(path, number_neurons, my_rank, number_ranks);
     auto [read_local_synapses_plastic, read_distant_synapses_plastic] = synapses_plastic;
     auto [read_local_synapses_static, read_distant_synapses_static] = synapses_static;
 
@@ -2017,7 +2033,7 @@ TEST_F(IOTest, testWriteOutSynapses) {
 
     NeuronIO::write_out_synapses(preliminary_local_synapses_static, preliminary_distant_synapses_static, preliminary_local_synapses_plastic, preliminary_distant_synapses_plastic, my_rank, number_neurons, path);
 
-    auto [synapses_static, synapses_plastic] = NeuronIO::read_out_synapses(path, number_neurons, my_rank, static_cast<std::size_t>(number_ranks));
+    auto [synapses_static, synapses_plastic] = NeuronIO::read_out_synapses(path, number_neurons, my_rank, number_ranks);
     auto [read_local_synapses_plastic, read_distant_synapses_plastic] = synapses_plastic;
     auto [read_local_synapses_static, read_distant_synapses_static] = synapses_static;
 
@@ -2108,14 +2124,21 @@ TEST_F(IOTest, additionalPositionInformationTest) {
 
     ASSERT_EQ(infos.total_neurons, total_neurons);
     ASSERT_EQ(infos.local_neurons, number_neurons);
-    ASSERT_TRUE(sim_box.equals_eps(infos.sim_size));
+    // NeuronIO writes the boundaries with as many digits as space_type carries, so they come back accurate
+    // relative to their magnitude and not to an absolute epsilon.
+    const auto box_tolerance = [](const RelearnTypes::bounding_box_type& box) {
+        const auto magnitude = std::max(box.get_minimum().calculate_2_norm(), box.get_maximum().calculate_2_norm());
+        return utility::cast<RelearnTypes::space_type>(tolerance_for<RelearnTypes::space_type>(magnitude));
+    };
+
+    ASSERT_TRUE(sim_box.almost_equal(infos.sim_size, box_tolerance(sim_box)));
     ASSERT_EQ(subdomain_boxes.size(), infos.subdomain_sizes.size());
 
     for (auto i = 0U; i < subdomain_boxes.size(); i++) {
         const auto& bb1 = subdomain_boxes[i];
         const auto& bb2 = infos.subdomain_sizes[i];
 
-        ASSERT_TRUE(bb1.equals_eps(bb2));
+        ASSERT_TRUE(bb1.almost_equal(bb2, box_tolerance(bb1)));
     }
     std::filesystem::remove(path);
 }

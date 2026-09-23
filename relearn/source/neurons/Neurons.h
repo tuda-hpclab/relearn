@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2020-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,8 +11,6 @@
  */
 
 #include "Config.h"
-#include "Types.h"
-#include "Types3.h"
 
 #include "algorithm/Algorithm.h"
 #include "algorithm/Kernel/KernelBase.h"
@@ -26,13 +24,22 @@
 #include "neurons/helper/SynapseDeletionFinder.h"
 #include "neurons/helper/SynapseDeletionRequests.h"
 #include "synaptic_elements/SynapticElements.h"
+#include "types/BasicTypes.h"
+#include "types/CommunicationTypes.h"
+#include "types/SynapseTypes.h"
+#include "util/Accumulate.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnAllocator.h"
 #include "util/RelearnException.h"
 #include "util/StatisticalMeasures.h"
 
-#include "cpp-utility/ranges/Functional.hpp"
+#include <cpp-utility/Cast.hpp>
+#include <cpp-utility/ranges/Functional.hpp>
 
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
+#include <mpi-wrapper/patterns/CommunicationMap.h>
+#include <mpi-wrapper/reductions/MPIReductions.h>
 
 #include <range/v3/functional/arithmetic.hpp>
 #include <range/v3/range/conversion.hpp>
@@ -42,6 +49,7 @@
 #include <span>
 #include <string>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -61,6 +69,8 @@ class Neurons {
 public:
     using step_type = RelearnTypes::step_type;
     using number_neurons_type = RelearnTypes::number_neurons_type;
+    using calcium_type = RelearnTypes::calcium_type;
+    using number_synapse_type = RelearnTypes::number_synapse_type;
 
     /**
      * @brief Creates a new object with the passed Partition, NeuronModel, Axons, DendritesExc, and DendritesInh
@@ -145,11 +155,13 @@ public:
         algorithm = std::move(algorithm_ptr);
     }
 
+    void debug_check() const;
+
     /**
      * @brief Sets the probability kernel that is used for the simulation
      * @param kernel The kernel
      */
-    void set_probability_kernel(std::unique_ptr<KernelBase>&& kernel) noexcept {
+    void set_probability_kernel(std::unique_ptr<KernelBase>&& kernel) noexcept { // NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved) - moved into probability_kernel below; checker doesn't credit moves via plain assignment
         probability_kernel = std::move(kernel);
     }
 
@@ -231,7 +243,7 @@ public:
      * @param neuron_id Local neuron id
      * @return Calcium of the neuron
      */
-    [[nodiscard]] double get_calcium(const NeuronID neuron_id) const {
+    [[nodiscard]] calcium_type get_calcium(const NeuronID neuron_id) const {
         return calcium_calculator->get_calcium()[neuron_id.get_neuron_id()];
     }
 
@@ -252,7 +264,7 @@ public:
     void set_fired(const std::span<const FiredStatus> fired) {
         RelearnException::check(fired.size() == number_neurons, "Neurons::set_fired: The sizes didn't match: {} vs {}", fired.size(), number_neurons);
 
-        for (const auto neuron_id : NeuronID::range(number_neurons)) {
+        for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
             neuron_model->set_fired(neuron_id, fired[neuron_id.get_neuron_id()]);
         }
     }
@@ -280,7 +292,7 @@ public:
      * @exception Throws RelearnExceptions if something unexpected happens
      * @return Pair of number of local synapse deletion and requests for deletions on other ranks
      */
-    std::pair<std::size_t, RelearnTypes::comm_map_deletion<SynapseDeletionRequest>> disable_neurons(step_type step, std::span<const NeuronID> local_neuron_ids, int num_ranks);
+    std::pair<number_synapse_type, RelearnTypes::comm_map_deletion<SynapseDeletionRequest>> disable_neurons(step_type step, std::span<const NeuronID> local_neuron_ids, int num_ranks);
 
     /**
      * @brief Enables all neurons with specified ids
@@ -316,7 +328,7 @@ public:
      *      or something unexpected happens
      * @return Returns a tuple with (1) the number of deleted synapses, and (2) the number of created synapses
      */
-    [[nodiscard]] std::tuple<std::uint64_t, std::uint64_t, std::uint64_t> update_connectivity(step_type step);
+    [[nodiscard]] std::tuple<number_synapse_type, number_synapse_type, number_synapse_type> update_connectivity(step_type step);
 
     /**
      * @brief Calculates the number vacant axons and dendrites (excitatory, inhibitory) and prints them to LogFiles::EventType::Sums
@@ -326,7 +338,7 @@ public:
      * @param sum_dendrites_deleted The number of deleted synapses (locally)
      * @param sum_synapses_created The number of created synapses (locally)
      */
-    void print_sums_of_synapses_and_elements_to_log_file_on_rank_0(step_type step, std::uint64_t sum_axon_deleted, std::uint64_t sum_dendrites_deleted, std::uint64_t sum_synapses_created);
+    void print_sums_of_synapses_and_elements_to_log_file_on_rank_0(step_type step, number_synapse_type sum_axon_deleted, number_synapse_type sum_dendrites_deleted, number_synapse_type sum_synapses_created);
 
     /**
      * @brief Prints the overview of the neurons to LogFiles::EventType::NeuronsOverview
@@ -340,7 +352,7 @@ public:
      * @param current_step The current step
      * @param steps_since_last_print Steps since last print
      */
-    void print_fire_steps_to_file(step_type current_step, step_type steps_since_last_print) const;
+    // void print_fire_steps_to_file(step_type current_step, step_type steps_since_last_print) const;
 
     /**
      * @brief Inserts the calcium statistics in the essentials
@@ -432,7 +444,7 @@ public:
      * @param my_rank Current mpi rank
      * @return Number of deletions
      */
-    [[nodiscard]] std::size_t delete_disabled_distant_synapses(const RelearnTypes::comm_map_deletion<SynapseDeletionRequest>& list, mpiPP::MPIRank my_rank);
+    [[nodiscard]] number_synapse_type delete_disabled_distant_synapses(const RelearnTypes::comm_map_deletion<SynapseDeletionRequest>& list, mpiPP::MPIRank my_rank);
 
     /**
      * @brief Records the memory footprint of the current object
@@ -440,39 +452,57 @@ public:
      */
     void record_memory_footprint(const std::unique_ptr<utility::MemoryFootprint>& footprint);
 
+    void record_usage_footprint(const std::unique_ptr<utility::MemoryFootprint>& footprint);
+
 private:
+    /**
+     * @brief Calculates the statistics across all MPI ranks for values that are already doubles,
+     *      i.e., that need no conversion before the reduction
+     * @param local_values The values of the local neurons
+     * @param root The MPI rank that gathers the statistics
+     * @return The statistics
+     */
     [[nodiscard]] StatisticalMeasures global_statistics(std::span<const double> local_values, mpiPP::MPIRank root) const;
 
+    /**
+     * @brief Calculates the statistics across all MPI ranks for values that first have to be converted to double,
+     *      e.g., for counter_type, for the fired status, or for a domain type such as activity_type or calcium_type
+     * @tparam T The value type, must be convertible to double, and must not be double itself
+     * @param local_values The values of the local neurons
+     * @param root The MPI rank that gathers the statistics
+     * @return The statistics
+     */
     template <typename T>
-    [[nodiscard]] StatisticalMeasures global_statistics_integral(const std::span<const T> local_values, const mpiPP::MPIRank root) const {
-        auto values = local_values
-                      | ranges::views::transform(ranges::convert_to<double>{})
-                      | ranges::to_vector;
-        return global_statistics(std::move(values), root);
+        requires(!std::is_same_v<T, double>)
+    [[nodiscard]] StatisticalMeasures global_statistics(const std::span<const T> local_values, const mpiPP::MPIRank root) const {
+        const auto values = local_values
+                            | ranges::views::transform(ranges::convert_to<double>{})
+                            | ranges::to_vector;
+        return global_statistics(std::span<const double>{ values }, root);
     }
 
-    [[nodiscard]] std::uint64_t create_synapses();
+    [[nodiscard]] number_synapse_type create_synapses();
 
     number_neurons_type number_neurons = 0;
 
-    PlasticLocalSynapses last_created_local_synapses{};
-    PlasticDistantInSynapses last_created_in_synapses{};
-    PlasticDistantOutSynapses last_created_out_synapses{};
+    PlasticLocalSynapses last_created_local_synapses;
+    PlasticDistantInSynapses last_created_in_synapses;
+    PlasticDistantOutSynapses last_created_out_synapses;
 
-    std::shared_ptr<Partition> partition{};
+    std::shared_ptr<Partition> partition;
 
-    std::shared_ptr<NeuronModel> neuron_model{};
+    std::shared_ptr<NeuronModel> neuron_model;
     std::unique_ptr<CalciumCalculator> calcium_calculator{};
 
-    std::shared_ptr<NetworkGraph> network_graph{};
+    std::shared_ptr<NetworkGraph> network_graph;
 
-    std::shared_ptr<SynapticElements> synaptic_elements{};
+    std::shared_ptr<SynapticElements> synaptic_elements;
     std::unique_ptr<SynapseDeletionFinder> synapse_deletion_finder{};
 
     std::shared_ptr<LocalGroupTranslator> local_group_translator;
 
-    std::shared_ptr<Algorithm> algorithm{};
+    std::shared_ptr<Algorithm> algorithm;
     std::unique_ptr<KernelBase> probability_kernel{};
 
-    std::shared_ptr<NeuronsExtraInfo> extra_info{};
+    std::shared_ptr<NeuronsExtraInfo> extra_info;
 };

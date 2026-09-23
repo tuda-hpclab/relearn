@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -10,22 +10,21 @@
 
 #include "InteractiveNeuronIO.h"
 
-#include "Types.h"
-#include "Types2.h"
-
 #include "io/parser/StimulusParser.h"
 #include "neurons/LocalGroupTranslator.h"
+#include "types/StimulusTypes.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
-#include "util/StringUtil.h"
 
-#include "cpp-utility/ranges/views/IO.hpp"
-#include "cpp-utility/ranges/views/Optional.hpp"
-
-#include "mpi-wrapper/MPIRank.h"
+#include <cpp-utility/StringUtil.hpp>
+#include <cpp-utility/ranges/views/IO.hpp>
+#include <cpp-utility/ranges/views/Optional.hpp>
 
 #include <fmt/ranges.h>
 #include <fmt/std.h>
+
+#include <mpi-wrapper/core/MPIRank.h>
+
 #include <range/v3/algorithm/for_each.hpp>
 #include <range/v3/functional/not_fn.hpp>
 #include <range/v3/range/conversion.hpp>
@@ -36,6 +35,7 @@
 #include <range/v3/view/for_each.hpp>
 #include <range/v3/view/getlines.hpp>
 #include <range/v3/view/transform.hpp>
+
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
@@ -82,7 +82,7 @@ std::vector<std::pair<InteractiveNeuronIO::step_type, std::vector<NeuronID>>> In
         auto indices = std::vector<NeuronID>{};
 
         for (auto rank_neuron_string = std::string{}; sstream >> rank_neuron_string;) {
-            const auto rank_neuron_vector = StringUtil::split_string(rank_neuron_string, ':');
+            const auto rank_neuron_vector = utility::split_string(rank_neuron_string, ':');
             const auto rank = mpiPP::MPIRank{ std::stoi(rank_neuron_vector[0]) };
             const auto neuron_id = NeuronID(std::stoi(rank_neuron_vector[1]) - 1);
 
@@ -130,7 +130,7 @@ std::vector<std::pair<InteractiveNeuronIO::step_type, std::vector<NeuronID>>> In
         auto indices = std::vector<NeuronID>{};
 
         for (auto rank_neuron_string = std::string{}; sstream >> rank_neuron_string;) {
-            const auto rank_neuron_vector = StringUtil::split_string(rank_neuron_string, ':');
+            const auto rank_neuron_vector = utility::split_string(rank_neuron_string, ':');
             const auto rank = mpiPP::MPIRank{ std::stoi(rank_neuron_vector[0]) };
             const auto neuron_id = NeuronID(std::stoi(rank_neuron_vector[1]) - 1);
 

@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -17,7 +17,7 @@
 
 namespace models::aeif {
 
-template <typename real_type = double>
+template <typename real_type = RelearnTypes::activity_type>
 [[nodiscard]] real_type iterate_v(const real_type current_v, const real_type current_w, const real_type input, const real_type g_L, const real_type E_L,
                                   const real_type d_T, const real_type V_T, const real_type C_inverse) noexcept {
     const auto d_T_inverse = 1.0 / d_T;
@@ -27,17 +27,17 @@ template <typename real_type = double>
     return (linear_part + exp_part - current_w + input) * C_inverse;
 }
 
-template <typename real_type = double>
+template <typename real_type = RelearnTypes::activity_type>
 [[nodiscard]] real_type iterate_w(const real_type current_v, const real_type current_w, const real_type a, const real_type E_L, const real_type tau_W_inverse) noexcept {
     return (a * (current_v - E_L) - current_w) * tau_W_inverse;
 }
 
-template <typename real_type = double>
+template <typename real_type = RelearnTypes::activity_type>
 [[nodiscard]] bool is_spiking(const real_type current_v, const real_type V_spike) noexcept {
     return current_v >= V_spike;
 }
 
-template <typename real_type = double>
+template <typename real_type = RelearnTypes::activity_type>
 [[nodiscard]] std::tuple<real_type, real_type, bool> iterate(const unsigned int h, const real_type current_v, const real_type current_w,
                                                              const real_type input, const Parameters<real_type>& params) noexcept {
 

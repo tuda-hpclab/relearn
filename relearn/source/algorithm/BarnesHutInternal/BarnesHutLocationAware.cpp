@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -10,31 +10,31 @@
 
 #include "BarnesHutLocationAware.h"
 
-#include "Types.h"
-
+#include "algorithm/Algorithm.h"
 #include "algorithm/BarnesHutInternal/BarnesHutBase.h"
-#include "algorithm/BarnesHutInternal/BarnesHutCell.h"
+#include "algorithm/CombinedAlgorithmsInternal/RequestEnums.h"
 #include "algorithm/Connector.h"
-#include "algorithm/Internal/octree/NodeCache.h"
-#include "algorithm/Internal/octree/OctreeNode.h"
-#include "neurons/NeuronsExtraInfo.h"
 #include "neurons/enums/SynapticElementType.h"
 #include "neurons/enums/UpdateStatus.h"
 #include "neurons/helper/DistantNeuronRequests.h"
 #include "neurons/helper/SynapseCreationRequests.h"
 #include "neurons/synaptic_elements/SynapticElements.h"
+#include "types/CommunicationTypes.h"
+#include "types/SynapseTypes.h"
 #include "util/MemoryHolder.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
 #include "util/Timers.h"
 
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <algorithm>
-#include <utility>
+#include <cstddef>
+#include <tuple>
 
-RelearnTypes::comm_map_creation<DistantNeuronRequest> BarnesHutLocationAware::find_target_neurons(const number_neurons_type number_neurons) {
+RelearnTypes::comm_map_creation<DistantNeuronRequest>
+BarnesHutLocationAware::find_target_neurons(const number_neurons_type number_neurons) {
     const auto& disable_flags = extra_infos->get_disable_flags();
     const auto number_ranks = mpiPP::MPIInfo::get_number_ranks();
     const auto my_rank = mpiPP::MPIInfo::get_my_rank();
@@ -49,13 +49,13 @@ RelearnTypes::comm_map_creation<DistantNeuronRequest> BarnesHutLocationAware::fi
     const auto level_of_branch_nodes = get_level_of_branch_nodes();
 
     const auto signal_types = synaptic_elements->get_signal_types();
-    const auto vacant_axons = synaptic_elements->get_vacant_elements(SynapticElementType::Axon);
+    const auto& vacant_axons = synaptic_elements->get_vacant_elements(SynapticElementType::Axon);
 
     const auto& probability_kernel = *this->kernel;
 
     // For my neurons; OpenMP is picky when it comes to the type of loop variable, so no ranges here
 #pragma omp parallel for default(none) shared(probability_kernel, node_cache, root, my_rank, number_neurons, level_of_branch_nodes, disable_flags, signal_types, vacant_axons, neuron_requests_outgoing)
-    for (auto neuron_id = 0UL; neuron_id < number_neurons; ++neuron_id) {
+    for (auto neuron_id = number_neurons_type{ 0 }; neuron_id < number_neurons; ++neuron_id) { // NOLINT(openmp-exception-escape) - only throwable calls are RelearnException::check on already-validated algorithm invariants
         if (disable_flags[neuron_id] != UpdateStatus::Enabled) {
             continue;
         }
@@ -70,8 +70,16 @@ RelearnTypes::comm_map_creation<DistantNeuronRequest> BarnesHutLocationAware::fi
 
         const auto& axon_position = extra_infos->get_position(id);
 
-        const auto& requests = BarnesHutBase<BarnesHutCell>::find_target_neurons_location_aware(probability_kernel, node_cache, { my_rank, id }, axon_position, number_vacant_axons,
-                                                                                                root, ElementType::Dendrite, dendrite_type_needed, level_of_branch_nodes, acceptance_criterion);
+        const auto& requests = BarnesHutBase<BarnesHutCell>::find_target_neurons_location_aware(probability_kernel,
+                                                                                                node_cache,
+                                                                                                { my_rank, id },
+                                                                                                axon_position,
+                                                                                                number_vacant_axons,
+                                                                                                root,
+                                                                                                ElementType::Dendrite,
+                                                                                                dendrite_type_needed,
+                                                                                                level_of_branch_nodes,
+                                                                                                acceptance_criterion);
 
         for (const auto& [target_rank, creation_request] : requests) {
 #pragma omp critical(BHrequests)
@@ -87,7 +95,8 @@ RelearnTypes::comm_map_creation<DistantNeuronRequest> BarnesHutLocationAware::fi
     return neuron_requests_outgoing;
 }
 
-std::tuple<Algorithm::ResultType, RequestTypeEnum, DirectionEnum> BarnesHutLocationAware::find_target_neurons_for_combined_algorithms(const std::vector<NeuronID>& neuron_ids) {
+std::tuple<Algorithm::ResultType, RequestTypeEnum, DirectionEnum>
+BarnesHutLocationAware::find_target_neurons_for_combined_algorithms(const std::vector<NeuronID>& neuron_ids) {
     const auto& disable_flags = extra_infos->get_disable_flags();
     const auto number_ranks = mpiPP::MPIInfo::get_number_ranks();
     const auto my_rank = mpiPP::MPIInfo::get_my_rank();
@@ -102,7 +111,7 @@ std::tuple<Algorithm::ResultType, RequestTypeEnum, DirectionEnum> BarnesHutLocat
     const auto level_of_branch_nodes = get_level_of_branch_nodes();
 
     const auto signal_types = synaptic_elements->get_signal_types();
-    const auto vacant_axons = synaptic_elements->get_vacant_elements(SynapticElementType::Axon);
+    const auto& vacant_axons = synaptic_elements->get_vacant_elements(SynapticElementType::Axon);
 
     const auto& probability_kernel = *this->kernel;
 
@@ -123,8 +132,16 @@ std::tuple<Algorithm::ResultType, RequestTypeEnum, DirectionEnum> BarnesHutLocat
 
         const auto& axon_position = extra_infos->get_position(id);
 
-        const auto& requests = BarnesHutBase<BarnesHutCell>::find_target_neurons_location_aware(probability_kernel, node_cache, { my_rank, id }, axon_position, number_vacant_axons,
-                                                                                                root, ElementType::Dendrite, dendrite_type_needed, level_of_branch_nodes, acceptance_criterion);
+        const auto& requests = BarnesHutBase<BarnesHutCell>::find_target_neurons_location_aware(probability_kernel,
+                                                                                                node_cache,
+                                                                                                { my_rank, id },
+                                                                                                axon_position,
+                                                                                                number_vacant_axons,
+                                                                                                root,
+                                                                                                ElementType::Dendrite,
+                                                                                                dendrite_type_needed,
+                                                                                                level_of_branch_nodes,
+                                                                                                acceptance_criterion);
 
         for (const auto& [target_rank, creation_request] : requests) {
 #pragma omp critical(BHrequests)
@@ -140,7 +157,7 @@ std::tuple<Algorithm::ResultType, RequestTypeEnum, DirectionEnum> BarnesHutLocat
     return { neuron_requests_outgoing, RequestTypeEnum::DistantNeuronRequest, DirectionEnum::Forward };
 }
 
-std::pair<RelearnTypes::comm_map_creation<DistantNeuronResponse>, std::pair<PlasticLocalSynapses, PlasticDistantInSynapses>>
+ForwardProcessRequestsResult<DistantNeuronResponse>
 BarnesHutLocationAware::process_requests(const RelearnTypes::comm_map_creation<DistantNeuronRequest>& neuron_requests) {
     const auto number_ranks = neuron_requests.get_number_ranks();
 
@@ -148,7 +165,7 @@ BarnesHutLocationAware::process_requests(const RelearnTypes::comm_map_creation<D
     auto neuron_responses = RelearnTypes::comm_map_creation<DistantNeuronResponse>(number_ranks, size_hint);
 
     if (neuron_requests.empty()) {
-        return { neuron_responses, {} };
+        return { neuron_responses, 0, {} };
     }
 
     const auto& node_cache = get_octree()->get_cache();
@@ -173,31 +190,40 @@ BarnesHutLocationAware::process_requests(const RelearnTypes::comm_map_creation<D
             if (target_neuron_type == DistantNeuronRequest::TargetNeuronType::Leaf) {
                 const auto target_id = current_request.get_leaf_node_id();
                 const auto target_neuron_id = NeuronID{ target_id };
-                creation_requests.set_request(source_rank, request_index, SynapseCreationRequest{ target_neuron_id, source_neuron_id, signal_type });
+                creation_requests.set_request(source_rank, request_index,
+                                              SynapseCreationRequest{ target_neuron_id, source_neuron_id, signal_type });
                 continue;
             }
 
             const auto rma_offset = current_request.get_rma_offset();
             const auto idx_offset = rma_offset;
 
-            auto* const chosen_target = memory_holder.get_parent_from_offset(idx_offset);
+            auto* const chosen_target = memory_holder->get_parent_from_offset(idx_offset);
 
             // Otherwise get target through local barnes hut
             const auto source_position = current_request.get_source_position();
 
             // If the local search is successful, create a SynapseCreationRequest
-            if (const auto& local_search = BarnesHutBase<BarnesHutCell>::find_target_neuron(probability_kernel, node_cache, { mpiPP::MPIRank(static_cast<int>(request_index)), source_neuron_id }, source_position, chosen_target, ElementType::Dendrite, signal_type, acceptance_criterion); local_search.has_value()) {
+            if (const auto& local_search = BarnesHutBase<BarnesHutCell>::find_target_neuron(probability_kernel,
+                                                                                            node_cache, { mpiPP::MPIRank(static_cast<int>(request_index)), source_neuron_id }, source_position, chosen_target,
+                                                                                            ElementType::Dendrite,
+                                                                                            signal_type,
+                                                                                            acceptance_criterion);
+                local_search.has_value()) {
                 const auto& [target_rank, target_neuron_id] = local_search.value();
 
-                creation_requests.set_request(source_rank, request_index, SynapseCreationRequest{ target_neuron_id, source_neuron_id, signal_type });
+                creation_requests.set_request(source_rank, request_index,
+                                              SynapseCreationRequest{ target_neuron_id, source_neuron_id, signal_type });
             } else {
-                creation_requests.set_request(source_rank, request_index, SynapseCreationRequest{ source_neuron_id, source_neuron_id, signal_type });
+                creation_requests.set_request(source_rank, request_index,
+                                              SynapseCreationRequest{ source_neuron_id, source_neuron_id, signal_type });
             }
         }
     }
 
     // Pass the translated requests to the forward connector
-    auto [creation_responses, synapses] = ForwardConnector::process_requests(creation_requests, synaptic_elements);
+    auto [creation_responses, created_synapses, synapses] = ForwardConnector::process_requests(creation_requests,
+                                                                                               synaptic_elements);
 
     // Translate the responses back by adding the found neuron id
     neuron_responses.resize(creation_responses.get_request_sizes());
@@ -207,20 +233,24 @@ BarnesHutLocationAware::process_requests(const RelearnTypes::comm_map_creation<D
 
         // All responses for a rank
         for (auto response_index = 0U; response_index < num_responses; response_index++) {
-            const auto [target_neuron_id, source_neuron_id, dendrite_type_needed] = creation_requests.get_request(source_rank, response_index);
+            const auto [target_neuron_id, source_neuron_id, dendrite_type_needed] = creation_requests.get_request(
+                source_rank, response_index);
             const auto response = responses[response_index];
 
-            neuron_responses.set_request(source_rank, response_index, DistantNeuronResponse{ target_neuron_id, response });
+            neuron_responses.set_request(source_rank, response_index,
+                                         DistantNeuronResponse{ target_neuron_id, response });
         }
     }
 
-    return std::make_pair(neuron_responses, synapses);
+    return { neuron_responses, created_synapses, synapses };
 }
 
-PlasticDistantOutSynapses BarnesHutLocationAware::process_responses(const RelearnTypes::comm_map_creation<DistantNeuronRequest>& neuron_requests,
-                                                                    const RelearnTypes::comm_map_creation<DistantNeuronResponse>& neuron_responses) {
+PlasticDistantOutSynapses
+BarnesHutLocationAware::process_responses(const RelearnTypes::comm_map_creation<DistantNeuronRequest>& neuron_requests,
+                                          const RelearnTypes::comm_map_creation<DistantNeuronResponse>& neuron_responses) {
 
-    RelearnException::check(neuron_requests.size() == neuron_responses.size(), "BarnesHutLocationAware::process_responses: Requests and Responses had different sizes");
+    RelearnException::check(neuron_requests.size() == neuron_responses.size(),
+                            "BarnesHutLocationAware::process_responses: Requests and Responses had different sizes");
 
     const auto number_ranks = neuron_requests.get_number_ranks();
     const auto size_hint = neuron_requests.size();
@@ -248,10 +278,12 @@ PlasticDistantOutSynapses BarnesHutLocationAware::process_responses(const Relear
 
             if (creation_response == SynapseCreationResponse::Succeeded) {
                 // If the creation succeeded set the corresponding target neuron
-                creation_requests.set_request(rank, index, SynapseCreationRequest{ target_neuron_id, source_neuron_id, signal_type });
+                creation_requests.set_request(rank, index,
+                                              SynapseCreationRequest{ target_neuron_id, source_neuron_id, signal_type });
             } else {
                 // Otherwise set the source as the target
-                creation_requests.set_request(rank, index, SynapseCreationRequest{ source_neuron_id, source_neuron_id, signal_type });
+                creation_requests.set_request(rank, index,
+                                              SynapseCreationRequest{ source_neuron_id, source_neuron_id, signal_type });
             }
 
             creation_responses.set_request(rank, index, creation_response);

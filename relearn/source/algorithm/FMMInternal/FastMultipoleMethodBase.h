@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,8 +11,6 @@
  */
 
 #include "Config.h"
-#include "Types.h"
-#include "Types3.h"
 
 #include "algorithm/FMMInternal/FastMultipoleMethodCell.h"
 #include "algorithm/Internal/octree/NodeCache.h"
@@ -21,14 +19,16 @@
 #include "algorithm/Kernel/Gaussian.h"
 #include "neurons/enums/SynapticElementType.h"
 #include "neurons/helper/SynapseCreationRequests.h"
+#include "types/BasicTypes.h"
+#include "types/CommunicationTypes.h"
 #include "util/ProbabilityPicker.h"
 #include "util/Random.h"
 #include "util/RelearnException.h"
 #include "util/Timers.h"
 #include "util/Vec3.h"
 
-#include "cpp-utility/data-structure/Stack.hpp"
-#include "cpp-utility/ranges/Functional.hpp"
+#include <cpp-utility/data-structure/Stack.hpp>
+#include <cpp-utility/ranges/Functional.hpp>
 
 #include <range/v3/algorithm/count_if.hpp>
 #include <range/v3/algorithm/for_each.hpp>
@@ -124,6 +124,8 @@ public:
     using interaction_list_type = std::vector<OctreeNode<AdditionalCellAttributes>*>;
     using position_type = typename Cell<AdditionalCellAttributes>::position_type;
     using counter_type = typename Cell<AdditionalCellAttributes>::counter_type;
+    using attraction_type = RelearnTypes::attraction_type;
+    using level_type = RelearnTypes::level_type;
     using node_pair = std::array<OctreeNode<AdditionalCellAttributes>*, 2>;
 
     struct stack_entry {
@@ -143,7 +145,7 @@ public:
      * @param t Point of evaluation.
      * @return Value of the Hermite function of the n-th order at the point t.
      */
-    [[nodiscard]] static double h(unsigned int n, double t) {
+    [[nodiscard]] static attraction_type h(unsigned int n, attraction_type t) {
         const auto t_squared = t * t;
 
         RelearnException::check(n < 128, "FastMultipoleMethodBase::h: n must be smaller than 128 ({})", n);
@@ -162,7 +164,7 @@ public:
      * @param vector A 3D vector.
      * @return Value of the Hermite function.
      */
-    [[nodiscard]] static double h_multi_index(const Vec3u& multi_index, const Vec3d& vector) {
+    [[nodiscard]] static attraction_type h_multi_index(const Vec3u& multi_index, const position_type& vector) {
         const auto h1 = h(multi_index.get_x(), vector.get_x());
         const auto h2 = h(multi_index.get_y(), vector.get_y());
         const auto h3 = h(multi_index.get_z(), vector.get_z());
@@ -180,9 +182,9 @@ public:
      * @param sigma scaling parameter.
      * @return Returns the attraction between the two neurons.
      */
-    [[nodiscard]] static double kernel(const Vec3d& a, const Vec3d& b, const double sigma) {
+    [[nodiscard]] static attraction_type kernel(const position_type& a, const position_type& b, const attraction_type sigma) {
         const auto diff = a - b;
-        const auto squared_norm = diff.calculate_squared_2_norm();
+        const auto squared_norm = diff.calculate_squared_2_norm<attraction_type>();
 
         return std::exp(-squared_norm / (sigma * sigma));
     }
@@ -247,8 +249,8 @@ public:
      * @exception Throws a RelearnException if source or target are nullptr
      * @return Returns the total attraction of the neurons.
      */
-    [[nodiscard]] static double calc_direct_gauss(const double sigma, const NodeCache<AdditionalCellAttributes>& cache, OctreeNode<AdditionalCellAttributes>* source, OctreeNode<AdditionalCellAttributes>* target,
-                                                  const ElementType searched_element_type, const SignalType signal_type) {
+    [[nodiscard]] static attraction_type calc_direct_gauss(const attraction_type sigma, const NodeCache<AdditionalCellAttributes>& cache, OctreeNode<AdditionalCellAttributes>* source, OctreeNode<AdditionalCellAttributes>* target,
+                                                           const ElementType searched_element_type, const SignalType signal_type) {
         RelearnException::check(source != nullptr, "FastMultipoleMethodBase::calc_direct_gauss: source is nullptr");
         RelearnException::check(target != nullptr, "FastMultipoleMethodBase::calc_direct_gauss: target is nullptr");
 
@@ -263,9 +265,9 @@ public:
                       const auto& [source_pair, target_pair] = source_target_pair;
                       const auto& [source_position, number_sources] = source_pair;
                       const auto& [target_position, number_targets] = target_pair;
-                      return kernel(target_position, source_position, sigma) * number_sources * number_targets;
+                      return kernel(target_position, source_position, sigma) * static_cast<attraction_type>(number_sources) * static_cast<attraction_type>(number_targets);
                   }),
-            0.0);
+            attraction_type{ 0 });
     }
 
     /**
@@ -279,7 +281,7 @@ public:
      *      the children have no valid position for it
      * @returns Returns the hermite coefficients.
      */
-    [[nodiscard]] static std::vector<double> calc_hermite_coefficients(const double sigma, const OctreeNode<AdditionalCellAttributes>* source, const ElementType searching_element_type, const SignalType signal_type_needed) {
+    [[nodiscard]] static std::vector<attraction_type> calc_hermite_coefficients(const attraction_type sigma, const OctreeNode<AdditionalCellAttributes>* source, const ElementType searching_element_type, const SignalType signal_type_needed) {
         RelearnException::check(source != nullptr, "FastMultipoleMethodBase::calc_hermite_coefficients: source is nullptr");
         RelearnException::check(source->is_parent(), "FastMultipoleMethodBase::calc_hermite_coefficients: source node was a leaf node");
 
@@ -287,7 +289,7 @@ public:
 
         const auto& indices = MultiIndex::get_indices();
 
-        auto hermite_coefficients = std::vector<double>{};
+        auto hermite_coefficients = std::vector<attraction_type>{};
         hermite_coefficients.resize(Constants::p3);
 
         const auto& source_cell = source->get_cell();
@@ -297,7 +299,7 @@ public:
         const auto& source_position = source_position_opt.value();
 
         for (auto index = 0U; index < Constants::p3; index++) {
-            auto child_attraction = 0.0;
+            auto child_attraction = attraction_type{ 0.0 };
 
             const auto& children = source->get_children();
             for (auto* child : children) {
@@ -315,10 +317,10 @@ public:
                 RelearnException::check(child_pos.has_value(), "FastMultipoleMethodBase::calc_hermite_coefficients: source child has no valid position.");
 
                 const auto& temp_vec = (child_pos.value() - source_position) / sigma;
-                child_attraction += child_number_axons * (temp_vec.get_componentwise_power(indices[index]));
+                child_attraction += static_cast<attraction_type>(child_number_axons) * temp_vec.get_componentwise_power<attraction_type>(indices[index]);
             }
 
-            const auto hermite_coefficient = child_attraction / indices[index].get_componentwise_factorial();
+            const auto hermite_coefficient = child_attraction / static_cast<attraction_type>(indices[index].get_componentwise_factorial());
             hermite_coefficients[index] = hermite_coefficient;
         }
 
@@ -339,8 +341,8 @@ public:
      *      and signal type (but a number of vacant elements), or the children have no valid position for it
      * @return Returns the taylor coefficients.
      */
-    [[nodiscard]] static std::vector<double> calc_taylor_coefficients(const double sigma, const OctreeNode<AdditionalCellAttributes>* source, const position_type& target_center,
-                                                                      const ElementType searching_element_type, const SignalType signal_type) {
+    [[nodiscard]] static std::vector<attraction_type> calc_taylor_coefficients(const attraction_type sigma, const OctreeNode<AdditionalCellAttributes>* source, const position_type& target_center,
+                                                                               const ElementType searching_element_type, const SignalType signal_type) {
         RelearnException::check(source != nullptr, "FastMultipoleMethodBase::calc_taylor_coefficients: source is nullptr");
         RelearnException::check(source->is_parent(), "FastMultipoleMethodBase::calc_taylor_coefficients: source node was a leaf node");
 
@@ -348,7 +350,7 @@ public:
 
         const auto& indices = MultiIndex::get_indices();
 
-        auto taylor_coefficients = std::vector<double>{};
+        auto taylor_coefficients = std::vector<attraction_type>{};
         taylor_coefficients.resize(Constants::p3);
 
         const auto& children = source->get_children();
@@ -357,7 +359,7 @@ public:
             // NOLINTNEXTLINE
             const auto& current_index = indices[index];
 
-            auto child_attraction = 0.0;
+            auto child_attraction = attraction_type{ 0.0 };
             for (const auto* source_child : children) {
                 if (source_child == nullptr) {
                     continue;
@@ -373,10 +375,10 @@ public:
                 RelearnException::check(child_pos.has_value(), "FastMultipoleMethodBase::calc_taylor_coefficients: source child has no position.");
 
                 const auto& temp_vec = (child_pos.value() - target_center) / sigma;
-                child_attraction += number_elements * h_multi_index(current_index, temp_vec);
+                child_attraction += static_cast<attraction_type>(number_elements) * h_multi_index(current_index, temp_vec);
             }
 
-            const auto coefficient = child_attraction / current_index.get_componentwise_factorial();
+            const auto coefficient = child_attraction / static_cast<attraction_type>(current_index.get_componentwise_factorial());
             const auto absolute_multi_index = current_index.calculate_1_norm();
 
             if (absolute_multi_index % 2 == 0) {
@@ -405,8 +407,8 @@ public:
      *      target is a leaf node, or source does not have a position of the requested tuple
      * @return Returns the attraction force.
      */
-    [[nodiscard]] static double calc_hermite(const double sigma, const NodeCache<AdditionalCellAttributes>& cache, const OctreeNode<AdditionalCellAttributes>* source, OctreeNode<AdditionalCellAttributes>* target,
-                                             std::span<const double> coefficients_buffer, const ElementType searching_element_type, const SignalType signal_type_needed) {
+    [[nodiscard]] static attraction_type calc_hermite(const attraction_type sigma, const NodeCache<AdditionalCellAttributes>& cache, const OctreeNode<AdditionalCellAttributes>* source, OctreeNode<AdditionalCellAttributes>* target,
+                                                      std::span<const attraction_type> coefficients_buffer, const ElementType searching_element_type, const SignalType signal_type_needed) {
         RelearnException::check(source != nullptr, "FastMultipoleMethodBase::calc_hermite::calc_direct_gauss: source is nullptr");
         RelearnException::check(target != nullptr, "FastMultipoleMethodBase::calc_hermite::calc_direct_gauss: target is nullptr");
         RelearnException::check(coefficients_buffer.size() == Constants::p3,
@@ -424,7 +426,7 @@ public:
         constexpr const auto indices = MultiIndex::get_indices();
         constexpr const auto number_coefficients = MultiIndex::get_number_of_indices();
 
-        auto total_attraction = 0.0;
+        auto total_attraction = attraction_type{ 0.0 };
 
         const auto& interaction_list = cache.get_children(target);
         for (const auto* child_target : interaction_list) {
@@ -443,16 +445,16 @@ public:
 
             const auto& temp_vec = (child_pos.value() - source_center) / sigma;
 
-            auto child_attraction = 0.0;
+            auto child_attraction = attraction_type{ 0.0 };
             for (auto a = 0U; a < number_coefficients; a++) {
                 // NOLINTNEXTLINE
                 child_attraction += coefficients_buffer[a] * h_multi_index(indices[a], temp_vec);
             }
 
             // A child cannot repel, this might need a different fix
-            child_attraction = std::max(child_attraction, 0.0);
+            child_attraction = std::max(child_attraction, attraction_type{ 0 });
 
-            total_attraction += number_searched_elements * child_attraction;
+            total_attraction += static_cast<attraction_type>(number_searched_elements) * child_attraction;
         }
 
         return total_attraction;
@@ -469,8 +471,8 @@ public:
      *      or if target doesn't have the necessary positions
      * @return Returns the attraction force.
      */
-    [[nodiscard]] static double calc_taylor(const double sigma, const NodeCache<AdditionalCellAttributes>& cache, const OctreeNode<AdditionalCellAttributes>* source, OctreeNode<AdditionalCellAttributes>* target,
-                                            const ElementType searching_element_type, const SignalType signal_type_needed) {
+    [[nodiscard]] static attraction_type calc_taylor(const attraction_type sigma, const NodeCache<AdditionalCellAttributes>& cache, const OctreeNode<AdditionalCellAttributes>* source, OctreeNode<AdditionalCellAttributes>* target,
+                                                     const ElementType searching_element_type, const SignalType signal_type_needed) {
         RelearnException::check(source != nullptr, "FastMultipoleMethodBase::calc_taylor: source is nullptr");
         RelearnException::check(target != nullptr, "FastMultipoleMethodBase::calc_taylor: target is nullptr");
 
@@ -487,7 +489,7 @@ public:
         const auto& indices = MultiIndex::get_indices();
         const auto& target_children = cache.get_children(target);
 
-        auto total_attraction = 0.0;
+        auto total_attraction = attraction_type{ 0.0 };
         for (const auto* target_child : target_children) {
             if (target_child == nullptr) {
                 continue;
@@ -504,16 +506,16 @@ public:
 
             const auto& temp_vec = (child_pos.value() - target_center) / sigma;
 
-            auto child_attraction = 0.0;
+            auto child_attraction = attraction_type{ 0.0 };
             for (auto b = 0U; b < Constants::p3; b++) {
                 // NOLINTNEXTLINE
-                child_attraction += taylor_coefficients[b] * (temp_vec.get_componentwise_power(indices[b]));
+                child_attraction += taylor_coefficients[b] * temp_vec.get_componentwise_power<attraction_type>(indices[b]);
             }
 
             // A child cannot repel, this might need a different fix
-            child_attraction = std::max(child_attraction, 0.0);
+            child_attraction = std::max(child_attraction, attraction_type{ 0 });
 
-            total_attraction += number_searched_elements * child_attraction;
+            total_attraction += static_cast<attraction_type>(number_searched_elements) * child_attraction;
         }
 
         return total_attraction;
@@ -529,16 +531,16 @@ public:
      * @exception Can throw a RelearnException
      * @return Returns a vector with the calculated forces of attraction. This contains as many elements as the interaction list.
      */
-    [[nodiscard]] static std::vector<double> calc_attractiveness_to_connect(const double sigma, const NodeCache<AdditionalCellAttributes>& cache, OctreeNode<AdditionalCellAttributes>* const source, const interaction_list_type& interaction_list,
-                                                                            const ElementType searching_element_type, const SignalType signal_type_needed) {
+    [[nodiscard]] static std::vector<attraction_type> calc_attractiveness_to_connect(const attraction_type sigma, const NodeCache<AdditionalCellAttributes>& cache, OctreeNode<AdditionalCellAttributes>* const source, const interaction_list_type& interaction_list,
+                                                                                     const ElementType searching_element_type, const SignalType signal_type_needed) {
         RelearnException::check(source != nullptr, "FastMultipoleMethodBase::calc_attractiveness_to_connect: Source was a nullptr.");
 
         const auto searched_element_type = get_other_element_type(searching_element_type);
 
-        auto result = std::vector<double>{};
+        auto result = std::vector<attraction_type>{};
         result.reserve(interaction_list.size());
 
-        auto hermite_coefficients = std::vector<double>{};
+        auto hermite_coefficients = std::vector<attraction_type>{};
         auto hermite_coefficients_init = false;
 
         // For every target calculate the attractiveness
@@ -567,9 +569,9 @@ public:
             result.emplace_back(hermite_attraction);
         }
 
-        const auto total_attraction = std::reduce(result.begin(), result.end(), 0.0, std::plus<double>{});
+        const auto total_attraction = std::reduce(result.begin(), result.end(), attraction_type{ 0.0 }, std::plus<attraction_type>{});
 
-        if (total_attraction == 0.0) {
+        if (total_attraction == attraction_type{ 0 }) {
             // We need a fix here
             for (auto i = std::size_t{ 0 }; i < result.size(); i++) {
                 const auto& source_cell = source->get_cell();
@@ -583,8 +585,8 @@ public:
                 const auto& source_position = source_opt_position.value();
                 const auto& target_position = target_opt_position.value();
 
-                const auto& distance = (source_position - target_position).calculate_2_norm();
-                result[i] = source_cell.get_number_elements_for(searching_element_type, signal_type_needed) * target_cell.get_number_elements_for(searched_element_type, signal_type_needed) / distance;
+                const auto& distance = (source_position - target_position).calculate_2_norm<attraction_type>();
+                result[i] = static_cast<attraction_type>(source_cell.get_number_elements_for(searching_element_type, signal_type_needed) * target_cell.get_number_elements_for(searched_element_type, signal_type_needed)) / distance;
             }
         }
 
@@ -601,23 +603,24 @@ public:
      * @exception Throws a RelearnException if node is nullptr
      * @return A vector of all found nodes
      */
-    [[nodiscard]] static std::vector<OctreeNode<AdditionalCellAttributes>*> unpack_levels(OctreeNode<AdditionalCellAttributes>* const node, const std::uint16_t levels_to_unpack,
+    [[nodiscard]] static std::vector<OctreeNode<AdditionalCellAttributes>*> unpack_levels(OctreeNode<AdditionalCellAttributes>* const node, const NodeCache<AdditionalCellAttributes>& cache, const level_type levels_to_unpack,
                                                                                           const ElementType element_type_needed, const SignalType signal_type_needed) {
         RelearnException::check(node != nullptr, "FastMultipoleMethodBase::unpack_levels: node is nullptr");
 
         struct stack_entry_type {
             OctreeNode<AdditionalCellAttributes>* ptr = nullptr;
-            std::uint16_t unpacked = 0;
+            level_type unpacked = 0;
         };
 
         auto unpacked_nodes = std::vector<OctreeNode<AdditionalCellAttributes>*>{};
         unpacked_nodes.reserve((Constants::number_oct * levels_to_unpack) + 1);
 
         auto stack = utility::Stack<stack_entry_type>{ (Constants::number_oct * levels_to_unpack) + 1 };
-        stack.emplace_back(node, std::uint16_t{ 0 });
+        stack.emplace_back(node, level_type{ 0 });
 
         while (!stack.empty()) {
             const auto [current_node, level_diff] = stack.pop_back();
+            RelearnException::check(current_node->get_mpi_rank().is_initialized(), "FastMultipoleMethodBase::unpack_levels: current_node has no MPI rank");
 
             const auto number_available_elements = current_node->get_cell().get_number_elements_for(element_type_needed, signal_type_needed);
             if (number_available_elements == 0) {
@@ -634,12 +637,14 @@ public:
                 continue;
             }
 
-            for (auto* child : current_node->get_children()) {
+            const auto& children = cache.get_children(current_node);
+            for (auto* child : children) {
                 if (child == nullptr) {
                     continue;
                 }
 
-                stack.emplace_back(child, static_cast<std::uint16_t>(level_diff + 1));
+                RelearnException::check(child->get_mpi_rank().is_initialized(), "FastMultipoleMethodBase::unpack_levels: child has no MPI rank");
+                stack.emplace_back(child, static_cast<level_type>(level_diff + 1));
             }
         }
 
@@ -663,13 +668,16 @@ public:
      *      (f) something unexcepted happens within the algorithms
      * @return A pair of (local_root, some_target), where some_target is on the branch_level of the octree. Can be empty if there was no suitable target
      */
-    [[nodiscard]] static std::optional<my_pair> find_target_for_local_root(const double sigma, const NodeCache<AdditionalCellAttributes>& cache, OctreeNode<AdditionalCellAttributes>* root, OctreeNode<AdditionalCellAttributes>* local_root,
-                                                                           const std::uint16_t branch_level, const ElementType searching_element_type, const SignalType signal_type_needed) {
+    [[nodiscard]] static std::optional<my_pair> find_target_for_local_root(const attraction_type sigma, const NodeCache<AdditionalCellAttributes>& cache, OctreeNode<AdditionalCellAttributes>* root, OctreeNode<AdditionalCellAttributes>* local_root,
+                                                                           const level_type branch_level, const ElementType searching_element_type, const SignalType signal_type_needed) {
         RelearnException::check(root != nullptr, "FastMultipoleMethodBase::find_target_for_local_root: root was nullptr");
         RelearnException::check(local_root != nullptr, "FastMultipoleMethodBase::find_target_for_local_root: local_root was nullptr");
 
         RelearnException::check(root->get_level() == 0, "FastMultipoleMethodBase::find_target_for_local_root: root didn't have level 0");
         RelearnException::check(local_root->get_level() == branch_level, "FastMultipoleMethodBase::find_target_for_local_root: local_root didn't have the branch_level");
+
+        RelearnException::check(local_root->get_mpi_rank().is_initialized(), "FastMultipoleMethodBase::find_target_for_local_root: local_root has no MPI rank");
+        RelearnException::check(local_root->get_mpi_rank() == mpiPP::MPIInfo::get_my_rank(), "FastMultipoleMethodBase::find_target_for_local_root: local_root is not local");
 
         const auto searched_element_type = get_other_element_type(searching_element_type);
 
@@ -682,10 +690,11 @@ public:
 
         if (branch_level == 0) {
             RelearnException::check(root == local_root, "FastMultipoleMethodBase::find_target_for_local_root: branch_level is 0 but root and local_root are different");
+            RelearnException::check(root->get_mpi_rank().is_initialized(), "FastMultipoleMethodBase::find_target_for_local_root: The root has no MPI rank");
             return my_pair{ .current_source = root, .current_target = root };
         }
 
-        const auto current_interaction_list = unpack_levels(root, branch_level, searched_element_type, signal_type_needed);
+        const auto current_interaction_list = unpack_levels(root, cache, branch_level, searched_element_type, signal_type_needed);
         if (current_interaction_list.empty()) {
             // This should not happen
             return {};
@@ -696,6 +705,7 @@ public:
 
         auto* target = current_interaction_list[index];
         RelearnException::check(target->get_level() == branch_level, "FastMultipoleMethodBase::find_target_for_local_root: The picked target is not on the branch level");
+        RelearnException::check(target->get_mpi_rank().is_initialized(), "FastMultipoleMethodBase::find_target_for_local_root: The picked target has no MPI rank");
 
         return my_pair{ .current_source = local_root, .current_target = target };
     }
@@ -711,7 +721,7 @@ public:
      * @exception Throws a RelearnExpection if one of current_pair is nullptr or if levels_to_unpack is == 0
      * @return New pairs at the lower level to evaluate again
      */
-    [[nodiscard]] static std::vector<my_pair> find_partners(const double sigma, const NodeCache<AdditionalCellAttributes>& cache, const my_pair current_pair, const ElementType searching_element_type, const SignalType signal_type_needed, const std::uint16_t levels_to_unpack) {
+    [[nodiscard]] static std::vector<my_pair> find_partners(const attraction_type sigma, const NodeCache<AdditionalCellAttributes>& cache, const my_pair current_pair, const ElementType searching_element_type, const SignalType signal_type_needed, const level_type levels_to_unpack) {
         const auto& [current_source, current_target] = current_pair;
 
         RelearnException::check(current_source != nullptr, "FastMultipoleMethodBase::find_partners: The source is nullptr");
@@ -727,8 +737,8 @@ public:
             return {};
         }
 
-        const auto unpacked_sources = unpack_levels(current_source, levels_to_unpack, searching_element_type, signal_type_needed);
-        const auto unpacked_targets = unpack_levels(current_target, levels_to_unpack, searched_element_type, signal_type_needed);
+        const auto unpacked_sources = unpack_levels(current_source, cache, levels_to_unpack, searching_element_type, signal_type_needed);
+        const auto unpacked_targets = unpack_levels(current_target, cache, levels_to_unpack, searched_element_type, signal_type_needed);
 
         auto new_pairs = std::vector<my_pair>{};
         new_pairs.reserve(unpacked_sources.size());
@@ -757,8 +767,8 @@ public:
      * @param request Where to append the requests
      * @exception Throws a RelearnException if root == nullptr, any local_root is nullptr, levels_to_unpack == 0, or anything goes wrong internally
      */
-    static void make_creation_request_for(const double sigma, const NodeCache<AdditionalCellAttributes>& cache, OctreeNode<AdditionalCellAttributes>* root, const std::vector<OctreeNode<AdditionalCellAttributes>*>& local_roots, const std::uint16_t branch_level,
-                                          const ElementType searching_element_type, const SignalType signal_type_needed, const std::uint16_t levels_to_unpack, RelearnTypes::comm_map_creation<SynapseCreationRequest>& request) {
+    static void make_creation_request_for(const attraction_type sigma, const NodeCache<AdditionalCellAttributes>& cache, OctreeNode<AdditionalCellAttributes>* root, const std::vector<OctreeNode<AdditionalCellAttributes>*>& local_roots, const level_type branch_level,
+                                          const ElementType searching_element_type, const SignalType signal_type_needed, const level_type levels_to_unpack, RelearnTypes::comm_map_creation<SynapseCreationRequest>& request) {
         RelearnException::check(root != nullptr, "FastMultipoleMethodBase::make_creation_request_for: root is nullptr");
         RelearnException::check(levels_to_unpack > 0, "FastMultipoleMethodBase::make_creation_request_for: lvels_to_unpack was 0");
 
@@ -789,7 +799,7 @@ public:
         }
     }
 
-    static void print_calculation(const double sigma, const NodeCache<AdditionalCellAttributes>& cache, std::ostream& out_stream, OctreeNode<FastMultipoleMethodCell>* source, OctreeNode<FastMultipoleMethodCell>* target,
+    static void print_calculation(const attraction_type sigma, const NodeCache<AdditionalCellAttributes>& cache, std::ostream& out_stream, OctreeNode<FastMultipoleMethodCell>* source, OctreeNode<FastMultipoleMethodCell>* target,
                                   const ElementType element_type, const SignalType needed) {
 
         const auto calc_type = check_calculation_requirements(source, target, element_type, needed);

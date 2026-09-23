@@ -3,24 +3,33 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-#include "Types3.h"
-
 #include "algorithm/Algorithm.h"
+#include "algorithm/Connector.h"
+#include "neurons/NetworkGraph.h"
+#include "neurons/synaptic_elements/SynapticElements.h"
+#include "types/BasicTypes.h"
+#include "types/CommunicationTypes.h"
+#include "types/SynapseTypes.h"
 #include "util/Timers.h"
 
-#include "mpi-wrapper/MPIAdvancedCommunicationPatterns.h"
+#include <mpi-wrapper/patterns/MPIAdvancedCommunicationPatterns.h>
 
 #include <memory>
-#include <tuple>
 #include <utility>
+
+/** Result of ForwardAlgorithm::process_requests_aware(): the responses to each request, the target neuron ids they resolved to, and how many synapses were created. */
+struct ProcessRequestsAwareResult {
+    DeviceArray<SynapseCreationResponse> responses;
+    DeviceArray<CudaConfig::number_neurons_type> target_ids;
+    std::uint64_t number_created_synapses{};
+};
 
 /**
  * This class manages the exchange of requests and responses, and their distribution on all MPI ranks
@@ -29,14 +38,14 @@
  * @tparam ResponseType The type of creation responses
  */
 template <typename RequestType, typename ResponseType>
-class ForwardAlgorithm : public Algorithm {
+class ForwardCPUAlgorithm : public Algorithm {
 public:
     using number_neurons_type = RelearnTypes::number_neurons_type;
 
     /**
      * @brief Constructs a new object
      */
-    ForwardAlgorithm()
+    ForwardCPUAlgorithm()
         : Algorithm() { }
 
     /**
@@ -46,7 +55,7 @@ public:
      * @exception Can throw a RelearnException
      * @return A tuple with the created synapses that must be committed to the network graph
      */
-    [[nodiscard]] std::tuple<PlasticLocalSynapses, PlasticDistantInSynapses, PlasticDistantOutSynapses> update_connectivity(const number_neurons_type number_neurons) override {
+    [[nodiscard]] ConnectivityUpdateResult update_connectivity(const number_neurons_type number_neurons) final {
         Timers::start(TimerRegion::CREATE_SYNAPSES);
 
         Timers::start(TimerRegion::FIND_TARGET_NEURONS);
@@ -58,7 +67,7 @@ public:
         Timers::stop_and_add(TimerRegion::EXCHANGE_CREATION_REQUESTS);
 
         Timers::start(TimerRegion::PROCESS_CREATION_REQUESTS);
-        auto [responses_outgoing, synapses] = process_requests(synapse_creation_requests_incoming);
+        auto [responses_outgoing, number_created_synapses, synapses] = process_requests(synapse_creation_requests_incoming);
         auto& [local_synapses, distant_in_synapses] = synapses;
         Timers::stop_and_add(TimerRegion::PROCESS_CREATION_REQUESTS);
 
@@ -73,7 +82,7 @@ public:
         Timers::stop_and_add(TimerRegion::CREATE_SYNAPSES);
 
         return {
-            std::move(local_synapses), std::move(distant_in_synapses), std::move(out_synapses)
+            number_created_synapses, std::move(local_synapses), std::move(distant_in_synapses), std::move(out_synapses)
         };
     }
 
@@ -95,6 +104,7 @@ protected:
      * @exception Can throw a RelearnException
      * @return Returns a map, indicating for every MPI rank all requests that are made from this rank. Does not send those requests to the other MPI ranks.
      */
+
     [[nodiscard]] virtual RelearnTypes::comm_map_creation<RequestType> find_target_neurons(number_neurons_type number_neurons) = 0;
 
     /**
@@ -103,7 +113,7 @@ protected:
      * @exception Can throw a RelearnException
      * @return A pair of (1) The responses to each request and (2) another pair of (a) all local synapses and (b) all distant synapses to the local rank
      */
-    [[nodiscard]] virtual std::pair<RelearnTypes::comm_map_creation<ResponseType>, std::pair<PlasticLocalSynapses, PlasticDistantInSynapses>>
+    [[nodiscard]] virtual ForwardProcessRequestsResult<ResponseType>
     process_requests(const RelearnTypes::comm_map_creation<RequestType>& creation_requests) = 0;
 
     /**
@@ -143,7 +153,10 @@ public:
      * @exception Can throw a RelearnException
      * @return A tuple with the created synapses that must be committed to the network graph
      */
-    [[nodiscard]] std::tuple<PlasticLocalSynapses, PlasticDistantInSynapses, PlasticDistantOutSynapses> update_connectivity(const number_neurons_type number_neurons) override {
+    [[nodiscard]] ConnectivityUpdateResult update_connectivity(const number_neurons_type number_neurons) override {
+#ifdef RELEARN_CUDA_ENABLED
+        CPU_NOT_SUPPORTED
+#endif
         Timers::start(TimerRegion::CREATE_SYNAPSES);
 
         Timers::start(TimerRegion::FIND_TARGET_NEURONS);
@@ -155,7 +168,7 @@ public:
         Timers::stop_and_add(TimerRegion::EXCHANGE_CREATION_REQUESTS);
 
         Timers::start(TimerRegion::PROCESS_CREATION_REQUESTS);
-        auto [responses_outgoing, synapses] = process_requests(synapse_creation_requests_incoming);
+        auto [responses_outgoing, created_synapse, synapses] = process_requests(synapse_creation_requests_incoming);
         auto& [local_synapses, distant_out_synapses] = synapses;
         Timers::stop_and_add(TimerRegion::PROCESS_CREATION_REQUESTS);
 
@@ -170,7 +183,7 @@ public:
         Timers::stop_and_add(TimerRegion::CREATE_SYNAPSES);
 
         return {
-            std::move(local_synapses), std::move(distant_in_synapses), std::move(distant_out_synapses)
+            created_synapse, std::move(local_synapses), std::move(distant_in_synapses), std::move(distant_out_synapses)
         };
     }
 
@@ -200,7 +213,7 @@ protected:
      * @exception Can throw a RelearnException
      * @return A pair of (1) The responses to each request and (2) another pair of (a) all local synapses and (b) all synapses from other ranks
      */
-    [[nodiscard]] virtual std::pair<RelearnTypes::comm_map_creation<ResponseType>, std::pair<PlasticLocalSynapses, PlasticDistantOutSynapses>>
+    [[nodiscard]] virtual BackwardProcessRequestsResult<ResponseType>
     process_requests(const RelearnTypes::comm_map_creation<RequestType>& creation_requests) = 0;
 
     /**

@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,22 +11,22 @@
 #include "FastMultipoleMethodInverted.h"
 
 #include "Config.h"
-#include "Types.h"
 
 #include "algorithm/Connector.h"
 #include "algorithm/FMMInternal/FastMultipoleMethodBase.h"
-#include "algorithm/FMMInternal/FastMultipoleMethodCell.h"
-#include "algorithm/Internal/octree/NodeCache.h"
+#include "algorithm/Kernel/Gaussian.h"
 #include "neurons/enums/SynapticElementType.h"
 #include "neurons/helper/SynapseCreationRequests.h"
+#include "neurons/helper/SynapseCreationResponse.h"
+#include "types/CommunicationTypes.h"
+#include "types/SynapseTypes.h"
 #include "util/RelearnException.h"
 #include "util/Timers.h"
 
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <algorithm>
-#include <utility>
 
 RelearnTypes::comm_map_creation<SynapseCreationRequest> FastMultipoleMethodInverted::find_target_neurons(const number_neurons_type number_neurons) {
     const auto number_ranks = mpiPP::MPIInfo::get_number_ranks();
@@ -53,10 +53,10 @@ RelearnTypes::comm_map_creation<SynapseCreationRequest> FastMultipoleMethodInver
     RelearnException::check(gaussian_ptr != nullptr, "FastMultipoleMethodInverted::find_target_neurons: kernel was not Gaussian");
 
     if (total_number_axons_ex > 0) {
-        FastMultipoleMethodBase::make_creation_request_for(gaussian_ptr->get_sigma(), node_cache, root, local_branch_nodes, branch_level, ElementType::Dendrite, SignalType::Excitatory, Constants::unpacking, synapse_creation_requests_outgoing);
+        FastMultipoleMethodBase::make_creation_request_for(gaussian_ptr->get_sigma(), node_cache, root, local_branch_nodes, branch_level, ElementType::Dendrite, SignalType::Excitatory, Constants::unpacking + 1, synapse_creation_requests_outgoing);
     }
     if (total_number_axons_in > 0) {
-        FastMultipoleMethodBase::make_creation_request_for(gaussian_ptr->get_sigma(), node_cache, root, local_branch_nodes, branch_level, ElementType::Dendrite, SignalType::Inhibitory, Constants::unpacking, synapse_creation_requests_outgoing);
+        FastMultipoleMethodBase::make_creation_request_for(gaussian_ptr->get_sigma(), node_cache, root, local_branch_nodes, branch_level, ElementType::Dendrite, SignalType::Inhibitory, Constants::unpacking + 1, synapse_creation_requests_outgoing);
     }
 
     // Stop Timer and make cache empty for next connectivity update
@@ -67,7 +67,7 @@ RelearnTypes::comm_map_creation<SynapseCreationRequest> FastMultipoleMethodInver
     return synapse_creation_requests_outgoing;
 }
 
-std::pair<RelearnTypes::comm_map_creation<SynapseCreationResponse>, std::pair<PlasticLocalSynapses, PlasticDistantOutSynapses>>
+BackwardProcessRequestsResult<SynapseCreationResponse>
 FastMultipoleMethodInverted::process_requests(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests) {
     return BackwardConnector::process_requests(creation_requests, synaptic_elements);
 }

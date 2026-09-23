@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2020-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,12 +11,14 @@
 #include "Partition.h"
 
 #include "Config.h"
+
 #include "io/LogFiles.h"
 #include "structure/Hilbert.h"
 #include "structure/Morton.h"
+#include "structure/SpaceFillingCurveType.h"
 #include "util/RelearnException.h"
 
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/transform.hpp>
@@ -25,25 +27,33 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <sstream>
 #include <vector>
 
-Partition::Partition(const std::size_t num_ranks, const mpiPP::MPIRank my_rank, const SpaceFillingCurveType curve_type)
+Partition::Partition(const int num_ranks, const mpiPP::MPIRank my_rank, const SpaceFillingCurveType curve_type)
     : my_mpi_rank{ my_rank }
     , number_mpi_ranks{ num_ranks } {
     RelearnException::check(num_ranks > 0, "Partition::Partition: Number of MPI ranks must be a positive number: {}", num_ranks);
-    RelearnException::check(num_ranks > my_rank.get_rank_cast(), "Partition::Partition: My rank must be smaller than number of ranks: {} vs {}", num_ranks, my_rank);
+
+    // The subdomains are counted in std::size_t, so the number of ranks joins them for all of the arithmetic below
+    const auto number_ranks_cast = static_cast<std::size_t>(num_ranks);
+    RelearnException::check(number_ranks_cast > my_rank.get_rank_cast(), "Partition::Partition: My rank must be smaller than number of ranks: {} vs {}", num_ranks, my_rank);
 
     /**
      * Total number of local_subdomains is smallest power of 8 that is >= num_ranks.
      * We choose power of 8 as every domain subdivision creates 8 local_subdomains (in 3d).
      */
     const auto smallest_exponent = std::ceil(std::log(num_ranks) / std::log(8.0));
-    level_of_subdomain_trees = static_cast<std::uint16_t>(smallest_exponent);
+    if (smallest_exponent > static_cast<double>(std::numeric_limits<level_type>::max())) {
+        RelearnException::fail("Partition::Partition: level_of_subdomain_trees was too large: {}", smallest_exponent);
+    }
+
+    level_of_subdomain_trees = static_cast<level_type>(smallest_exponent);
     total_number_subdomains = 1ULL << (3U * level_of_subdomain_trees); // 8^level_of_subdomain_trees
 
     // Every rank should get at least one subdomain
-    RelearnException::check(total_number_subdomains >= num_ranks, "Partition::Partition: Total num local_subdomains is smaller than number ranks: {} vs {}", total_number_subdomains, num_ranks);
+    RelearnException::check(total_number_subdomains >= number_ranks_cast, "Partition::Partition: Total num local_subdomains is smaller than number ranks: {} vs {}", total_number_subdomains, num_ranks);
 
     /**
      * Calc my number of local_subdomains
@@ -56,8 +66,8 @@ Partition::Partition(const std::size_t num_ranks, const mpiPP::MPIRank my_rank, 
      * For #procs = 2^n and 8^level_of_subdomain_trees local_subdomains, every proc's #local_subdomains is the same power of two of {1, 2, 4}.
      */
     // NOLINTNEXTLINE
-    number_local_subdomains = total_number_subdomains / num_ranks;
-    const auto rest = total_number_subdomains % num_ranks;
+    number_local_subdomains = total_number_subdomains / number_ranks_cast;
+    const auto rest = total_number_subdomains % number_ranks_cast;
     number_local_subdomains += (my_rank.get_rank_cast() < rest) ? 1U : 0U;
 
     if (rest != 0) {
@@ -72,19 +82,15 @@ Partition::Partition(const std::size_t num_ranks, const mpiPP::MPIRank my_rank, 
      */
     number_subdomains_per_dimension = 1ULL << level_of_subdomain_trees;
 
-    if (level_of_subdomain_trees > std::numeric_limits<std::uint8_t>::max()) {
-        RelearnException::fail("Partition::Partition: level_of_subdomain_trees was too large: {}", level_of_subdomain_trees);
-    }
-
-    if (curve_type == SpaceFillingCurveType::Morton) {
-        space_curve = std::make_shared<Morton>(static_cast<std::uint8_t>(level_of_subdomain_trees));
+    if (curve_type == SpaceFillingCurveType::MortonCurve) {
+        space_curve = std::make_shared<Morton>(level_of_subdomain_trees);
     } else {
-        RelearnException::check(curve_type == SpaceFillingCurveType::Hilbert, "Partition::Partition: curve_type was not Morton or Hilbert");
-        space_curve = std::make_shared<Hilbert>(static_cast<std::uint8_t>(level_of_subdomain_trees));
+        RelearnException::check(curve_type == SpaceFillingCurveType::HilbertCurve, "Partition::Partition: curve_type was not Morton or Hilbert");
+        space_curve = std::make_shared<Hilbert>(level_of_subdomain_trees);
     }
 
     // Calc start and end index of subdomain
-    local_subdomain_id_start = (total_number_subdomains / num_ranks) * my_rank.get_rank_cast();
+    local_subdomain_id_start = (total_number_subdomains / number_ranks_cast) * my_rank.get_rank_cast();
     local_subdomain_id_end = local_subdomain_id_start + number_local_subdomains - 1;
 
     // Allocate vector with my number of local_subdomains
@@ -149,7 +155,7 @@ void Partition::set_simulation_box_size(const bounding_box_type& simulation_box_
     const auto& [min_x, min_y, min_z] = min;
     const auto& [max_x, max_y, max_z] = max;
 
-    const auto half_constant = static_cast<double>(Constants::uninitialized) / 2;
+    const auto half_constant = static_cast<space_type>(Constants::uninitialized) / 2;
 
     RelearnException::check(-half_constant < min_x && min_x < half_constant, "Partition::set_simulation_box_size: minimum had a bad value for x: {}", min_x);
     RelearnException::check(-half_constant < min_y && min_y < half_constant, "Partition::set_simulation_box_size: minimum had a bad value for y: {}", min_y);
@@ -160,9 +166,10 @@ void Partition::set_simulation_box_size(const bounding_box_type& simulation_box_
     RelearnException::check(-half_constant < max_z && max_z < half_constant, "Partition::set_simulation_box_size: maximum had a bad value for y: {}", max_z);
 
     simulation_box = simulation_box_size;
+    simulation_box_is_set = true;
 
     const auto& simulation_box_length = max - min;
-    const auto& subdomain_length = simulation_box_length / static_cast<double>(number_subdomains_per_dimension);
+    const auto& subdomain_length = simulation_box_length / static_cast<space_type>(number_subdomains_per_dimension);
 
     LogFiles::print_message_rank(mpiPP::MPIRank::root_rank(), "Simulation box length (height, width, depth)\t: ({}, {}, {})",
                                  simulation_box_length.get_x(), simulation_box_length.get_y(), simulation_box_length.get_z());

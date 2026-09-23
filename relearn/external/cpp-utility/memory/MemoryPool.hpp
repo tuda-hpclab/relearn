@@ -1,110 +1,151 @@
 #pragma once
 
 /*
- * This file is part of the ScalableGraphAlgorithm software developed at Technical University Darmstadt.
+ * This file is part of the CPP-Utility software developed at Technical University Darmstadt
  *
- * Copyright (c) 2024, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "cpp-utility/Exception.hpp"
-
 #include <cstddef>
-#include <deque>
-#include <functional>
+#include <cstdint>
 #include <memory>
+#include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace utility {
 
 /**
- * @brief Represents a memory pool resource
- * @tparam T The type to store
- * @tparam chunk_size The size of a chunk, i.e., always returns a pointer with enough space to store that number of elements
+ * @brief Owns a fixed number of equally sized, suitably aligned raw-memory chunks.
+ *
+ * get_pointer() returns storage for exactly @p chunk_size objects of type @p T. The objects' lifetimes are not
+ * started; callers that construct objects in the storage must destroy them before returning the pointer. If all
+ * pooled chunks are in use, the request transparently falls back to std::allocator. The class is not thread-safe.
+ *
+ * @tparam T The element type whose size and alignment determine the storage.
+ * @tparam chunk_size The positive number of T objects that fit into every returned chunk.
  */
 template <typename T, std::size_t chunk_size>
 class MemoryPool {
-    constexpr static std::size_t default_memory_size = 1024UL * 1024UL;
+    static_assert(chunk_size > 0, "MemoryPool chunks must contain at least one element");
+
+    using allocator_traits = std::allocator_traits<std::allocator<T>>;
 
 public:
     /**
-     * @brief Initializes the current resource
-     * @param number_chunks The number of chunks that should be allocated.
+     * @brief Allocates storage for @p number_chunks pooled chunks.
+     * @param number_chunks The pool capacity; zero creates an always-fallback pool.
+     * @exception std::length_error If the requested element count overflows size_type or exceeds allocator limits.
+     * @exception std::bad_alloc If the storage allocation fails.
      */
-    constexpr MemoryPool(const std::size_t number_chunks) {
-        const auto sizeoft = sizeof(T);
-
-        const auto total_memory_size = number_chunks * chunk_size * sizeoft + chunk_size * sizeoft;
-
-        memory.resize(total_memory_size);
-        pointers.resize(number_chunks);
-
-        auto* current_ptr = memory.data();
-        auto size = number_chunks * chunk_size * sizeoft;
-
-        for (auto i = std::size_t{ 0 }; i < number_chunks; i++) {
-            auto* cast_current_ptr = static_cast<void*>(current_ptr);
-            auto* aligned_ptr = std::align(alignof(T), sizeoft, cast_current_ptr, size);
-            pointers[i] = reinterpret_cast<T*>(aligned_ptr);
-
-            size -= chunk_size * sizeoft;
-            current_ptr += sizeoft * chunk_size;
+    explicit MemoryPool(const std::size_t number_chunks)
+        : number_of_chunks(number_chunks) {
+        const auto max_elements = allocator_traits::max_size(default_allocator);
+        if (number_chunks > max_elements / chunk_size) {
+            throw std::length_error{ "MemoryPool capacity exceeds allocator limits" };
         }
 
-        number_of_chunks = number_chunks;
+        pointers.resize(number_chunks);
+        checked_out.resize(number_chunks, false);
+
+        const auto element_count = number_chunks * chunk_size;
+        if (element_count == 0) {
+            return;
+        }
+
+        memory = allocator_traits::allocate(default_allocator, element_count);
+        for (auto i = std::size_t{ 0 }; i < number_chunks; ++i) {
+            pointers[i] = memory + i * chunk_size;
+        }
     }
 
     MemoryPool(const MemoryPool&) = delete;
-    MemoryPool(MemoryPool&&) = default;
+    MemoryPool(MemoryPool&& other) noexcept
+        : memory{ std::exchange(other.memory, nullptr) }
+        , pointers{ std::move(other.pointers) }
+        , checked_out{ std::move(other.checked_out) }
+        , number_of_chunks{ std::exchange(other.number_of_chunks, 0) }
+        , default_allocator{ std::move(other.default_allocator) } {
+    }
 
     MemoryPool& operator=(const MemoryPool&) = delete;
-    MemoryPool& operator=(MemoryPool&&) = default;
-
-    /**
-     * @brief Retrieves a pointer to memory with enough space for chunk_size.
-     *		If all slots of the pool are filled, returns a default-allocated pointer
-     * @return A pointer
-     */
-    [[nodiscard]] constexpr T* get_pointer() {
-        if (pointers.empty()) {
-            return default_allocator.allocate(chunk_size);
+    MemoryPool& operator=(MemoryPool&& other) noexcept {
+        if (this == &other) {
+            return *this;
         }
 
-        auto* ptr = pointers.back();
+        release_storage();
+        memory = std::exchange(other.memory, nullptr);
+        pointers = std::move(other.pointers);
+        checked_out = std::move(other.checked_out);
+        number_of_chunks = std::exchange(other.number_of_chunks, 0);
+        default_allocator = std::move(other.default_allocator);
+        return *this;
+    }
+
+    ~MemoryPool() {
+        release_storage();
+    }
+
+    /**
+     * @brief Obtains uninitialized storage for @p chunk_size T objects.
+     * @return A pooled pointer, or a separately allocated pointer while the pool is exhausted.
+     * @exception std::bad_alloc If fallback allocation fails.
+     */
+    [[nodiscard]] T* get_pointer() {
+        if (pointers.empty()) {
+            return allocator_traits::allocate(default_allocator, chunk_size);
+        }
+
+        auto* const ptr = pointers.back();
         pointers.pop_back();
-
-        std::ranges::uninitialized_value_construct_n(ptr, chunk_size);
-
+        const auto chunk_index = static_cast<std::size_t>(ptr - memory) / chunk_size;
+        checked_out[chunk_index] = true;
         return ptr;
     }
 
     /**
-     * @brief Returns the pointer to the memory pool; can also deal with default-allocated pointers.
-     * @param ptr The pointer to return
+     * @brief Returns storage obtained from this pool; fallback storage is deallocated immediately.
+     * @param ptr A pointer previously returned by get_pointer(); nullptr is ignored.
+     * @exception std::invalid_argument If @p ptr points into the pool but is not the start of a currently checked-out chunk.
      */
-    constexpr void return_pointer(T* const ptr) {
+    void return_pointer(T* const ptr) {
         if (!ptr) {
             return;
         }
 
-        const auto comparator = std::less{};
-        const auto* const other_ptr = reinterpret_cast<std::byte*>(ptr);
-
-        auto* const first_memory = memory.data();
-        auto* const last_memory = memory.data() + number_of_chunks * chunk_size * sizeof(T);
-
-        const auto larger = comparator(last_memory, other_ptr);
-
-        if (const auto smaller = comparator(other_ptr, first_memory); smaller || larger) {
-            default_allocator.deallocate(ptr, chunk_size);
+        if (memory == nullptr) {
+            allocator_traits::deallocate(default_allocator, ptr, chunk_size);
             return;
         }
 
-        std::ranges::destroy_n(ptr, chunk_size);
+        const auto begin_address = reinterpret_cast<std::uintptr_t>(memory);
+        const auto end_address = reinterpret_cast<std::uintptr_t>(memory + number_of_chunks * chunk_size);
+        const auto pointer_address = reinterpret_cast<std::uintptr_t>(ptr);
+        if (pointer_address < begin_address || pointer_address > end_address) {
+            allocator_traits::deallocate(default_allocator, ptr, chunk_size);
+            return;
+        }
 
+        if (pointer_address == end_address) {
+            throw std::invalid_argument{ "MemoryPool cannot return its one-past-the-end pointer" };
+        }
+
+        const auto byte_offset = pointer_address - begin_address;
+        constexpr auto chunk_bytes = chunk_size * sizeof(T);
+        if (byte_offset % chunk_bytes != 0) {
+            throw std::invalid_argument{ "MemoryPool can only return the start of a chunk" };
+        }
+
+        const auto chunk_index = byte_offset / chunk_bytes;
+        if (!checked_out[chunk_index]) {
+            throw std::invalid_argument{ "MemoryPool chunk was already returned" };
+        }
+        checked_out[chunk_index] = false;
         pointers.push_back(ptr);
     }
 
@@ -112,7 +153,7 @@ public:
      * @brief Returns the number of available pointers currently in the pool
      * @return The number of pointers
      */
-    [[nodiscard]] constexpr std::size_t get_number_available_pointers() noexcept {
+    [[nodiscard]] std::size_t get_number_available_pointers() const noexcept {
         return pointers.size();
     }
 
@@ -120,13 +161,21 @@ public:
      * @brief Returns the capacity of the pool, i.e., how many pointers are available and how many are currently in use
      * @return The capacity
      */
-    [[nodiscard]] constexpr std::size_t get_capacity() noexcept {
+    [[nodiscard]] std::size_t get_capacity() const noexcept {
         return number_of_chunks;
     }
 
 private:
-    std::vector<std::byte> memory{};
-    std::deque<T*> pointers{};
+    void release_storage() noexcept {
+        if (memory != nullptr) {
+            allocator_traits::deallocate(default_allocator, memory, number_of_chunks * chunk_size);
+            memory = nullptr;
+        }
+    }
+
+    T* memory{};
+    std::vector<T*> pointers{};
+    std::vector<bool> checked_out{};
     std::size_t number_of_chunks{};
     std::allocator<T> default_allocator{};
 };

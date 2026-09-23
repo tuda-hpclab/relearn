@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,12 +11,14 @@
  */
 
 #include "Config.h"
-#include "Types.h"
 
 #include "algorithm/Kernel/KernelBase.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
 #include "util/RelearnException.h"
 #include "util/Vec3.h"
 
+#include <cmath>
 #include <numeric>
 
 /**
@@ -26,13 +28,15 @@
  */
 class GaussianDistributionKernel : public KernelBase {
 public:
+    using attraction_type = RelearnTypes::attraction_type;
     using counter_type = RelearnTypes::counter_type;
     using position_type = RelearnTypes::position_type;
+    using space_type = RelearnTypes::space_type;
 
     using KernelBase::get_probability;
 
-    static constexpr double default_mu = 0.0;      // In Sebastian's work: 0.0
-    static constexpr double default_sigma = 750.0; // In Sebastian's work: 750.0
+    static constexpr attraction_type default_mu = 0.0;      // In Sebastian's work: 0.0
+    static constexpr attraction_type default_sigma = 750.0; // In Sebastian's work: 750.0
 
     /**
      * @brief Constructs a new Gaussian kernel
@@ -40,11 +44,11 @@ public:
      * @param _sigma The variance sigma, must be > 0.0
      * @exception Throws a RelearnException if sigma <= 0.0
      */
-    GaussianDistributionKernel(const double _mu = default_mu, const double _sigma = default_sigma)
+    GaussianDistributionKernel(const attraction_type _mu = default_mu, const attraction_type _sigma = default_sigma)
         : mu{ _mu }
         , sigma{ _sigma } {
-        RelearnException::check(sigma > 0.0, "GaussianDistributionKernel::GaussianDistributionKernel, sigma was not greater than 0.0");
-        scale_factor = -1.0 / (sigma * sigma);
+        RelearnException::check(sigma > attraction_type{ 0 }, "GaussianDistributionKernel::GaussianDistributionKernel, sigma was not greater than 0.0");
+        scale_factor = attraction_type{ -1 } / (sigma * sigma);
     }
 
     ~GaussianDistributionKernel() override = default;
@@ -55,7 +59,7 @@ public:
      * @param distance The distance between the source and target neuron
      * @return The probability for a connection, >= 0.0; not normalized to [0, 1]
      */
-    [[nodiscard]] double get_probability(const double distance) const override {
+    [[nodiscard]] attraction_type get_probability(const space_type distance) const override {
         // Criterion from Markus' paper with doi: 10.3389/fnsyn.2014.00007
         const auto numerator = (distance - mu) * (distance - mu);
         const auto exponent = numerator * scale_factor;
@@ -63,11 +67,11 @@ public:
         return exp_val;
     }
 
-    /** 
+    /**
      * @brief Returns the currently used offset
      * @return The currently used offset
      */
-    [[nodiscard]] double get_mu() const noexcept {
+    [[nodiscard]] attraction_type get_mu() const noexcept {
         return mu;
     }
 
@@ -75,19 +79,19 @@ public:
      * @brief Returns the currently used variance
      * @return The currently used variance
      */
-    [[nodiscard]] double get_sigma() const noexcept {
+    [[nodiscard]] attraction_type get_sigma() const noexcept {
         return sigma;
     }
 
-    [[nodiscard]] bool is_approximately_equal(const KernelBase& other, double epsilon = Constants::eps) const override {
-        const auto double_equal = [epsilon](double a, double b) {
-            return fabs(a - b) < epsilon;
+    [[nodiscard]] bool is_approximately_equal(const KernelBase& other, attraction_type epsilon = static_cast<attraction_type>(Constants::eps)) const override {
+        const auto values_equal = [epsilon](const attraction_type a, const attraction_type b) {
+            return std::fabs(a - b) < epsilon;
         };
         const auto* other_kernel = dynamic_cast<const GaussianDistributionKernel*>(&other);
         if (!other_kernel) {
             return false;
         }
-        return double_equal(get_mu(), other_kernel->get_mu()) && double_equal(get_sigma(), other_kernel->get_sigma());
+        return values_equal(get_mu(), other_kernel->get_mu()) && values_equal(get_sigma(), other_kernel->get_sigma());
     }
 
     [[nodiscard]] KernelType get_kernel_type() const override {
@@ -99,8 +103,8 @@ public:
     }
 
 private:
-    double mu{ default_mu };
-    double sigma{ default_sigma };
+    attraction_type mu{ default_mu };
+    attraction_type sigma{ default_sigma };
 
-    double scale_factor{ -1.0 / (default_sigma * default_sigma) };
+    attraction_type scale_factor{ attraction_type{ -1 } / (default_sigma * default_sigma) };
 };

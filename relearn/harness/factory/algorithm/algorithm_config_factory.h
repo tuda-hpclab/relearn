@@ -3,19 +3,18 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2025-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types2.h"
-
 #include "algorithm/AlgorithmEnum.h"
 #include "algorithm/CombinedAlgorithmsInternal/AlgorithmConfig.h"
 #include "algorithm/Kernel/KernelBase.h"
 #include "algorithm/Kernel/KernelType.h"
+#include "types/AlgorithmTypes.h"
 
 #include <memory>
 #include <random>
@@ -40,11 +39,11 @@ public:
 	 
 	static std::unique_ptr<KernelBase> build_kernel(const KernelType& kernel_type, bool default_parameters, std::mt19937& mt);
 	 
-	static std::vector<double> get_random_gamma_parameters(std::mt19937& mt);
+	static std::vector<RelearnTypes::attraction_type> get_random_gamma_parameters(std::mt19937& mt);
 	 
-	static std::vector<double> get_random_gaussian_parameters(std::mt19937& mt);
+	static std::vector<RelearnTypes::attraction_type> get_random_gaussian_parameters(std::mt19937& mt);
 	 
-	static std::vector<double> get_random_linear_parameters(std::mt19937& mt);
+	static std::vector<RelearnTypes::attraction_type> get_random_linear_parameters(std::mt19937& mt);
 	 
-	static std::vector<double> get_random_weibull_parameters(std::mt19937& mt);
+	static std::vector<RelearnTypes::attraction_type> get_random_weibull_parameters(std::mt19937& mt);
 };

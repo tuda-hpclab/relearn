@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2023-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -10,23 +10,23 @@
 
 #include "FiredStatusApproximator.h"
 
-#include "Types3.h"
-
 #include "neurons/NetworkGraph.h"
 #include "neurons/enums/FiredStatus.h"
 #include "neurons/firing/FiredStatusCommunicator.h"
+#include "types/CommunicationTypes.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/Random.h"
+#include "util/RandomHolderKey.h"
 #include "util/RelearnException.h"
 
-#include "cpp-utility/MemoryFootprint.hpp"
+#include <cpp-utility/MemoryFootprint.hpp>
 
-#include "mpi-wrapper/MPIAdvancedCommunicationPatterns.h"
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIRank.h>
+#include <mpi-wrapper/patterns/MPIAdvancedCommunicationPatterns.h>
 
 #include <algorithm>
 #include <cstddef>
-#include <memory>
 #include <unordered_map>
 
 void FiredStatusApproximator::commit_local_fired_status(const step_type /*step*/) {
@@ -56,7 +56,7 @@ bool FiredStatusApproximator::contains(const mpiPP::MPIRank rank, const NeuronID
 
     const auto firing_rate = pos->second;
 
-    const auto random_number = RandomHolder::get_random_uniform_double(RandomHolderKey::FiringStatusApproximator, 0.0, 1.0);
+    const auto random_number = RandomHolder::get_random_uniform_double(RandomHolderKey::FiringStatusApproximator, fire_rate_type{ 0 }, fire_rate_type{ 1 });
     return firing_rate >= random_number;
 }
 
@@ -65,9 +65,9 @@ void FiredStatusApproximator::notify_of_plasticity_change(const step_type step) 
     const auto steps_since_last_sync = step - last_synced;
 
     if (steps_since_last_sync > 0) {
-        const auto steps_since_last_sync_inv = 1.0 / steps_since_last_sync;
+        const auto steps_since_last_sync_inv = fire_rate_type{ 1 } / static_cast<fire_rate_type>(steps_since_last_sync);
         for (auto i = std::size_t{ 0 }; i < accumulated_fired.size(); i++) {
-            latest_firing_rate[i] = steps_since_last_sync_inv * static_cast<double>(accumulated_fired[i]);
+            latest_firing_rate[i] = steps_since_last_sync_inv * static_cast<fire_rate_type>(accumulated_fired[i]);
         }
 
         std::ranges::fill(accumulated_fired, 0);
@@ -75,16 +75,16 @@ void FiredStatusApproximator::notify_of_plasticity_change(const step_type step) 
 
     struct communication_type {
         NeuronID neuron_id;
-        double firing_rate{};
+        fire_rate_type firing_rate{};
     };
 
     const auto num_local_neurons = get_number_local_neurons();
 
-    const auto size_hint = std::min<std::size_t>(static_cast<std::size_t>(get_number_ranks()), num_local_neurons);
+    const auto size_hint = std::min(static_cast<RelearnTypes::number_neurons_type>(get_number_ranks()), num_local_neurons);
     auto outgoing_firing_rates = RelearnTypes::comm_map_firing<communication_type>{ get_number_ranks(), size_hint };
 
     auto add_to_communication_map = [&outgoing_firing_rates, num_local_neurons, this](const auto& synapses) {
-        for (const auto neuron_id : NeuronID::range(num_local_neurons)) {
+        for (const auto neuron_id : NeuronIDRange::range(num_local_neurons)) {
             const auto it = neuron_id.get_neuron_id();
 
             for (const auto& [target_id, weight] : synapses[it]) {
@@ -121,12 +121,12 @@ void FiredStatusApproximator::notify_of_plasticity_change(const step_type step) 
 void FiredStatusApproximator::record_memory_footprint(const std::unique_ptr<utility::MemoryFootprint>& footprint) {
     const auto my_easy_footprint = sizeof(*this) - sizeof(FiredStatusCommunicator)
                                    + (accumulated_fired.capacity() * sizeof(std::size_t))
-                                   + (latest_firing_rate.capacity() * sizeof(double));
+                                   + (latest_firing_rate.capacity() * sizeof(fire_rate_type));
 
-    auto my_hard_footprint = firing_rate_cache.capacity() * sizeof(std::unordered_map<NeuronID, double>);
+    auto my_hard_footprint = firing_rate_cache.capacity() * sizeof(std::unordered_map<NeuronID, fire_rate_type>);
     for (const auto& cache : firing_rate_cache) {
         // Some internet approximation of an unordered_map's size
-        const auto hard_value = cache.size() * (sizeof(double) + sizeof(void*)) + cache.bucket_count() * (sizeof(void*) + sizeof(std::size_t));
+        const auto hard_value = cache.size() * (sizeof(fire_rate_type) + sizeof(void*)) + cache.bucket_count() * (sizeof(void*) + sizeof(std::size_t));
         my_hard_footprint += static_cast<std::size_t>(static_cast<double>(hard_value) * 1.5);
     }
 

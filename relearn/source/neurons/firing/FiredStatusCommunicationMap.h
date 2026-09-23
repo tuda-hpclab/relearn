@@ -3,23 +3,24 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-#include "Types3.h"
-
+#include "cuda/util/Util.h"
 #include "neurons/enums/FiredStatus.h"
 #include "neurons/enums/UpdateStatus.h"
 #include "neurons/firing/FiredStatusCommunicator.h"
+#include "neurons/helper/RankNeuronId.h"
+#include "types/CommunicationTypes.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
 
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIRank.h>
+#include <mpi-wrapper/core/MPIRankRange.h>
 
 #include <algorithm>
 #include <memory>
@@ -39,10 +40,13 @@ public:
      * @param size_hint The size hint for the communication maps
      * @exception Throws a RelearnException if num_ranks <= 0
      */
-    explicit FiredStatusCommunicationMap(const int num_ranks, const std::size_t size_hint = 1)
-        : FiredStatusCommunicator(num_ranks)
+    explicit FiredStatusCommunicationMap(const mpiPP::MPIRank _my_rank, const int num_ranks, const std::size_t size_hint = 1)
+        : FiredStatusCommunicator(_my_rank, num_ranks)
         , outgoing_ids(num_ranks, size_hint)
         , incoming_ids(num_ranks, size_hint) {
+#ifdef RELEARN_CUDA_ENABLED
+        CPU_NOT_SUPPORTED
+#endif
         RelearnException::check(num_ranks > 0, "FiredStatusCommunicationMap::FiredStatusCommunicationMap: num_ranks is too small: {}", num_ranks);
     }
 
@@ -91,7 +95,7 @@ public:
      * @param neuron_id The neuron in question
      * @exception Throws a RelearnException if rank is not from [0, number_ranks) or the neuron_id is virtual
      */
-    bool contains(mpiPP::MPIRank rank, NeuronID neuron_id) const override;
+    [[nodiscard]] bool contains(mpiPP::MPIRank rank, NeuronID neuron_id) const override;
 
     /**
      * @brief Records the memory footprint of the current object
@@ -101,7 +105,7 @@ public:
         const auto my_easy_footprint = sizeof(*this) - sizeof(FiredStatusCommunicator);
 
         auto my_hard_footprint = std::uint64_t{ 0 };
-        for (const auto& rank : mpiPP::MPIRank::range(outgoing_ids.get_number_ranks())) {
+        for (const auto& rank : mpiPP::MPIRankRange::range(outgoing_ids.get_number_ranks())) {
             my_hard_footprint += outgoing_ids.get_size_in_bytes(rank) + incoming_ids.get_size_in_bytes(rank);
         }
 
@@ -109,6 +113,8 @@ public:
 
         FiredStatusCommunicator::record_memory_footprint(footprint);
     }
+
+    void wait_for_exchange_to_finish() override { }
 
 private:
     RelearnTypes::comm_map_firing<NeuronID> outgoing_ids;

@@ -3,14 +3,15 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2023-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
 
 #include <vector>
 
@@ -22,7 +23,7 @@
  */
 struct AdditionalPositionInformation {
     RelearnTypes::bounding_box_type sim_size;
-    std::vector<RelearnTypes::bounding_box_type> subdomain_sizes;
+    std::vector<RelearnTypes::bounding_box_type> subdomain_sizes{};
     RelearnTypes::number_neurons_type total_neurons{};
     RelearnTypes::number_neurons_type local_neurons{};
 };

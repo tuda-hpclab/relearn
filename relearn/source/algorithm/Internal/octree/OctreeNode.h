@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2020-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -18,8 +18,8 @@
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
 
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <array>
 #include <cstdint>
@@ -36,10 +36,11 @@ template <typename AdditionalCellAttributes>
 class OctreeNode {
 public:
     using OctreeNodePtr = OctreeNode<AdditionalCellAttributes>*;
+    using OctreeNodeIdx = RelearnTypes::counter_type;
 
     using position_type = typename Cell<AdditionalCellAttributes>::position_type;
     using counter_type = typename Cell<AdditionalCellAttributes>::counter_type;
-    using box_size_type = typename Cell<AdditionalCellAttributes>::box_size_type;
+    using level_type = RelearnTypes::level_type;
 
     constexpr static bool has_excitatory_dendrite = AdditionalCellAttributes::has_excitatory_dendrite;
     constexpr static bool has_inhibitory_dendrite = AdditionalCellAttributes::has_inhibitory_dendrite;
@@ -102,7 +103,7 @@ public:
      * @exception Throws a RelearnException if idx >= Constants::number_oct
      * @return The associated child
      */
-    [[nodiscard]] OctreeNodePtr get_child(const std::size_t idx) const {
+    [[nodiscard]] OctreeNodePtr get_child(const unsigned char idx) const {
         RelearnException::check(idx < Constants::number_oct, "OctreeNode::get_child const: idx was: {}", idx);
         // NOLINTNEXTLINE
         return children[idx];
@@ -113,7 +114,7 @@ public:
      * @exception Throws a RelearnException if idx >= Constants::number_oct
      * @return The associated child
      */
-    [[nodiscard]] OctreeNodePtr get_child(const std::size_t idx) {
+    [[nodiscard]] OctreeNodePtr get_child(const unsigned char idx) {
         RelearnException::check(idx < Constants::number_oct, "OctreeNode::get_child: idx was: {}", idx);
         // NOLINTNEXTLINE
         return children[idx];
@@ -149,7 +150,7 @@ public:
      *      (d) Something went wrong within the insertion
      * @return A pointer to the newly created and inserted node
      */
-    OctreeNodePtr insert(const box_size_type& position, const NeuronID& neuron_id, MemoryHolder<AdditionalCellAttributes>& memory_holder) {
+    OctreeNodePtr insert(const position_type& position, const NeuronID& neuron_id, std::shared_ptr<MemoryHolder<AdditionalCellAttributes>>& memory_holder) {
         const auto& [cell_xyz_min, cell_xyz_max] = cell.get_size();
         const auto is_in_box = position.check_in_box(cell_xyz_min, cell_xyz_max);
 
@@ -199,11 +200,11 @@ public:
                 const auto& parent_position = parent_cell.get_neuron_position();
                 RelearnException::check(parent_position.has_value(), "OctreeNode::insert: While building the octree, the cell doesn't have a position");
 
-                const auto parent_own_octant = parent_cell.get_octant_for_position(parent_position.value());
+                const auto parent_own_octant = parent_cell.get_octant_for_position(parent_position.value()); // NOLINT(bugprone-unchecked-optional-access) - guarded by RelearnException::check above
                 const auto& [minimum_position, maximum_position] = parent_cell.get_size_for_octant(parent_own_octant);
 
                 // The child copies the parent node
-                auto* new_node = memory_holder.get_available(parent_node, parent_own_octant);
+                auto* new_node = memory_holder->get_available(parent_node, parent_own_octant);
                 new_node->set_cell_size(minimum_position, maximum_position);
                 new_node->set_cell_neuron_position(parent_position);
                 new_node->set_rank(parent_node->get_mpi_rank());
@@ -217,7 +218,7 @@ public:
                 // Set the child and mark the parent as virtual
                 parent_node->set_child(new_node, parent_own_octant);
 
-                const auto parent_node_offset = memory_holder.get_offset_from_parent(parent_node);
+                const auto parent_node_offset = memory_holder->get_offset_from_parent(parent_node);
                 parent_node->set_cell_neuron_id(NeuronID::virtual_id(parent_node_offset));
 
                 if (const auto insert_octant = parent_cell.get_octant_for_position(position); insert_octant == parent_own_octant) {
@@ -232,7 +233,7 @@ public:
         // Now parent_node is virtual and the octant the new position will occupy is empty
         const auto new_position_octant = parent_node->get_cell().get_octant_for_position(position);
 
-        auto* new_node_to_insert = memory_holder.get_available(parent_node, new_position_octant);
+        auto* new_node_to_insert = memory_holder->get_available(parent_node, new_position_octant);
         RelearnException::check(new_node_to_insert != nullptr, "OctreeNode::insert: new_node_to_insert is nullptr");
 
         parent_node->set_child(new_node_to_insert, new_position_octant);
@@ -271,7 +272,7 @@ public:
      * @param idx The index of the child which shall be set, < Constants::number_oct
      * @exception Throws a RelearnException if idx >= Constants::number_oct
      */
-    void set_child(OctreeNodePtr node, const std::size_t idx) {
+    void set_child(OctreeNodePtr node, const unsigned char idx) {
         RelearnException::check(idx < Constants::number_oct, "OctreeNode::set_child: idx is {}", idx);
         // NOLINTNEXTLINE
         children[idx] = node;
@@ -291,7 +292,7 @@ public:
      * @brief Returns the level of this node
      * @return The level
      */
-    [[nodiscard]] constexpr std::uint8_t get_level() const noexcept {
+    [[nodiscard]] constexpr level_type get_level() const noexcept {
         return level;
     }
 
@@ -299,7 +300,7 @@ public:
      * @brief Sets the level of this node
      * @param new_level The new level of this node
      */
-    constexpr void set_level(std::uint8_t new_level) noexcept {
+    constexpr void set_level(level_type new_level) noexcept {
         level = new_level;
     }
 
@@ -307,14 +308,14 @@ public:
      * @brief Resets the current object:
      *      (a) The children are newly constructed with nullptr
      *      (b) The cell is newly constructed
-     *      (c) level is std::numeric_limits<std::uint8_t>::max()
+     *      (c) level is std::numeric_limits<level_type>::max()
      *      (d) parent is false
      *      (e) rank is MPIRank::uninitialized_rank()
      */
     constexpr void reset() noexcept {
         children = std::array<OctreeNodePtr, Constants::number_oct>{ nullptr };
         cell = Cell<AdditionalCellAttributes>{};
-        level = std::numeric_limits<std::uint8_t>::max();
+        level = std::numeric_limits<level_type>::max();
         parent = false;
         rank = mpiPP::MPIRank::uninitialized_rank();
     }
@@ -350,7 +351,12 @@ public:
             auto str = std::string{};
             auto new_prefix = std::string{};
             if (!c->is_actual_id()) {
-                str = std::string("REMOTE (") + std::to_string(c->get_mpi_rank().get_rank()) + ", " + std::to_string(c->get_cell_neuron_id().get_rma_offset()) + ")";
+                const auto pos = cell.get_position_for(ElementType::Dendrite, SignalType::Excitatory).value_or(position_type{ -1, -1, -1 });
+                auto vacant = std::string{ "n/a" };
+                if constexpr (AdditionalCellAttributes::has_excitatory_dendrite) {
+                    vacant = std::to_string(cell.get_number_dendrites_for(SignalType::Excitatory));
+                }
+                str = std::string("REMOTE (") + std::to_string(c->get_mpi_rank().get_rank()) + ", " + std::to_string(c->get_cell_neuron_id().get_rma_offset()) + " position " + std::to_string(pos.get_x()) + " " + std::to_string(pos.get_y()) + " " + std::to_string(pos.get_z()) + " vacant " + vacant + ")";
             } else {
                 str = c->to_string();
             }
@@ -358,7 +364,7 @@ public:
             if (added_children < num_children - 1) {
                 if (added_children > 0) {   // added fix
                     ss << prefix << "|-- "; // added fix
-                }                           // added fix
+                } // added fix
 
                 auto childs_child_empty = true;
                 for (auto* cc : c->children) {
@@ -388,7 +394,8 @@ public:
     [[nodiscard]] std::string to_string() const {
         auto ss = std::ostringstream{};
         ss << this;
-        ss << "(" << get_mpi_rank().get_rank() << ", " << cell.get_neuron_id() << " " << is_leaf() << ")";
+        const auto pos = cell.get_position_for(ElementType::Dendrite, SignalType::Excitatory).value_or(position_type{ -1, -1, -1 });
+        ss << "( rank " << get_mpi_rank().get_rank() << ", neuron id " << cell.get_neuron_id() << " position " << pos.get_x() << " " << pos.get_y() << " " << pos.get_z() << " vacant " << cell.get_number_dendrites_for(SignalType::Excitatory) << " leaf " << is_leaf() << " parent " << is_parent() << ")";
         return ss.str();
     }
 
@@ -434,7 +441,7 @@ private:
     std::array<OctreeNodePtr, Constants::number_oct> children{ nullptr };
     Cell<AdditionalCellAttributes> cell{};
 
-    std::uint8_t level{ std::numeric_limits<std::uint8_t>::max() };
+    level_type level{ std::numeric_limits<level_type>::max() };
     bool parent{ false };
 
     mpiPP::MPIRank rank{ mpiPP::MPIRank::uninitialized_rank() }; // MPI rank who owns this octree node
@@ -555,7 +562,7 @@ public:
      * @param max The maximum boundary of the cell
      * @exception Might throw a RelearnException
      */
-    constexpr void set_cell_size(const box_size_type& min, const box_size_type& max) {
+    constexpr void set_cell_size(const position_type& min, const position_type& max) {
         cell.set_size({ min, max });
     }
 
@@ -626,6 +633,7 @@ public:
 };
 
 namespace std {
+// NOLINTBEGIN(cert-dcl58-cpp) - specializing tuple_size/tuple_element for a program-defined type is standard-sanctioned
 template <typename AdditionalCellAttributes>
 struct tuple_size<::OctreeNode<AdditionalCellAttributes>> {
     static constexpr size_t value = 5;
@@ -643,7 +651,7 @@ struct tuple_element<1, ::OctreeNode<AdditionalCellAttributes>> {
 
 template <typename AdditionalCellAttributes>
 struct tuple_element<2, ::OctreeNode<AdditionalCellAttributes>> {
-    using type = std::uint8_t;
+    using type = RelearnTypes::level_type;
 };
 
 template <typename AdditionalCellAttributes>
@@ -655,5 +663,6 @@ template <typename AdditionalCellAttributes>
 struct tuple_element<4, ::OctreeNode<AdditionalCellAttributes>> {
     using type = mpiPP::MPIRank;
 };
+// NOLINTEND(cert-dcl58-cpp)
 
 } // namespace std

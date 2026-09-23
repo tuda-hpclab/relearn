@@ -1,7 +1,7 @@
 ﻿/*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -10,18 +10,17 @@
 
 #include "test_step_parser.h"
 
-#include "Types.h"
-
 #include "io/parser/StepParser.h"
-
-#include "cpp-utility/Interval.hpp"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
+#include "types/BasicTypes.h"
 
 #include "factory/random/random_factory.h"
 
+#include <cpp-utility/Interval.hpp>
+
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <algorithm>
 #include <iostream>

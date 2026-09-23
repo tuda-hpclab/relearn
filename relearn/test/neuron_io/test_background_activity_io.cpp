@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2023-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -10,19 +10,15 @@
 
 #include "test_background_activity_io.h"
 
-#include "Types.h"
-
 #include "io/BackgroundActivityIO.h"
 #include "io/NeuronIO.h"
 #include "neurons/LocalGroupTranslator.h"
 #include "neurons/helper/ChoiceFunction.h"
 #include "neurons/input/ConstantActivityInput.h"
 #include "neurons/input/NormalActivityInput.h"
+#include "types/BasicTypes.h"
 #include "util/NeuronID.h"
 #include "util/shuffle/shuffle.h"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "factory/local_group_translator/local_group_translator_factory.h"
 #include "factory/mpi_rank/mpi_rank_factory.h"
@@ -30,6 +26,9 @@
 #include "factory/neurons/neurons_factory.h"
 
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/filter.hpp>
@@ -102,7 +101,7 @@ TEST_F(BackgroundActivityIOTest, testRead) {
     const auto num_neurons = NeuronIdFactory::get_random_number_neurons(mt);
     const auto my_rank = mpiPP::MPIRank::root_rank();
 
-    std::filesystem::path file_path{ "./background_activity0.tmp" };
+    const std::filesystem::path file_path{ "./background_activity0.tmp" };
 
     std::ofstream of(file_path, std::ios::binary | std::ios::out);
 
@@ -124,9 +123,9 @@ TEST_F(BackgroundActivityIOTest, testRead) {
     NeuronsFactory::generate_random_neuron_groups(neuron_to_group_ids, group_names, num_neurons, mt, std::nullopt, std::nullopt, 1);
     const auto local_group_translator = std::make_shared<LocalGroupTranslator>(group_names, neuron_to_group_ids);
 
-    auto tup = BackgroundActivityIO::load_background_activity(file_path, my_rank, local_group_translator);
-    const auto& inputs = tup.first;
-    auto chooser = std::move(tup.second);
+    auto loaded = BackgroundActivityIO::load_background_activity(file_path, my_rank, local_group_translator);
+    const auto& inputs = loaded.inputs;
+    auto chooser = std::move(loaded.choice_function);
     const auto input_keys = inputs_to_input_keys(inputs);
 
     ASSERT_EQ(inputs.size(), 4);
@@ -156,6 +155,8 @@ TEST_F(BackgroundActivityIOTest, testRead) {
 
     std::filesystem::remove(file_path);
 }
+
+#ifndef RELEARN_CUDA_ENABLED
 TEST_F(BackgroundActivityIOTest, testAllInputTypes) {
     if (mpiPP::MPIInfo::get_number_ranks() != 1) {
         if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
@@ -199,7 +200,9 @@ TEST_F(BackgroundActivityIOTest, testAllInputTypes) {
     check_choice(input_keys, chooser->get_inputs_for_neuron_id(3, neuron_id), { "normal:9,3" });
     std::filesystem::remove(file_path);
 }
+#endif
 
+#ifndef RELEARN_CUDA_ENABLED
 TEST_F(BackgroundActivityIOTest, testNeuronIds) {
     if (mpiPP::MPIInfo::get_number_ranks() != 1) {
         if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
@@ -255,3 +258,4 @@ TEST_F(BackgroundActivityIOTest, testNeuronIds) {
     check_choice(input_keys, chooser->get_inputs_for_neuron_id(30, NeuronID{ 4 }), {});
     std::filesystem::remove(file_path);
 }
+#endif

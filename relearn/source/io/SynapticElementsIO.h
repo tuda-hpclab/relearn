@@ -3,21 +3,19 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-#include "Types2.h"
+#include "types/CalciumTypes.h"
+#include "types/SynapticElementsTypes.h"
 
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIRank.h>
 
-#include <array>
 #include <filesystem>
-#include <functional>
 #include <memory>
 
 class LocalGroupTranslator;
@@ -33,13 +31,33 @@ class LocalGroupTranslator;
 class SynapticElementsIO {
 public:
     using neuron_id_to_calcium_calculator = RelearnTypes::neuron_id_to_calcium_calculator;
+    using neuron_id_to_grown_calculator = RelearnTypes::neuron_id_to_grown_calculator;
 
     /**
-     * @brief Loads from a file the functions that map the current MPI rank and a neuron's id to its initial and target calcium value
-     * @param path_to_file The file that contains the description
-     * @return A pair of (a) the initial calcium calculator and (b) the target calcium calculator
+     * The per-neuron parameters of one synaptic element type, each of them a calculator that maps a neuron's id to its value.
+     * Only the minimum calcium is a calcium concentration, the others are continuous numbers of synaptic elements.
      */
-    [[nodiscard]] static std::array<SynapticElementsIO::neuron_id_to_calcium_calculator, 15>
+    struct ElementCalculators {
+        neuron_id_to_calcium_calculator min_calcium;
+        neuron_id_to_grown_calculator nu;
+        neuron_id_to_grown_calculator vacant_retract_ratio;
+        neuron_id_to_grown_calculator min_elements;
+        neuron_id_to_grown_calculator max_elements;
+    };
+
+    /** The per-neuron parameters of all three synaptic element types */
+    struct Calculators {
+        ElementCalculators axons;
+        ElementCalculators dendrites_excitatory;
+        ElementCalculators dendrites_inhibitory;
+    };
+
+    /**
+     * @brief Loads from a file the functions that map a neuron's id to its individual synaptic element parameters
+     * @param path_to_file The file that contains the description
+     * @return The calculators for the axons, the excitatory dendrites, and the inhibitory dendrites
+     */
+    [[nodiscard]] static Calculators
     load_function_from_file(const std::filesystem::path& path_to_file, mpiPP::MPIRank my_rank,
                             const std::shared_ptr<const LocalGroupTranslator>& local_group_translator);
 };

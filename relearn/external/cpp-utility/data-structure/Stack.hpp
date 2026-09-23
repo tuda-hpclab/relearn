@@ -3,7 +3,7 @@
 /*
  * This file is part of the CPP-Utility software developed at Technical University Darmstadt
  *
- * Copyright (c) 2024, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -18,7 +18,8 @@
 namespace utility {
 
 /**
- * This class provides a stack-like interface, uses an std::vector as container, and allows to reserve space before.
+ * This class provides a stack-like interface, uses an std::vector as container,
+ * and allows to reserve space before.
  * @tparam T The type of elements on the stack
  */
 template <typename T>
@@ -37,8 +38,8 @@ public:
 
     /**
      * @brief Emplaces a newly created element on the stack
-     * @tparam ...ValueType The type for the constructor of the element
-     * @param ...Val The values for the constructor of the element
+     * @tparam ValueType The type for the constructor of the element
+     * @param Val The values for the constructor of the element
      * @exception Throws an exception if the memory allocation fails or the constructor of the element throws
      * @return A reference to the newly created element
      */
@@ -48,8 +49,26 @@ public:
     }
 
     /**
+     * @brief Pushes the element to the top of the stack
+     * @param value The value, uses a copy
+     * @exception Propagates allocation failures and exceptions from T's copy constructor
+     */
+    constexpr void push(const T& value) {
+        container.push_back(value);
+    }
+
+    /**
+     * @brief Pushes the element to the top of the stack
+     * @param value The value, uses a move
+     * @exception Propagates allocation failures and exceptions from T's move constructor
+     */
+    constexpr void push(T&& value) {
+        container.push_back(std::move(value));
+    }
+
+    /**
      * @brief Returns a mutable reference to the last element
-     * @exception Throws a Exception if the stack was empty
+     * @exception Throws an Exception if the stack was empty
      * @return A mutable reference to the last element
      */
     [[nodiscard]] constexpr T& top() {
@@ -58,8 +77,18 @@ public:
     }
 
     /**
+     * @brief Returns an immutable reference to the last element
+     * @exception Throws an Exception if the stack was empty
+     * @return An immutable reference to the last element
+     */
+    [[nodiscard]] constexpr const T& top() const {
+        Exception::check(!empty(), "Stack::top(): The stack was empty!");
+        return container.back();
+    }
+
+    /**
      * @brief Removes the last element
-     * @exception Throws a Exception if the stack was empty
+     * @exception Throws an Exception if the stack was empty
      */
     constexpr void pop() {
         Exception::check(!empty(), "Stack::pop(): The stack was empty!");
@@ -68,7 +97,8 @@ public:
 
     /**
      * @brief Returns the latest element stored in the stack and pops it as well.
-     * @exception Throws a Exception if the stack was empty
+     * @exception Throws an Exception if the stack was empty
+     * @exception Propagates exceptions from T's move constructor
      * @return The latest element
      */
     [[nodiscard]] constexpr T pop_back() {
@@ -110,6 +140,13 @@ public:
      */
     [[nodiscard]] constexpr bool empty() const noexcept {
         return container.empty();
+    }
+
+    /**
+     * @brief Deletes all elements
+     */
+    constexpr void clear() noexcept {
+        container.clear();
     }
 
 private:

@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2020-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,7 +11,6 @@
 #include "test_neuron_assignment.h"
 
 #include "Config.h"
-#include "Types.h"
 
 #include "io/NeuronIO.h"
 #include "neurons/LocalGroupTranslator.h"
@@ -23,14 +22,14 @@
 #include "sim/random/SubdomainFromNeuronDensity.h"
 #include "sim/random/SubdomainFromNeuronPerRank.h"
 #include "structure/Partition.h"
+#include "types/BasicTypes.h"
+#include "types/SynapseTypes.h"
 #include "util/NeuronFilePaths.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnAllocator.h"
 #include "util/RelearnException.h"
 #include "util/Vec3.h"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "factory/local_group_translator/local_group_translator_factory.h"
 #include "factory/mpi_rank/mpi_rank_factory.h"
@@ -41,12 +40,17 @@
 
 #include <gtest/gtest.h>
 
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
+#include <mpi-wrapper/core/MPIRankRange.h>
+
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <ios>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -93,12 +97,12 @@ TEST_F(NeuronAssignmentTest, testDensityTooManyRanks) {
 
     const auto golden_number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
     const auto golden_number_ranks = MPIRankFactory::get_adjusted_random_number_ranks(mt) * 2;
-    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<double>(mt) * 100;
+    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<RelearnTypes::space_type>(mt) * 100;
 
-    for (const auto rank : mpiPP::MPIRank::range(golden_number_ranks)) {
+    for (const auto rank : mpiPP::MPIRankRange::range(golden_number_ranks)) {
         const auto part = std::make_shared<Partition>(golden_number_ranks, rank);
-        ASSERT_THROW_NO_PRINT(SubdomainFromNeuronDensity sfnd(golden_number_neurons, golden_fraction_excitatory_neurons, golden_um_per_neuron, part), RelearnException);
+        ASSERT_THROW_NO_PRINT(SubdomainFromNeuronDensity sfnd(golden_number_neurons, golden_fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(golden_um_per_neuron), part), RelearnException);
     }
 }
 
@@ -112,11 +116,11 @@ TEST_F(NeuronAssignmentTest, testDensityConstructor) {
     }
 
     const auto golden_number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 100;
-    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<double>(mt) * 100;
+    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<RelearnTypes::space_type>(mt) * 100;
 
     const auto part = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
-    const auto sfnd = SubdomainFromNeuronDensity{ golden_number_neurons, golden_fraction_excitatory_neurons, golden_um_per_neuron, part };
+    const auto sfnd = SubdomainFromNeuronDensity{ golden_number_neurons, golden_fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(golden_um_per_neuron), part };
 
     const auto number_neurons = sfnd.get_requested_number_neurons();
     const auto fraction_excitatory_neurons = sfnd.get_requested_ratio_excitatory_neurons();
@@ -128,7 +132,9 @@ TEST_F(NeuronAssignmentTest, testDensityConstructor) {
     const auto box_length = (sim_box_max - sim_box_min).get_maximum();
 
     const auto golden_box_length = calculate_box_length(golden_number_neurons, golden_um_per_neuron);
-    ASSERT_NEAR(box_length, golden_box_length, 1.0 / static_cast<double>(golden_number_neurons));
+    // box_length is a float; at the magnitudes here (thousands of um) its ULP can exceed
+    // 1/golden_number_neurons, so also allow a magnitude-scaled tolerance for float32 rounding.
+    ASSERT_NEAR(box_length, golden_box_length, std::max(1.0 / static_cast<double>(golden_number_neurons), std::abs(golden_box_length) * static_cast<double>(std::numeric_limits<float>::epsilon()) * 4.0));
 
     ASSERT_EQ(0, sfnd.get_number_placed_neurons());
     ASSERT_EQ(0.0, sfnd.get_ratio_placed_excitatory_neurons());
@@ -144,17 +150,19 @@ TEST_F(NeuronAssignmentTest, testDensityInitialize) {
     }
 
     const auto golden_number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 100;
-    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<double>(mt) * 100;
+    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<RelearnTypes::space_type>(mt) * 100;
 
     const auto part = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
-    auto sfnd = SubdomainFromNeuronDensity{ golden_number_neurons, golden_fraction_excitatory_neurons, golden_um_per_neuron, part };
+    auto sfnd = SubdomainFromNeuronDensity{ golden_number_neurons, golden_fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(golden_um_per_neuron), part };
 
     const auto& [sim_box_min, sim_box_max] = part->get_simulation_box_size();
     const auto box_length = (sim_box_max - sim_box_min).get_maximum();
 
     const auto golden_box_length = calculate_box_length(golden_number_neurons, golden_um_per_neuron);
-    ASSERT_NEAR(box_length, golden_box_length, 1.0 / static_cast<double>(golden_number_neurons));
+    // box_length is a float; at the magnitudes here (thousands of um) its ULP can exceed
+    // 1/golden_number_neurons, so also allow a magnitude-scaled tolerance for float32 rounding.
+    ASSERT_NEAR(box_length, golden_box_length, std::max(1.0 / static_cast<double>(golden_number_neurons), std::abs(golden_box_length) * static_cast<double>(std::numeric_limits<float>::epsilon()) * 4.0));
 
     sfnd.initialize();
 
@@ -184,11 +192,11 @@ TEST_F(NeuronAssignmentTest, testDensityNeuronAttributesSizes) {
     }
 
     const auto golden_number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 100;
-    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<double>(mt) * 100;
+    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<RelearnTypes::space_type>(mt) * 100;
 
     const auto part = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
-    auto sfnd = SubdomainFromNeuronDensity{ golden_number_neurons, golden_fraction_excitatory_neurons, golden_um_per_neuron, part };
+    auto sfnd = SubdomainFromNeuronDensity{ golden_number_neurons, golden_fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(golden_um_per_neuron), part };
 
     sfnd.initialize();
     sfnd.initialize_groups_and_local_group_translator();
@@ -215,11 +223,11 @@ TEST_F(NeuronAssignmentTest, testDensityNeuronAttributesSemantic) {
     }
 
     const auto golden_number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 100;
-    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<double>(mt) * 100;
+    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<RelearnTypes::space_type>(mt) * 100;
 
     const auto part = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
-    auto sfnd = SubdomainFromNeuronDensity{ golden_number_neurons, golden_fraction_excitatory_neurons, golden_um_per_neuron, part };
+    auto sfnd = SubdomainFromNeuronDensity{ golden_number_neurons, golden_fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(golden_um_per_neuron), part };
 
     sfnd.initialize();
 
@@ -239,7 +247,7 @@ TEST_F(NeuronAssignmentTest, testDensityNeuronAttributesSemantic) {
 
     for (const auto& position : positions) {
         ASSERT_TRUE(position.check_in_box(sim_box_min, sim_box_max));
-        auto cast_position = Vec3s{ position / golden_um_per_neuron };
+        auto cast_position = Vec3s{ position / static_cast<RelearnTypes::space_type>(golden_um_per_neuron) };
 
         const auto x = cast_position.get_x();
         const auto y = cast_position.get_y();
@@ -265,7 +273,7 @@ TEST_F(NeuronAssignmentTest, testDensityWritePositionsToFile) {
         return;
     }
 
-    auto positions = std::vector<Vec3d>{};
+    auto positions = std::vector<RelearnTypes::position_type>{};
     auto types = std::vector<SignalType>{};
 
     const auto path = std::filesystem::path("neurons0.tmp");
@@ -293,7 +301,7 @@ TEST_F(NeuronAssignmentTest, testDensityWritePositionsToFile) {
 
     auto is_there = std::vector<bool>(number_neurons, false);
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         const auto& desired_position = positions[neuron_id];
         const auto& desired_signal_type = types[neuron_id];
 
@@ -350,12 +358,12 @@ TEST_F(NeuronAssignmentTest, testDensityWriteNeuronsToFiles) {
     const auto path_groups_in = std::filesystem::path{ "./groups_in.tmp" };
 
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
-    const auto fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-    const auto um_per_neuron = RandomFactory::get_random_double(1.0, 100.0, mt);
+    const auto fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+    const auto um_per_neuron = RandomFactory::get_random_double(RelearnTypes::space_type{ 1 }, RelearnTypes::space_type{ 100 }, mt);
 
     const auto part = std::make_shared<Partition>(1, mpiPP::MPIRank(0));
     part->set_total_number_neurons(number_neurons);
-    auto sfnd = SubdomainFromNeuronDensity{ number_neurons, fraction_excitatory_neurons, um_per_neuron, part };
+    auto sfnd = SubdomainFromNeuronDensity{ number_neurons, fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(um_per_neuron), part };
 
     sfnd.initialize();
 
@@ -398,7 +406,7 @@ TEST_F(NeuronAssignmentTest, testDensityWriteNeuronsToFiles) {
 
     auto is_there = std::vector<bool>(number_neurons, false);
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         const auto& desired_position = positions[neuron_id];
         const auto& desired_signal_type = types[neuron_id];
 
@@ -454,6 +462,25 @@ TEST_F(NeuronAssignmentTest, testDensityWriteNeuronsToFiles) {
     std::filesystem::remove(path_positions_signals);
 }
 
+TEST_F(NeuronAssignmentTest, testPerRankTooFewNeurons) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto golden_number_ranks = MPIRankFactory::get_adjusted_random_number_ranks(mt);
+    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
+    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<double>(mt) * 100;
+
+    for (const auto rank : mpiPP::MPIRankRange::range(golden_number_ranks)) {
+        const auto part = std::make_shared<Partition>(golden_number_ranks, rank);
+        ASSERT_THROW_NO_PRINT(SubdomainFromNeuronPerRank sfnpr(0, golden_fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(golden_um_per_neuron), part), RelearnException);
+    }
+}
+
 TEST_F(NeuronAssignmentTest, testPerRankSingleSubdomain) {
     if (mpiPP::MPIInfo::get_number_ranks() != 1) {
         if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
@@ -464,11 +491,11 @@ TEST_F(NeuronAssignmentTest, testPerRankSingleSubdomain) {
     }
 
     const auto golden_number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 100;
-    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<double>(mt) * 100;
+    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<RelearnTypes::space_type>(mt) * 100;
 
     const auto part = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
-    const auto sfnpr = SubdomainFromNeuronPerRank{ golden_number_neurons, golden_fraction_excitatory_neurons, golden_um_per_neuron, part };
+    const auto sfnpr = SubdomainFromNeuronPerRank{ golden_number_neurons, golden_fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(golden_um_per_neuron), part };
 
     const auto number_neurons = sfnpr.get_requested_number_neurons();
     const auto fraction_excitatory_neurons = sfnpr.get_requested_ratio_excitatory_neurons();
@@ -480,7 +507,9 @@ TEST_F(NeuronAssignmentTest, testPerRankSingleSubdomain) {
     const auto box_length = (sim_box_max - sim_box_min).get_maximum();
 
     const auto golden_box_length = calculate_box_length(golden_number_neurons, golden_um_per_neuron);
-    ASSERT_NEAR(box_length, golden_box_length, 1.0 / static_cast<double>(golden_number_neurons));
+    // box_length is a float; at the magnitudes here (thousands of um) its ULP can exceed
+    // 1/golden_number_neurons, so also allow a magnitude-scaled tolerance for float32 rounding.
+    ASSERT_NEAR(box_length, golden_box_length, std::max(1.0 / static_cast<double>(golden_number_neurons), std::abs(golden_box_length) * static_cast<double>(std::numeric_limits<float>::epsilon()) * 4.0));
 
     ASSERT_EQ(0, sfnpr.get_number_placed_neurons());
     ASSERT_EQ(0.0, sfnpr.get_ratio_placed_excitatory_neurons());
@@ -495,20 +524,20 @@ TEST_F(NeuronAssignmentTest, testPerRankConstructorMultipleSubdomains) {
         return;
     }
 
-    const auto golden_number_ranks = static_cast<std::size_t>(MPIRankFactory::get_adjusted_random_number_ranks(mt));
-    const auto number_subdomains = round_to_next_exponent(golden_number_ranks, 8);
+    const auto golden_number_ranks = MPIRankFactory::get_adjusted_random_number_ranks(mt);
+    const auto number_subdomains = round_to_next_exponent(static_cast<std::size_t>(golden_number_ranks), 8);
     const auto golden_number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + (number_subdomains * 50);
-    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<double>(mt) * 100;
+    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<RelearnTypes::space_type>(mt) * 100;
 
-    for (const auto rank : mpiPP::MPIRank::range(static_cast<int>(golden_number_ranks))) {
+    for (const auto rank : mpiPP::MPIRankRange::range(golden_number_ranks)) {
         const auto part = std::make_shared<Partition>(golden_number_ranks, rank);
-        const auto sfnpr = SubdomainFromNeuronPerRank{ golden_number_neurons, golden_fraction_excitatory_neurons, golden_um_per_neuron, part };
+        const auto sfnpr = SubdomainFromNeuronPerRank{ golden_number_neurons, golden_fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(golden_um_per_neuron), part };
 
         const auto number_neurons = sfnpr.get_requested_number_neurons();
         const auto fraction_excitatory_neurons = sfnpr.get_requested_ratio_excitatory_neurons();
 
-        ASSERT_EQ(golden_number_neurons * golden_number_ranks, number_neurons);
+        ASSERT_EQ(golden_number_neurons * static_cast<RelearnTypes::number_neurons_type>(golden_number_ranks), number_neurons);
 
         ASSERT_NEAR(golden_fraction_excitatory_neurons, fraction_excitatory_neurons, 1.0 / static_cast<double>(golden_number_neurons));
 
@@ -517,8 +546,10 @@ TEST_F(NeuronAssignmentTest, testPerRankConstructorMultipleSubdomains) {
 
         const auto number_neurons_per_box_max = static_cast<size_t>(ceil(static_cast<double>(golden_number_neurons) / static_cast<double>(part->get_number_local_subdomains())));
 
-        const auto golden_box_length = calculate_box_length(number_neurons_per_box_max, golden_um_per_neuron) * static_cast<double>(part->get_number_subdomains_per_dimension());
-        ASSERT_NEAR(box_length, golden_box_length, 1.0 / static_cast<double>(golden_number_neurons));
+        const auto golden_box_length = calculate_box_length(number_neurons_per_box_max, golden_um_per_neuron) * static_cast<RelearnTypes::space_type>(part->get_number_subdomains_per_dimension());
+        // box_length is a float; at the magnitudes here (thousands of um) its ULP can exceed
+        // 1/golden_number_neurons, so also allow a magnitude-scaled tolerance for float32 rounding.
+        ASSERT_NEAR(box_length, golden_box_length, std::max(1.0 / static_cast<double>(golden_number_neurons), std::abs(golden_box_length) * static_cast<double>(std::numeric_limits<float>::epsilon()) * 4.0));
 
         ASSERT_EQ(0, sfnpr.get_number_placed_neurons());
         ASSERT_EQ(0.0, sfnpr.get_ratio_placed_excitatory_neurons());
@@ -535,17 +566,19 @@ TEST_F(NeuronAssignmentTest, testPerRankInitializeSingleSubdomain) {
     }
 
     const auto golden_number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 100;
-    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<double>(mt) * 100;
+    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<RelearnTypes::space_type>(mt) * 100;
 
     const auto part = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
-    auto sfnpr = SubdomainFromNeuronPerRank{ golden_number_neurons, golden_fraction_excitatory_neurons, golden_um_per_neuron, part };
+    auto sfnpr = SubdomainFromNeuronPerRank{ golden_number_neurons, golden_fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(golden_um_per_neuron), part };
 
     const auto& [sim_box_min, sim_box_max] = part->get_simulation_box_size();
     const auto box_length = (sim_box_max - sim_box_min).get_maximum();
 
     const auto golden_box_length = calculate_box_length(golden_number_neurons, golden_um_per_neuron);
-    ASSERT_NEAR(box_length, golden_box_length, 1.0 / static_cast<double>(golden_number_neurons));
+    // box_length is a float; at the magnitudes here (thousands of um) its ULP can exceed
+    // 1/golden_number_neurons, so also allow a magnitude-scaled tolerance for float32 rounding.
+    ASSERT_NEAR(box_length, golden_box_length, std::max(1.0 / static_cast<double>(golden_number_neurons), std::abs(golden_box_length) * static_cast<double>(std::numeric_limits<float>::epsilon()) * 4.0));
 
     sfnpr.initialize();
 
@@ -574,15 +607,15 @@ TEST_F(NeuronAssignmentTest, testPerRankInitializeMultipleSubdomains) {
         return;
     }
 
-    const auto golden_number_ranks = static_cast<std::size_t>(MPIRankFactory::get_adjusted_random_number_ranks(mt));
-    const auto number_subdomains = round_to_next_exponent(golden_number_ranks, 8);
+    const auto golden_number_ranks = MPIRankFactory::get_adjusted_random_number_ranks(mt);
+    const auto number_subdomains = round_to_next_exponent(static_cast<std::size_t>(golden_number_ranks), 8);
     const auto golden_number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + (number_subdomains * 50);
-    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<double>(mt) * 100;
+    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<RelearnTypes::space_type>(mt) * 100;
 
-    for (const auto rank : mpiPP::MPIRank::range(static_cast<int>(golden_number_ranks))) {
+    for (const auto rank : mpiPP::MPIRankRange::range(golden_number_ranks)) {
         const auto part = std::make_shared<Partition>(golden_number_ranks, rank);
-        auto sfnpr = SubdomainFromNeuronPerRank{ golden_number_neurons, golden_fraction_excitatory_neurons, golden_um_per_neuron, part };
+        auto sfnpr = SubdomainFromNeuronPerRank{ golden_number_neurons, golden_fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(golden_um_per_neuron), part };
 
         sfnpr.initialize();
 
@@ -604,11 +637,11 @@ TEST_F(NeuronAssignmentTest, testPerRankNeuronAttributesSizesSingleSubdomain) {
     }
 
     const auto golden_number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 100;
-    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<double>(mt) * 100;
+    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<RelearnTypes::space_type>(mt) * 100;
 
     const auto part = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
-    auto sfnpr = SubdomainFromNeuronPerRank{ golden_number_neurons, golden_fraction_excitatory_neurons, golden_um_per_neuron, part };
+    auto sfnpr = SubdomainFromNeuronPerRank{ golden_number_neurons, golden_fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(golden_um_per_neuron), part };
 
     sfnpr.initialize();
     sfnpr.initialize_groups_and_local_group_translator();
@@ -637,13 +670,13 @@ TEST_F(NeuronAssignmentTest, testPerRankNeuronAttributesSizeMultipleSubdomains) 
     const auto golden_number_ranks = MPIRankFactory::get_adjusted_random_number_ranks(mt);
     const auto number_subdomains = round_to_next_exponent(static_cast<std::size_t>(golden_number_ranks), 8);
     const auto golden_number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + (number_subdomains * 50);
-    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<double>(mt) * 100;
+    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<RelearnTypes::space_type>(mt) * 100;
 
     auto accumulated_placed_neurons = std::size_t{ 0 };
 
-    for (const auto rank : mpiPP::MPIRank::range(golden_number_ranks)) {
-        const auto part = std::make_shared<Partition>(static_cast<std::size_t>(golden_number_ranks), rank);
+    for (const auto rank : mpiPP::MPIRankRange::range(golden_number_ranks)) {
+        const auto part = std::make_shared<Partition>(golden_number_ranks, rank);
         auto sfnpr = SubdomainFromNeuronPerRank{ golden_number_neurons, golden_fraction_excitatory_neurons, golden_um_per_neuron, part };
 
         sfnpr.initialize();
@@ -675,11 +708,11 @@ TEST_F(NeuronAssignmentTest, testPerRankNeuronAttributesSemanticSingleSubdomain)
     }
 
     const auto golden_number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 100;
-    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<double>(mt) * 100;
+    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<RelearnTypes::space_type>(mt) * 100;
 
     const auto part = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
-    auto sfnpr = SubdomainFromNeuronPerRank{ golden_number_neurons, golden_fraction_excitatory_neurons, golden_um_per_neuron, part };
+    auto sfnpr = SubdomainFromNeuronPerRank{ golden_number_neurons, golden_fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(golden_um_per_neuron), part };
 
     sfnpr.initialize();
 
@@ -699,7 +732,7 @@ TEST_F(NeuronAssignmentTest, testPerRankNeuronAttributesSemanticSingleSubdomain)
 
     for (const auto& position : positions) {
         ASSERT_TRUE(position.check_in_box(sim_box_min, sim_box_max));
-        const auto cast_position = Vec3s{ position / golden_um_per_neuron };
+        const auto cast_position = Vec3s{ position / static_cast<RelearnTypes::space_type>(golden_um_per_neuron) };
 
         const auto x = cast_position.get_x();
         const auto y = cast_position.get_y();
@@ -728,11 +761,11 @@ TEST_F(NeuronAssignmentTest, testPerRankNeuronAttributesSemanticMultipleSubdomai
     const auto golden_number_ranks = MPIRankFactory::get_adjusted_random_number_ranks(mt);
     const auto number_subdomains = round_to_next_exponent(static_cast<std::size_t>(golden_number_ranks), 8);
     const auto golden_number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + (number_subdomains * 50);
-    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<double>(mt) * 100;
+    const auto golden_fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+    const auto golden_um_per_neuron = RandomFactory::get_random_percentage<RelearnTypes::space_type>(mt) * 100;
 
-    for (const auto rank : mpiPP::MPIRank::range(golden_number_ranks)) {
-        const auto part = std::make_shared<Partition>(static_cast<std::size_t>(golden_number_ranks), rank);
+    for (const auto rank : mpiPP::MPIRankRange::range(golden_number_ranks)) {
+        const auto part = std::make_shared<Partition>(golden_number_ranks, rank);
         auto sfnpr = SubdomainFromNeuronPerRank{ golden_number_neurons, golden_fraction_excitatory_neurons, golden_um_per_neuron, part };
 
         sfnpr.initialize();
@@ -765,7 +798,7 @@ TEST_F(NeuronAssignmentTest, testFileLoadSingleSubdomain) {
         return;
     }
 
-    auto positions = std::vector<Vec3d>{};
+    auto positions = std::vector<RelearnTypes::position_type>{};
     auto types = std::vector<SignalType>{};
 
     const auto path = std::filesystem::path{ "./neurons0.tmp" };
@@ -782,7 +815,7 @@ TEST_F(NeuronAssignmentTest, testFileLoadSingleSubdomain) {
     const auto& loaded_positions = sff.get_neuron_positions_in_subdomains();
     const auto& loaded_types = sff.get_neuron_types_in_subdomains();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         const auto& curr_pos = positions[neuron_id];
         const auto& curr_loaded_pos = loaded_positions[neuron_id];
 
@@ -807,7 +840,7 @@ TEST_F(NeuronAssignmentTest, testFileLoadNetworkSingleSubdomain) {
         return;
     }
 
-    auto positions = std::vector<Vec3d>{};
+    auto positions = std::vector<RelearnTypes::position_type>{};
     auto types = std::vector<SignalType>{};
 
     const auto path = std::filesystem::path{ "./neurons1.tmp" };
@@ -861,12 +894,12 @@ TEST_F(NeuronAssignmentTest, testFileGivenInputONCE) {
 
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
     const auto orig_sl = [number_neurons, this]() {
-        const auto fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-        const auto um_per_neuron = RandomFactory::get_random_double(1.0, 100.0, mt);
+        const auto fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+        const auto um_per_neuron = RandomFactory::get_random_double(RelearnTypes::space_type{ 1 }, RelearnTypes::space_type{ 100 }, mt);
 
         const auto part = std::make_shared<Partition>(1, mpiPP::MPIInfo::get_my_rank());
         part->set_total_number_neurons(number_neurons);
-        SubdomainFromNeuronDensity sfnd{ number_neurons, fraction_excitatory_neurons, um_per_neuron, part };
+        SubdomainFromNeuronDensity sfnd{ number_neurons, fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(um_per_neuron), part };
         sfnd.initialize();
         sfnd.write_neuron_positions_and_signals_to_file("rank_0_positions.txt");
 
@@ -909,7 +942,7 @@ TEST_F(NeuronAssignmentTest, testMultipleFilesEmptyPositionPath) {
 
     const auto golden_number_ranks = MPIRankFactory::get_adjusted_random_number_ranks(mt);
 
-    for (const auto rank : mpiPP::MPIRank::range(golden_number_ranks)) {
+    for (const auto rank : mpiPP::MPIRankRange::range(golden_number_ranks)) {
         auto partition = std::make_shared<Partition>(golden_number_ranks, rank);
         ASSERT_THROW_NO_PRINT(MultipleSubdomainsFromFile msff(std::filesystem::path(""), {}, partition);, RelearnException);
     }
@@ -926,7 +959,7 @@ TEST_F(NeuronAssignmentTest, testMultipleFilesNonExistentPositionPath) {
 
     const auto golden_number_ranks = MPIRankFactory::get_adjusted_random_number_ranks(mt);
 
-    for (const auto rank : mpiPP::MPIRank::range(golden_number_ranks)) {
+    for (const auto rank : mpiPP::MPIRankRange::range(golden_number_ranks)) {
         auto partition = std::make_shared<Partition>(golden_number_ranks, rank);
         ASSERT_THROW_NO_PRINT(MultipleSubdomainsFromFile msff(std::filesystem::path("./asfhasdfb�aslidhsdjfnasd"), {}, partition);, RelearnException);
     }
@@ -957,7 +990,7 @@ TEST_F(NeuronAssignmentTest, testMultipleFilesNonExistentFiles) {
         fs::create_directory(directory);
     }
 
-    for (const auto rank : mpiPP::MPIRank::range(golden_number_ranks)) {
+    for (const auto rank : mpiPP::MPIRankRange::range(golden_number_ranks)) {
         auto partition = std::make_shared<Partition>(golden_number_ranks, rank);
         ASSERT_THROW_NO_PRINT(MultipleSubdomainsFromFile msff(directory, {}, partition);, RelearnException);
     }
@@ -989,13 +1022,13 @@ TEST_F(NeuronAssignmentTest, testMultipleFilesEmptyFiles) {
         fs::create_directory(directory);
     }
 
-    for (const auto rank : mpiPP::MPIRank::range(golden_number_ranks)) {
+    for (const auto rank : mpiPP::MPIRankRange::range(golden_number_ranks)) {
         auto position_path = directory / ("rank_" + std::to_string(rank.get_rank()) + "_positions.txt");
         auto out_file = std::ofstream{ position_path };
         out_file.flush();
     }
 
-    for (const auto rank : mpiPP::MPIRank::range(golden_number_ranks)) {
+    for (const auto rank : mpiPP::MPIRankRange::range(golden_number_ranks)) {
         auto partition = std::make_shared<Partition>(golden_number_ranks, rank);
         ASSERT_THROW_NO_PRINT(MultipleSubdomainsFromFile msff(directory, {}, partition);, RelearnException);
     }
@@ -1012,7 +1045,7 @@ TEST_F(NeuronAssignmentTest, testInitializeLocalGroupTranslatorFromFile) {
 
     const auto path_positions = std::filesystem::path{ "./positions0.tmp" };
 
-    auto positions = std::vector<Vec3d>{};
+    auto positions = std::vector<RelearnTypes::position_type>{};
     auto types = std::vector<SignalType>{};
 
     NeuronsFactory::generate_random_neuron_positions_and_signals(positions, types, mt, path_positions);
@@ -1025,15 +1058,15 @@ TEST_F(NeuronAssignmentTest, testInitializeLocalGroupTranslatorFromFile) {
 
     NeuronIO::write_neuron_groups(path, lgt_tmp);
 
-    const auto fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-    const auto um_per_neuron = RandomFactory::get_random_percentage<double>(mt) * 100;
+    const auto fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+    const auto um_per_neuron = RandomFactory::get_random_percentage<RelearnTypes::space_type>(mt) * 100;
 
     const auto part1 = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
     const auto part2 = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
     const auto part3 = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
 
-    auto sfnd = SubdomainFromNeuronDensity{ number_neurons, fraction_excitatory_neurons, um_per_neuron, part1 };
-    auto sfnpr = SubdomainFromNeuronPerRank{ number_neurons, fraction_excitatory_neurons, um_per_neuron, part2 };
+    auto sfnd = SubdomainFromNeuronDensity{ number_neurons, fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(um_per_neuron), part1 };
+    auto sfnpr = SubdomainFromNeuronPerRank{ number_neurons, fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(um_per_neuron), part2 };
     auto sff = MultipleSubdomainsFromFile{ path_positions, std::nullopt, part3 };
 
     const auto assignments = std::vector<NeuronToSubdomainAssignment*>{ &sfnd, &sfnpr, &sff };
@@ -1069,22 +1102,22 @@ TEST_F(NeuronAssignmentTest, testInitializeLocalGroupTranslatorDefault) {
 
     const auto path_positions = std::filesystem::path{ "./positions1.tmp" };
 
-    auto positions = std::vector<Vec3d>{};
+    auto positions = std::vector<RelearnTypes::position_type>{};
     auto types = std::vector<SignalType>{};
 
     NeuronsFactory::generate_random_neuron_positions_and_signals(positions, types, mt, path_positions);
 
     const auto number_neurons = positions.size();
 
-    const auto fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-    const auto um_per_neuron = RandomFactory::get_random_percentage<double>(mt) * 100;
+    const auto fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+    const auto um_per_neuron = RandomFactory::get_random_percentage<RelearnTypes::space_type>(mt) * 100;
 
     const auto part1 = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
     const auto part2 = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
     const auto part3 = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
 
-    auto sfnd = SubdomainFromNeuronDensity{ number_neurons, fraction_excitatory_neurons, um_per_neuron, part1 };
-    auto sfnpr = SubdomainFromNeuronPerRank{ number_neurons, fraction_excitatory_neurons, um_per_neuron, part2 };
+    auto sfnd = SubdomainFromNeuronDensity{ number_neurons, fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(um_per_neuron), part1 };
+    auto sfnpr = SubdomainFromNeuronPerRank{ number_neurons, fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(um_per_neuron), part2 };
     auto sff = MultipleSubdomainsFromFile{ path_positions, std::nullopt, part3 };
 
     const auto assignments = std::vector<NeuronToSubdomainAssignment*>{ &sfnd, &sfnpr, &sff };
@@ -1129,7 +1162,7 @@ TEST_F(NeuronAssignmentTest, testWriteNeuronGroupsToFile) {
 
     const auto paths = NeuronOptFilePaths{ path_positions, path_groups_in };
 
-    auto positions = std::vector<Vec3d>{};
+    auto positions = std::vector<RelearnTypes::position_type>{};
     auto types = std::vector<SignalType>{};
     auto golden_neuron_id_to_group_ids = std::vector<RelearnTypes::group_ids>{};
     auto golden_group_id_to_group_name = RelearnTypes::group_names{};
@@ -1142,15 +1175,15 @@ TEST_F(NeuronAssignmentTest, testWriteNeuronGroupsToFile) {
 
     const auto number_neurons = positions.size();
 
-    const auto fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-    const auto um_per_neuron = RandomFactory::get_random_percentage<double>(mt) * 100;
+    const auto fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+    const auto um_per_neuron = RandomFactory::get_random_percentage<RelearnTypes::space_type>(mt) * 100;
 
     const auto part1 = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
     const auto part2 = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
     const auto part3 = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
 
-    auto sfnd = SubdomainFromNeuronDensity{ number_neurons, fraction_excitatory_neurons, um_per_neuron, part1 };
-    auto sfnpr = SubdomainFromNeuronPerRank{ number_neurons, fraction_excitatory_neurons, um_per_neuron, part2 };
+    auto sfnd = SubdomainFromNeuronDensity{ number_neurons, fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(um_per_neuron), part1 };
+    auto sfnpr = SubdomainFromNeuronPerRank{ number_neurons, fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(um_per_neuron), part2 };
     auto sff = MultipleSubdomainsFromFile{ path_positions, std::nullopt, part3 };
 
     const auto assignments = std::vector<NeuronToSubdomainAssignment*>{ &sfnd, &sfnpr, &sff };

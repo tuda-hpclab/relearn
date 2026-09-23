@@ -3,19 +3,19 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-
 #include "neurons/synaptic_elements/Axons.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
 #include "util/RelearnException.h"
 
-#include "cpp-utility/MemoryFootprint.hpp"
+#include <cpp-utility/MemoryFootprint.hpp>
 
 #include <algorithm>
 #include <cstddef>
@@ -28,6 +28,7 @@ public:
     using number_neurons_type = RelearnTypes::number_neurons_type;
     using step_type = RelearnTypes::step_type;
     using calcium_type = RelearnTypes::calcium_type;
+    using counter_type = RelearnTypes::counter_type;
 
     MultiPositionAxons() = default;
 
@@ -82,7 +83,7 @@ public:
         for (auto neuron_id = number_neurons_type{ 0 }; neuron_id < positions.size(); ++neuron_id) {
             const auto& pos = positions[neuron_id];
 
-            number_axonal_boutons.push_back(pos.size());
+            number_axonal_boutons.push_back(static_cast<counter_type>(pos.size()));
             number_axonal_boutons_cumulative.push_back(current_position);
             current_position += number_axonal_boutons[neuron_id];
 
@@ -98,7 +99,7 @@ public:
      * @exception Throws a RelearnException if neuron_id is too large
      * @return The number of boutons
      */
-    [[nodiscard]] std::size_t get_number_boutons(number_neurons_type neuron_id) const override;
+    [[nodiscard]] counter_type get_number_boutons(number_neurons_type neuron_id) const override;
 
     /**
      * @brief Returns for a specified neuron the position of the specified axonal bouton.
@@ -127,7 +128,7 @@ public:
 
         constexpr auto my_size = sizeof(*this) - sizeof(Axons);
 
-        const auto number_axonal_boutons_size = bouton_positions_flat.size() * sizeof(std::vector<std::size_t>);
+        const auto number_axonal_boutons_size = bouton_positions_flat.size() * sizeof(std::vector<counter_type>);
         const auto number_axonal_boutons_cumulative_size = bouton_positions_flat.size() * sizeof(std::vector<std::size_t>);
         const auto bouton_positions_flat_size = bouton_positions_flat.size() * sizeof(std::vector<RelearnTypes::position_type>);
 
@@ -135,7 +136,7 @@ public:
     }
 
 private:
-    std::vector<std::size_t> number_axonal_boutons;
+    std::vector<counter_type> number_axonal_boutons;
     std::vector<std::size_t> number_axonal_boutons_cumulative;
     std::vector<RelearnTypes::position_type> bouton_positions_flat;
 };

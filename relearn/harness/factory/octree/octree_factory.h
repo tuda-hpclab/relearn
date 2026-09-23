@@ -3,26 +3,26 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-
 #include "algorithm/Internal/octree/OctreeNode.h"
 #include "algorithm/Internal/octree/OctreeNodeHelper.h"
+#include "types/BasicTypes.h"
 #include "util/MemoryHolder.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/Vec3.h"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "factory/random/random_factory.h"
 #include "factory/simulation/simulation_factory.h"
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <random>
 #include <stack>
@@ -30,7 +30,7 @@
 class OctreeFactory {
 public:
     template <typename AdditionalCellAttributes>
-    static OctreeNode<AdditionalCellAttributes> get_standard_tree(const RelearnTypes::number_neurons_type number_neurons, MemoryHolder<AdditionalCellAttributes>& memory_holder, const Vec3d& min_pos, const Vec3d& max_pos, std::mt19937& mt) {
+    static OctreeNode<AdditionalCellAttributes> get_standard_tree(const RelearnTypes::number_neurons_type number_neurons, std::shared_ptr<MemoryHolder<AdditionalCellAttributes>> memory_holder, const RelearnTypes::position_type& min_pos, const RelearnTypes::position_type& max_pos, std::mt19937& mt) {
         auto get_synaptic_count = [&mt]() { return RandomFactory::get_random_integer<typename OctreeNode<AdditionalCellAttributes>::counter_type>(1, 2, mt); };
 
         auto root = OctreeNode<AdditionalCellAttributes>{};
@@ -41,7 +41,7 @@ public:
         root.set_cell_size(min_pos, max_pos);
         root.set_cell_neuron_position(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
 
-        for (const auto id : NeuronID::range(1, number_neurons)) {
+        for (const auto id : NeuronIDRange::range(1, number_neurons)) {
             root.insert(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt), id, memory_holder);
         }
 
@@ -85,7 +85,7 @@ public:
     }
 
     template <typename AdditionalCellAttributes>
-    static OctreeNode<AdditionalCellAttributes> get_tree_no_axons(const RelearnTypes::number_neurons_type number_neurons, MemoryHolder<AdditionalCellAttributes>& memory_holder, const Vec3d& min_pos, const Vec3d& max_pos, std::mt19937& mt) {
+    static OctreeNode<AdditionalCellAttributes> get_tree_no_axons(const RelearnTypes::number_neurons_type number_neurons, std::shared_ptr<MemoryHolder<AdditionalCellAttributes>> memory_holder, const RelearnTypes::position_type& min_pos, const RelearnTypes::position_type& max_pos, std::mt19937& mt) {
         auto get_synaptic_count = [&mt]() { return RandomFactory::get_random_integer<typename OctreeNode<AdditionalCellAttributes>::counter_type>(0, 1, mt); };
 
         OctreeNode<AdditionalCellAttributes> root{};
@@ -96,7 +96,7 @@ public:
         root.set_cell_size(min_pos, max_pos);
         root.set_cell_neuron_position(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
 
-        for (const auto id : NeuronID::range(1, number_neurons)) {
+        for (const auto id : NeuronIDRange::range(1, number_neurons)) {
             root.insert(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt), id, memory_holder);
         }
 
@@ -140,7 +140,7 @@ public:
     }
 
     template <typename AdditionalCellAttributes>
-    static OctreeNode<AdditionalCellAttributes> get_tree_no_dendrites(const RelearnTypes::number_neurons_type number_neurons, MemoryHolder<AdditionalCellAttributes>& memory_holder, const Vec3d& min_pos, const Vec3d& max_pos, std::mt19937& mt) {
+    static OctreeNode<AdditionalCellAttributes> get_tree_no_dendrites(const RelearnTypes::number_neurons_type number_neurons, std::shared_ptr<MemoryHolder<AdditionalCellAttributes>> memory_holder, const RelearnTypes::position_type& min_pos, const RelearnTypes::position_type& max_pos, std::mt19937& mt) {
         auto get_synaptic_count = [&mt]() { return RandomFactory::get_random_integer<typename OctreeNode<AdditionalCellAttributes>::counter_type>(0, 1, mt); };
 
         OctreeNode<AdditionalCellAttributes> root{};
@@ -151,7 +151,7 @@ public:
         root.set_cell_size(min_pos, max_pos);
         root.set_cell_neuron_position(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
 
-        for (const auto id : NeuronID::range(1, number_neurons)) {
+        for (const auto id : NeuronIDRange::range(1, number_neurons)) {
             root.insert(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt), id, memory_holder);
         }
 
@@ -195,7 +195,7 @@ public:
     }
 
     template <typename AdditionalCellAttributes>
-    static OctreeNode<AdditionalCellAttributes> get_tree_no_synaptic_elements(const RelearnTypes::number_neurons_type number_neurons, MemoryHolder<AdditionalCellAttributes>& memory_holder, const Vec3d& min_pos, const Vec3d& max_pos, std::mt19937& mt) {
+    static OctreeNode<AdditionalCellAttributes> get_tree_no_synaptic_elements(const RelearnTypes::number_neurons_type number_neurons, std::shared_ptr<MemoryHolder<AdditionalCellAttributes>> memory_holder, const RelearnTypes::position_type& min_pos, const RelearnTypes::position_type& max_pos, std::mt19937& mt) {
         OctreeNode<AdditionalCellAttributes> root{};
         root.set_level(0);
         root.set_rank(mpiPP::MPIInfo::get_my_rank());
@@ -204,7 +204,7 @@ public:
         root.set_cell_size(min_pos, max_pos);
         root.set_cell_neuron_position(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt));
 
-        for (const auto id : NeuronID::range(1, number_neurons)) {
+        for (const auto id : NeuronIDRange::range(1, number_neurons)) {
             root.insert(SimulationFactory::get_random_position_in_box(min_pos, max_pos, mt), id, memory_holder);
         }
 

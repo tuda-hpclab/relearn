@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,18 +11,20 @@
 #include "test_neuron_id.h"
 
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnException.h"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "factory/random/random_factory.h"
 
 #include <fmt/core.h>
 
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
+
 #include <compare>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 
 TEST_F(NeuronIDTest, testUninitialized) { // NOLINT
     if (mpiPP::MPIInfo::get_number_ranks() != 1) {
@@ -199,6 +201,64 @@ TEST_F(NeuronIDTest, testConstructorVirtual) {
     test(std::uint64_t{ 0 });
 }
 
+TEST_F(NeuronIDTest, testConstructorLimits) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr auto largest = NeuronID::limits::max;
+
+    ASSERT_EQ(NeuronID{ largest }.get_neuron_id(), largest);
+    ASSERT_EQ(NeuronID(false, largest).get_neuron_id(), largest);
+    ASSERT_EQ(NeuronID::virtual_id(largest).get_rma_offset(), largest);
+
+    // The id values are checked instead of being silently truncated to the 62 bits that the flags leave over
+    ASSERT_THROW_NO_PRINT(std::ignore = NeuronID{ largest + 1 }, RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = NeuronID{ std::numeric_limits<NeuronID::value_type>::max() }, RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = NeuronID{ -1 }, RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = NeuronID(true, largest + 1), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = NeuronID(true, -1), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = NeuronID::virtual_id(largest + 1), RelearnException);
+}
+
+TEST_F(NeuronIDTest, testTaggedID) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    const auto local = NeuronID{ 42 };
+    const auto virtual_neuron = NeuronID::virtual_id(42);
+    const auto uninitialized = NeuronID::uninitialized_id();
+
+    // The wrapped tagged id round-trips through the constructor that takes it
+    ASSERT_EQ(NeuronID{ local.get_id() }, local);
+    ASSERT_EQ(NeuronID{ virtual_neuron.get_id() }, virtual_neuron);
+    ASSERT_EQ(NeuronID{ uninitialized.get_id() }, uninitialized);
+
+    ASSERT_TRUE(local.get_id().get_flag<NeuronIDTraits::initialized_flag>());
+    ASSERT_FALSE(local.get_id().get_flag<NeuronIDTraits::virtual_flag>());
+    ASSERT_EQ(local.get_id().get_value(), 42);
+
+    ASSERT_TRUE(virtual_neuron.get_id().get_flag<NeuronIDTraits::initialized_flag>());
+    ASSERT_TRUE(virtual_neuron.get_id().get_flag<NeuronIDTraits::virtual_flag>());
+    ASSERT_EQ(virtual_neuron.get_id().get_value(), 42);
+
+    ASSERT_FALSE(uninitialized.get_id().get_flag<NeuronIDTraits::initialized_flag>());
+    ASSERT_FALSE(uninitialized.get_id().get_flag<NeuronIDTraits::virtual_flag>());
+
+    // The tagged id prints with its name, which is what shows up in the messages of the exceptions it throws
+    ASSERT_EQ(fmt::format("{}", local.get_id()), "NeuronID: 42");
+    ASSERT_EQ(fmt::format("{}", uninitialized.get_id()), "NeuronID: uninitialized");
+}
+
 TEST_F(NeuronIDTest, testRange1) {
     if (mpiPP::MPIInfo::get_number_ranks() != 1) {
         if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
@@ -209,7 +269,7 @@ TEST_F(NeuronIDTest, testRange1) {
     }
 
     const auto test = [](const auto id_val_1, const auto id_val_2) {
-        const auto range = NeuronID::range(id_val_1, id_val_2);
+        const auto range = NeuronIDRange::range(id_val_1, id_val_2);
 
         auto expected = id_val_1;
         for (const auto id : range) {
@@ -239,7 +299,7 @@ TEST_F(NeuronIDTest, testRange2) {
     }
 
     const auto test = [](const auto id_val_1, const auto id_val_2) {
-        const auto range = NeuronID::range(NeuronID{ false, id_val_1 }, NeuronID{ false, id_val_2 });
+        const auto range = NeuronIDRange::range(NeuronID{ false, id_val_1 }, NeuronID{ false, id_val_2 });
 
         auto expected = id_val_1;
         for (const auto id : range) {
@@ -269,7 +329,7 @@ TEST_F(NeuronIDTest, testRange3) {
     }
 
     const auto test = [](const auto id_val) {
-        const auto range = NeuronID::range(std::uint64_t{ 0 }, id_val);
+        const auto range = NeuronIDRange::range(std::uint64_t{ 0 }, id_val);
 
         auto expected = std::uint64_t{ 0 };
         for (const auto id : range) {
@@ -299,7 +359,7 @@ TEST_F(NeuronIDTest, testRange4) {
     }
 
     const auto test = [](const auto id_val) {
-        const auto range = NeuronID::range(NeuronID{ false, 0 }, NeuronID{ false, id_val });
+        const auto range = NeuronIDRange::range(NeuronID{ false, 0 }, NeuronID{ false, id_val });
 
         auto expected = std::uint64_t{ 0 };
         for (const auto id : range) {
@@ -329,7 +389,7 @@ TEST_F(NeuronIDTest, testRangeId1) {
     }
 
     const auto test = [](const auto id_val_1, const auto id_val_2) {
-        const auto range = NeuronID::range_id(id_val_1, id_val_2);
+        const auto range = NeuronIDRange::range_id(id_val_1, id_val_2);
 
         auto expected = id_val_1;
         for (const auto id : range) {
@@ -358,7 +418,7 @@ TEST_F(NeuronIDTest, testRangeId2) {
     }
 
     const auto test = [](const auto id_val) {
-        const auto range = NeuronID::range_id(std::uint64_t{ 0 }, id_val);
+        const auto range = NeuronIDRange::range_id(std::uint64_t{ 0 }, id_val);
 
         auto expected = std::uint64_t{ 0 };
         for (const auto id : range) {
@@ -375,6 +435,25 @@ TEST_F(NeuronIDTest, testRangeId2) {
     test(std::uint64_t{ 0 });
     test(std::uint64_t{ 357 });
     test(std::uint64_t{ 157 });
+}
+
+TEST_F(NeuronIDTest, testRangeInvalid) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    // The bounds are checked instead of yielding a range that runs past the largest representable id
+    ASSERT_THROW_NO_PRINT(std::ignore = NeuronIDRange::range(std::uint64_t{ 5 }, std::uint64_t{ 2 }), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = NeuronIDRange::range_id(std::uint64_t{ 5 }, std::uint64_t{ 2 }), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = NeuronIDRange::range(std::numeric_limits<NeuronID::value_type>::max()), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = NeuronIDRange::range_id(std::numeric_limits<NeuronID::value_type>::max()), RelearnException);
+
+    // The largest range is the one that ends past the largest id
+    ASSERT_NO_THROW(std::ignore = NeuronIDRange::range(NeuronID::limits::max, NeuronID::limits::max + 1));
 }
 
 TEST_F(NeuronIDTest, testComparisons1) { // NOLINT

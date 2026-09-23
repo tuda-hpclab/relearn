@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2020-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,9 +11,11 @@
  */
 
 #include "Config.h"
-#include "Types.h"
 
 #include "neurons/enums/SynapticElementType.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
+#include "util/NeuronID.h"
 #include "util/RelearnException.h"
 
 #include <optional>
@@ -29,8 +31,8 @@ template <typename AdditionalCellAttributes>
 class Cell {
 public:
     using position_type = RelearnTypes::position_type;
+    using space_type = RelearnTypes::space_type;
     using counter_type = RelearnTypes::counter_type;
-    using box_size_type = RelearnTypes::box_size_type;
     using boundary_box_type = RelearnTypes::bounding_box_type;
 
     constexpr static bool has_excitatory_dendrite = AdditionalCellAttributes::has_excitatory_dendrite;
@@ -76,7 +78,7 @@ public:
      * @brief Returns maximum edge length of the cell, i.e., ||max - min||_1
      * @return The maximum edge length of the cell
      */
-    [[nodiscard]] constexpr double get_maximal_dimension_difference() const noexcept {
+    [[nodiscard]] constexpr space_type get_maximal_dimension_difference() const noexcept {
         return cell_boundary.get_maximum_difference();
     }
 
@@ -99,13 +101,13 @@ public:
      *		|/        |/       |/
      *	   000 ----- 001       +-----> x
      */
-    [[nodiscard]] unsigned char get_octant_for_position(const box_size_type& position) const {
+    [[nodiscard]] unsigned char get_octant_for_position(const position_type& position) const {
         /**
          * Sanity check: Make sure that the position is within this cell
          * This check returns false if negative coordinates are used.
          * Thus make sure to use positions >= 0.
          */
-        const auto is_in_box = cell_boundary.check_in_box(position);
+        const auto is_in_box = cell_boundary.contains(position);
 
         const auto& [minimum_position, maximum_position] = cell_boundary;
         RelearnException::check(is_in_box, "Cell::get_octant_for_position: position is not in box: {} in [{}, {}]", position, minimum_position, maximum_position);
@@ -122,14 +124,13 @@ public:
         constexpr auto char_4 = static_cast<unsigned char>(4);
 
         // NOLINTNEXTLINE
-        idx = idx | ((x < (min_x + max_x) / 2.0) ? char_0 : char_1); // idx | (pos_x < midpoint_dim_x) ? 0 : 1
+        idx = idx | ((x < (min_x + max_x) / space_type{ 2 }) ? char_0 : char_1); // idx | (pos_x < midpoint_dim_x) ? 0 : 1
 
         // NOLINTNEXTLINE
-        idx = idx | ((y < (min_y + max_y) / 2.0) ? char_0 : char_2); // idx | (pos_y < midpoint_dim_y) ? 0 : 2
+        idx = idx | ((y < (min_y + max_y) / space_type{ 2 }) ? char_0 : char_2); // idx | (pos_y < midpoint_dim_y) ? 0 : 2
 
         // NOLINTNEXTLINE
-        idx = idx | ((z < (min_z + max_z) / 2.0) ? char_0 : char_4); // idx | (pos_z < midpoint_dim_z) ? 0 : 4
-
+        idx = idx | ((z < (min_z + max_z) / space_type{ 2 }) ? char_0 : char_4); // idx | (pos_z < midpoint_dim_z) ? 0 : 4
         RelearnException::check(idx < Constants::number_oct, "Cell::get_octant_for_position: Calculated octant is too large: {}", idx);
 
         return idx;
@@ -211,7 +212,7 @@ private:
      */
     NeuronID neuron_id{ NeuronID::uninitialized_id() };
 
-    BoundingBox<RelearnTypes::position_type::value_type> cell_boundary{};
+    BoundingBox<RelearnTypes::position_type::value_type> cell_boundary;
 
     AdditionalCellAttributes additional_cell_attributes{};
 
@@ -226,7 +227,7 @@ private:
         }
 
         const auto& position = opt_position.value();
-        const auto is_in_box = cell_boundary.check_in_box(position);
+        const auto is_in_box = cell_boundary.contains(position);
         RelearnException::check(is_in_box, "Cell::check_optional_position: position is not in box: {} in {}", position, cell_boundary);
     }
 
@@ -346,7 +347,7 @@ public:
             const auto& pos_in = inhibitory_dendrites_position_opt.value();
 
             const auto diff = pos_ex - pos_in;
-            const bool exc_position_equals_inh_position = diff.get_x() == 0.0 && diff.get_y() == 0.0 && diff.get_z() == 0.0;
+            const bool exc_position_equals_inh_position = diff.get_x() == space_type{ 0 } && diff.get_y() == space_type{ 0 } && diff.get_z() == space_type{ 0 };
             RelearnException::check(exc_position_equals_inh_position, "Cell::get_dendrites_positions: positions are unequal");
 
             return pos_ex;
@@ -473,7 +474,7 @@ public:
             const auto& pos_in = inhibitory_axons_position_opt.value();
 
             const auto diff = pos_ex - pos_in;
-            const bool exc_position_equals_inh_position = diff.get_x() == 0.0 && diff.get_y() == 0.0 && diff.get_z() == 0.0;
+            const bool exc_position_equals_inh_position = diff.get_x() == space_type{ 0 } && diff.get_y() == space_type{ 0 } && diff.get_z() == space_type{ 0 };
             RelearnException::check(exc_position_equals_inh_position, "Cell::get_axons_position: positions are unequal");
 
             return pos_ex;

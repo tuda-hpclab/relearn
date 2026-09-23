@@ -3,24 +3,25 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-
 #include "neurons/NetworkGraph.h"
 #include "neurons/helper/RankNeuronId.h"
 #include "neurons/helper/SynapseDeletionRequests.h"
+#include "types/BasicTypes.h"
+#include "types/SynapseTypes.h"
 #include "util/NeuronID.h"
-
-#include "cpp-utility/ranges/Functional.hpp"
+#include "util/NeuronIDRange.h"
 
 #include "factory/mpi_rank/mpi_rank_factory.h"
 #include "factory/random/random_factory.h"
+
+#include <cpp-utility/ranges/Functional.hpp>
 
 #include <range/v3/action/insert.hpp>
 #include <range/v3/algorithm/for_each.hpp>
@@ -260,11 +261,15 @@ public:
 
         auto local_to_distant_edges = [my_rank](const std::pair<NeuronID, RelearnTypes::static_synapse_weight>& pair) { return std::make_pair(RankNeuronId{ my_rank, pair.first }, pair.second); };
 
+        // The plastic edges count their connections, so their weight has to be widened to the one of the static edges.
+        auto plastic_to_static_edges = [](const std::pair<RankNeuronId, RelearnTypes::plastic_synapse_weight>& pair) { return std::make_pair(pair.first, static_cast<RelearnTypes::static_synapse_weight>(pair.second)); };
+        auto local_plastic_to_distant_static_edges = [my_rank](const std::pair<NeuronID, RelearnTypes::plastic_synapse_weight>& pair) { return std::make_pair(RankNeuronId{ my_rank, pair.first }, static_cast<RelearnTypes::static_synapse_weight>(pair.second)); };
+
         std::ranges::copy(static_distant_edges, std::back_inserter(all_edges));
-        std::ranges::copy(plastic_distant_edges, std::back_inserter(all_edges));
+        std::ranges::transform(plastic_distant_edges, std::back_inserter(all_edges), plastic_to_static_edges);
 
         std::ranges::transform(static_local_edges, std::back_inserter(all_edges), local_to_distant_edges);
-        std::ranges::transform(plastic_local_edges, std::back_inserter(all_edges), local_to_distant_edges);
+        std::ranges::transform(plastic_local_edges, std::back_inserter(all_edges), local_plastic_to_distant_static_edges);
 
         return all_edges;
     }
@@ -278,11 +283,15 @@ public:
 
         auto local_to_distant_edges = [my_rank](const std::pair<NeuronID, RelearnTypes::static_synapse_weight>& pair) { return std::make_pair(RankNeuronId{ my_rank, pair.first }, pair.second); };
 
+        // The plastic edges count their connections, so their weight has to be widened to the one of the static edges.
+        auto plastic_to_static_edges = [](const std::pair<RankNeuronId, RelearnTypes::plastic_synapse_weight>& pair) { return std::make_pair(pair.first, static_cast<RelearnTypes::static_synapse_weight>(pair.second)); };
+        auto local_plastic_to_distant_static_edges = [my_rank](const std::pair<NeuronID, RelearnTypes::plastic_synapse_weight>& pair) { return std::make_pair(RankNeuronId{ my_rank, pair.first }, static_cast<RelearnTypes::static_synapse_weight>(pair.second)); };
+
         std::ranges::copy(static_distant_edges, std::back_inserter(all_edges));
-        std::ranges::copy(plastic_distant_edges, std::back_inserter(all_edges));
+        std::ranges::transform(plastic_distant_edges, std::back_inserter(all_edges), plastic_to_static_edges);
 
         std::ranges::transform(static_local_edges, std::back_inserter(all_edges), local_to_distant_edges);
-        std::ranges::transform(plastic_local_edges, std::back_inserter(all_edges), local_to_distant_edges);
+        std::ranges::transform(plastic_local_edges, std::back_inserter(all_edges), local_plastic_to_distant_static_edges);
 
         return all_edges;
     }
@@ -292,7 +301,7 @@ public:
      * @param network_graphs Vector of network_graphs. Rank i has network_graphs[i]
      * @param num_neurons Number of neurons per rank
      */
-    static bool harmonize_network_graphs_from_different_ranks(std::vector<std::shared_ptr<NetworkGraph>> network_graphs, const size_t num_neurons) {
+    static bool harmonize_network_graphs_from_different_ranks(std::vector<std::shared_ptr<NetworkGraph>> network_graphs, const RelearnTypes::number_neurons_type num_neurons) {
         for (auto rank = 0; static_cast<std::size_t>(rank) < network_graphs.size(); rank++) {
             const auto cur_network_graph = network_graphs[static_cast<std::size_t>(rank)];
 
@@ -331,7 +340,7 @@ public:
      * @param signal_types Vector of vector of signal types. Neuron j on rank i has signal_type[i][j]
      * @param num_neurons Number of neurons per rank
      */
-    static bool check_validity_of_network_graphs(std::vector<std::shared_ptr<NetworkGraph>> network_graphs, const std::vector<std::vector<SignalType>>& signal_types, const size_t num_neurons) {
+    static bool check_validity_of_network_graphs(std::vector<std::shared_ptr<NetworkGraph>> network_graphs, const std::vector<std::vector<SignalType>>& signal_types, const RelearnTypes::number_neurons_type num_neurons) {
         for (auto rank = 0ULL; rank < network_graphs.size(); rank++) {
             const auto cur_network_graph = network_graphs[rank];
 
@@ -500,7 +509,7 @@ public:
         };
 
         ranges::for_each(
-            ranges::views::cartesian_product(NeuronID::range(number_neurons), NeuronID::range(number_neurons))
+            ranges::views::cartesian_product(NeuronIDRange::range(number_neurons), NeuronIDRange::range(number_neurons))
                 | ranges::views::filter(not_the_same_id),
             func);
     }

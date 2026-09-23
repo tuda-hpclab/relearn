@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2025-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,27 +11,29 @@
  */
 
 #include "Config.h"
-#include "Types.h"
 
 #include "algorithm/Internal/octree/NodeCache.h"
 #include "algorithm/Internal/octree/OctreeNode.h"
 #include "algorithm/Kernel/Kernel.h"
 #include "algorithm/Kernel/KernelBase.h"
 #include "algorithm/NaiveInternal/NaiveCell.h"
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 #include "neurons/enums/SynapticElementType.h"
 #include "neurons/helper/RankNeuronId.h"
 #include "neurons/helper/SynapseCreationRequests.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <array>
 #include <optional>
 #include <stack>
 #include <tuple>
-#include <vector>
 #include <utility>
+#include <vector>
 
 /**
  * This class provides all computational elements of the Barnes-Hut algorithm.
@@ -45,6 +47,11 @@ public:
     using counter_type = RelearnTypes::counter_type;
 
     virtual ~NaiveBase() = default;
+
+    NaiveBase(const NaiveBase&) = default;
+    NaiveBase& operator=(const NaiveBase&) = default;
+    NaiveBase(NaiveBase&&) = default;
+    NaiveBase& operator=(NaiveBase&&) = default;
 
     /**
      * @brief Returns an optional RankNeuronId that the algorithm determined for the given source neuron. No actual request is made.

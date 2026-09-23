@@ -3,14 +3,12 @@
 /*
  * This file is part of the CPP-Utility software developed at Technical University Darmstadt
  *
- * Copyright (c) 2024, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
-
-#include <range/v3/range/conversion.hpp>
 
 #include <span>
 #include <type_traits>
@@ -18,13 +16,13 @@
 
 namespace utility {
 /**
- * @brief Constructs a vector from a span
+ * @brief Copies the elements of a span into a new owning vector
  * @tparam T The type of elements
  * @param span The non-owning span
  * @return A vector with a copy of the elements
  */
 template <typename T>
-static std::vector<std::decay_t<T>> vectorify_span(const std::span<T> span) {
-    return span | ranges::to_vector;
+[[nodiscard]] std::vector<std::remove_cv_t<T>> vectorify_span(const std::span<T> span) {
+    return { span.begin(), span.end() };
 }
 } // namespace utility

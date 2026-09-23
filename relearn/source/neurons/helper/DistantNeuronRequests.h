@@ -3,21 +3,18 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-
 #include "neurons/enums/SynapticElementType.h"
 #include "neurons/helper/SynapseCreationRequests.h"
+#include "types/SpaceTypes.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
-
-#include <utility>
 
 /**
  * One DistantNeuronRequest always consists of a source neuron and its position, which initiates the request,
@@ -178,8 +175,8 @@ public:
     }
 
 private:
-    NeuronID source_id{};
-    RelearnTypes::position_type source_position{};
+    NeuronID source_id;
+    RelearnTypes::position_type source_position;
     NeuronID::value_type target_neuron_identifier{};
     TargetNeuronType target_neuron_type{};
     SignalType signal_type{};
@@ -189,32 +186,32 @@ private:
 
 namespace std {
 template <>
-struct tuple_size<typename ::DistantNeuronRequest> {
+struct tuple_size<DistantNeuronRequest> {
     static constexpr size_t value = 5;
 };
 
 template <>
-struct tuple_element<0, typename ::DistantNeuronRequest> {
+struct tuple_element<0, DistantNeuronRequest> {
     using type = NeuronID;
 };
 
 template <>
-struct tuple_element<1, typename ::DistantNeuronRequest> {
+struct tuple_element<1, DistantNeuronRequest> {
     using type = RelearnTypes::position_type;
 };
 
 template <>
-struct tuple_element<2, typename ::DistantNeuronRequest> {
+struct tuple_element<2, DistantNeuronRequest> {
     using type = NeuronID::value_type;
 };
 
 template <>
-struct tuple_element<3, typename ::DistantNeuronRequest> {
+struct tuple_element<3, DistantNeuronRequest> {
     using type = ::DistantNeuronRequest::TargetNeuronType;
 };
 
 template <>
-struct tuple_element<4, typename ::DistantNeuronRequest> {
+struct tuple_element<4, DistantNeuronRequest> {
     using type = SignalType;
 };
 
@@ -290,7 +287,7 @@ public:
     }
 
 private:
-    NeuronID source_id{};
+    NeuronID source_id;
     SynapseCreationResponse response{};
 };
 

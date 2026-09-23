@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,17 +11,21 @@
  */
 
 #include "Config.h"
-#include "Types.h"
-#include "Types2.h"
 
 #include "algorithm/AlgorithmEnum.h"
 #include "algorithm/CombinedAlgorithmsInternal/CombinedAlgorithms.h"
+#include "neurons/calcium/CalciumCalculator.h"
+#include "neurons/helper/SynapseDeletionFinder.h"
+#include "neurons/models/NeuronModel.h"
+#include "neurons/synaptic_elements/SynapticElements.h"
 #include "sim/Essentials.h"
+#include "types/AlgorithmTypes.h"
+#include "types/BasicTypes.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
 #include "util/StatisticalMeasures.h"
 
-#include "cpp-utility/Interval.hpp"
+#include <cpp-utility/Interval.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -34,23 +38,20 @@
 #include <utility>
 #include <vector>
 
+enum class NetworkGPUType;
+
 namespace utility {
 class MemoryFootprint;
 }
 
 class Algorithm;
-class CalciumCalculator;
 class GlobalGroupMapper;
 class GroupMonitor;
 class KernelBase;
-class NeuronModel;
 class NeuronMonitor;
 class NeuronToSubdomainAssignment;
 class Neurons;
 class Partition;
-class SynapseDeletionFinder;
-class SynapticElements;
-class SynapticElements;
 
 /**
  * This class encapsulates all necessary attributes of a simulation.
@@ -61,6 +62,9 @@ class Simulation {
 public:
     using step_type = RelearnTypes::step_type;
     using number_neurons_type = RelearnTypes::number_neurons_type;
+    using calcium_type = RelearnTypes::calcium_type;
+    using acceptance_criterion_type = RelearnTypes::acceptance_criterion_type;
+    using percentage_type = RelearnTypes::percentage_type;
 
     /**
      * @brief Constructs a new object with the given partition and essentials.
@@ -91,11 +95,15 @@ public:
      * @param value The acceptance criterion (theta) in [0.0, BarnesHut::max_theta]
      * @exception Throws a RelearnException if value is not from [0.0, BarnesHut::max_theta]
      */
-    void set_acceptance_criterion_for_barnes_hut(double value);
+    void set_acceptance_criterion_for_barnes_hut(acceptance_criterion_type value);
 
     void set_algorithm_vector_for_combined_algorithms(RelearnTypes::AlgorithmConfigs&& algorithm_configs_to_use);
 
     void set_indices_and_neurons_for_combined_algorithms(const RelearnTypes::AlgorithmIndexWithNeuronsType& inds_and_neurons);
+
+    void set_network_type(const NetworkGPUType _network_gpu_type) {
+        network_gpu_type = _network_gpu_type;
+    }
 
     /**
      * @brief Sets the neuron model used for the simulation
@@ -159,7 +167,7 @@ public:
      * @param percentage The percentage, must be 0.0 <= percentage <= 1.0
      * @exception Throws a RelearnException if the percentage is out of bounds
      */
-    void set_percentage_initial_fired_neurons(double percentage);
+    void set_percentage_initial_fired_neurons(RelearnTypes::percentage_type percentage);
 
     /**
      * @brief Sets the subdomain assignment that determines how the neurons are loaded.
@@ -273,6 +281,8 @@ public:
      */
     void finalize() const;
 
+    void final_timer_print() const;
+
     /**
      * @brief Returns an std::shared_ptr to the partition object
      * @return The partition object
@@ -288,6 +298,8 @@ public:
     [[nodiscard]] std::shared_ptr<Neurons> get_neurons() const noexcept {
         return neurons;
     }
+
+    void print_memory_footprint() const;
 
     /**
      * @brief Returns the neuron monitor
@@ -340,25 +352,26 @@ public:
 private:
     std::unique_ptr<Essentials> essentials{};
     std::unique_ptr<utility::MemoryFootprint> footprint{};
+    std::unique_ptr<utility::MemoryFootprint> usage_footprint{};
 
     std::unique_ptr<KernelBase> probability_kernel{};
 
-    std::shared_ptr<Partition> partition{};
+    std::shared_ptr<Partition> partition;
 
     std::unique_ptr<NeuronToSubdomainAssignment> neuron_to_subdomain_assignment{};
 
-    std::shared_ptr<SynapticElements> synaptic_elements{};
+    std::shared_ptr<SynapticElements> synaptic_elements;
 
     std::vector<NeuronID> static_neurons{};
-    std::vector<std::string> static_groups;
+    std::vector<std::string> static_groups{};
 
     std::unique_ptr<NeuronModel> neuron_models{};
     std::unique_ptr<CalciumCalculator> calcium_calculator{};
-    std::shared_ptr<Neurons> neurons{};
+    std::shared_ptr<Neurons> neurons;
     std::unique_ptr<SynapseDeletionFinder> synapse_deletion_finder{};
 
     std::unique_ptr<NeuronMonitor> neuron_monitor{};
-    std::shared_ptr<std::unordered_map<RelearnTypes::group_id, GroupMonitor>> group_monitors;
+    std::shared_ptr<std::unordered_map<RelearnTypes::group_id, GroupMonitor>> group_monitors{};
     std::shared_ptr<GlobalGroupMapper> global_group_mapper;
 
     std::vector<std::pair<step_type, std::vector<NeuronID>>> enable_interrupts{};
@@ -367,8 +380,8 @@ private:
 
     std::map<NeuronAttribute, std::vector<StatisticalMeasures>> statistics{};
 
-    std::function<double(int, NeuronID::value_type)> target_calcium_calculator{};
-    std::function<double(int, NeuronID::value_type)> initial_calcium_initiator{};
+    std::function<calcium_type(int, NeuronID::value_type)> target_calcium_calculator{};
+    std::function<calcium_type(int, NeuronID::value_type)> initial_calcium_initiator{};
 
     utility::Interval<step_type> interval_update_electrical_activity{ .begin = 0, .end = std::numeric_limits<RelearnTypes::step_type>::max(), .frequency = RelearnTypes::step_type{ 1 } };
     utility::Interval<step_type> interval_update_synaptic_elements{ .begin = 0, .end = std::numeric_limits<RelearnTypes::step_type>::max(), .frequency = RelearnTypes::step_type{ 1 } };
@@ -381,20 +394,22 @@ private:
     utility::Interval<step_type> interval_fire_rate_log{ .begin = 0, .end = std::numeric_limits<RelearnTypes::step_type>::max(), .frequency = Config::fire_rate_log_step };
     utility::Interval<step_type> interval_synaptic_input_log{ .begin = 0, .end = std::numeric_limits<RelearnTypes::step_type>::max(), .frequency = Config::synaptic_input_log_step };
     utility::Interval<step_type> interval_network_log{ .begin = 0, .end = std::numeric_limits<RelearnTypes::step_type>::max(), .frequency = Config::network_log_step };
+    utility::Interval<step_type> interval_flush_all_logs_step{ .begin = 0, .end = std::numeric_limits<RelearnTypes::step_type>::max(), .frequency = Config::flush_monitor_step };
 
     utility::Interval<step_type> interval_statistics_log{ .begin = 0, .end = std::numeric_limits<RelearnTypes::step_type>::max(), .frequency = Config::statistics_log_step };
 
-    double percentage_initially_fired{ 0.0 };
+    percentage_type percentage_initially_fired{ 0.0 };
 
     bool group_monitor_enabled{ false };
     bool group_monitor_connectivity{ true };
 
-    double accept_criterion{ 0.0 };
+    acceptance_criterion_type accept_criterion{ 0.0 };
 
-    RelearnTypes::AlgorithmConfigs algorithms{};
-    RelearnTypes::AlgorithmIndexWithNeuronsType indices_and_neurons{};
+    RelearnTypes::AlgorithmConfigs algorithms;
+    RelearnTypes::AlgorithmIndexWithNeuronsType indices_and_neurons;
 
     AlgorithmEnum algorithm_enum{};
+    NetworkGPUType network_gpu_type{};
 
     std::int64_t total_synapse_creations{ 0 };
     std::int64_t total_synapse_deletions{ 0 };
@@ -403,4 +418,6 @@ private:
     std::int64_t delta_synapse_deletions{ 0 };
 
     step_type step{ 1 };
+
+    std::chrono::system_clock::time_point start_time;
 };

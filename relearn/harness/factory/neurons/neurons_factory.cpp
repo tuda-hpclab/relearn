@@ -1,26 +1,38 @@
+/*
+ * This file is part of the RELeARN software developed at Technical University Darmstadt
+ *
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
+ *
+ * This software may be modified and distributed under the terms of a BSD-style license.
+ * See the LICENSE file in the base directory for details.
+ *
+ */
+
 #include "neurons_factory.h"
 
 #include "Config.h"
-#include "Types.h"
 
 #include "io/NeuronIO.h"
 #include "neurons/LocalGroupTranslator.h"
 #include "neurons/enums/SynapticElementType.h"
 #include "sim/random/SubdomainFromNeuronDensity.h"
 #include "structure/Partition.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
 #include "util/NeuronFilePaths.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnAllocator.h"
 #include "util/Vec3.h"
 #include "util/shuffle/shuffle.h"
 
-#include "cpp-utility/ranges/Functional.hpp"
-
-#include "mpi-wrapper/MPIRank.h"
-
 #include "factory/neuron_id/neuron_id_factory.h"
 #include "factory/random/random_factory.h"
 #include "factory/simulation/simulation_factory.h"
+
+#include <cpp-utility/ranges/Functional.hpp>
+
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <range/v3/algorithm/contains.hpp>
 #include <range/v3/range/conversion.hpp>
@@ -60,12 +72,12 @@ void NeuronsFactory::generate_random_neuron_positions_and_signals(std::vector<Re
                                                                   std::vector<SignalType>& types,
                                                                   std::mt19937& mt, const std::optional<std::filesystem::path>& path) {
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt);
-    const auto fraction_excitatory_neurons = RandomFactory::get_random_percentage<double>(mt);
-    const auto um_per_neuron = RandomFactory::get_random_double(1.0, 100.0, mt);
+    const auto fraction_excitatory_neurons = RandomFactory::get_random_percentage<RelearnTypes::percentage_type>(mt);
+    const auto um_per_neuron = RandomFactory::get_random_double(RelearnTypes::space_type{ 1 }, RelearnTypes::space_type{ 100 }, mt);
 
     const auto part = std::make_shared<Partition>(1, mpiPP::MPIRank(0));
     part->set_total_number_neurons(number_neurons);
-    auto sfnd = SubdomainFromNeuronDensity{ number_neurons, fraction_excitatory_neurons, um_per_neuron, part };
+    auto sfnd = SubdomainFromNeuronDensity{ number_neurons, fraction_excitatory_neurons, static_cast<RelearnTypes::space_type>(um_per_neuron), part };
 
     sfnd.initialize();
 
@@ -92,7 +104,7 @@ void NeuronsFactory::generate_random_neuron_groups(std::vector<RelearnTypes::gro
     }
 }
 
-std::vector<RelearnTypes::group_ids> NeuronsFactory::get_random_group_ids(const GroupConfig& group_config, std::mt19937& mt, const std::size_t _min_num_groups_per_neuron_except_default,  const std::size_t _max_num_groups_per_neuron_except_default) {
+std::vector<RelearnTypes::group_ids> NeuronsFactory::get_random_group_ids(const GroupConfig& group_config, std::mt19937& mt, const std::size_t _min_num_groups_per_neuron_except_default, const std::size_t _max_num_groups_per_neuron_except_default) {
     return ranges::views::generate_n(
                [&group_config, _max_num_groups_per_neuron_except_default, _min_num_groups_per_neuron_except_default, &mt]() {
                    const auto& number_groups = group_config.number_groups;
@@ -191,8 +203,8 @@ std::string NeuronsFactory::get_invalid_group_name(const RelearnTypes::group_nam
     return group_name;
 }
 
-std::vector<std::pair<Vec3d, NeuronID>> NeuronsFactory::generate_random_neurons(const Vec3d& min, const Vec3d& max, const std::size_t max_id, std::mt19937& mt) {
-    auto ids = NeuronID::range(max_id) | ranges::to_vector | actions::shuffle(mt);
+std::vector<std::pair<RelearnTypes::position_type, NeuronID>> NeuronsFactory::generate_random_neurons(const RelearnTypes::position_type& min, const RelearnTypes::position_type& max, const std::size_t max_id, std::mt19937& mt) {
+    auto ids = NeuronIDRange::range(max_id) | ranges::to_vector | actions::shuffle(mt);
 
     return ranges::views::zip(
                ranges::views::generate([&min, &max, &mt]() { return SimulationFactory::get_random_position_in_box(min, max, mt); }),

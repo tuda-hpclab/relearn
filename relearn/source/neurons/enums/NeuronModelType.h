@@ -3,18 +3,21 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
+#include "Macros.h"
+
+#ifdef HOST_COMPILER
 #include <fmt/ostream.h>
 
 #include <ostream>
-
 #include <string>
+#endif
 
 /**
  * This enums lists all types of neuron models
@@ -26,6 +29,7 @@ enum class NeuronModelType : char {
     FitzHughNagumo
 };
 
+#ifdef HOST_COMPILER
 /**
  * @brief Returns the name of the chosen neuron model
  * @param neuron_model_type The neuron model
@@ -64,4 +68,5 @@ inline std::ostream& operator<<(std::ostream& out, const NeuronModelType& neuron
 
 template <>
 struct fmt::formatter<NeuronModelType> : ostream_formatter { };
+#endif
 

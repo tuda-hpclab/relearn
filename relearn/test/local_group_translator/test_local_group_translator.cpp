@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2025-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -12,24 +12,25 @@
 
 #include "Config.h"
 #include "RelearnTest.hpp"
-#include "Types.h"
 
 #include "io/NeuronIO.h"
 #include "neurons/LocalGroupTranslator.h"
+#include "types/BasicTypes.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnException.h"
-
-#include "cpp-utility/ranges/Functional.hpp"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "factory/local_group_translator/local_group_translator_factory.h"
 #include "factory/neuron_id/neuron_id_factory.h"
 #include "factory/neurons/neurons_factory.h"
 #include "factory/random/random_factory.h"
 
+#include <cpp-utility/ranges/Functional.hpp>
+
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <range/v3/algorithm/contains.hpp>
 #include <range/v3/range/conversion.hpp>
@@ -58,7 +59,7 @@ TEST_F(LocalGroupTranslatorTest, testEssentials) {
     }
 
     const auto num_neurons = NeuronIdFactory::get_random_number_neurons(mt);
-    const auto num_groups_max = std::min(NeuronID::value_type{ 50 }, num_neurons);
+    const auto num_groups_max = std::min(RelearnTypes::number_neurons_type{ 50 }, num_neurons);
     auto group_id_to_group_name = RelearnTypes::group_names{};
     auto neuron_id_to_group_ids = std::vector<RelearnTypes::group_ids>{};
     NeuronsFactory::generate_random_neuron_groups(neuron_id_to_group_ids, group_id_to_group_name, num_neurons, mt, std::nullopt, num_groups_max);
@@ -70,7 +71,7 @@ TEST_F(LocalGroupTranslatorTest, testEssentials) {
     ASSERT_EQ(group_id_to_group_name.size(), translator.get_number_of_groups());
     ASSERT_EQ(num_neurons, translator.get_number_neurons_in_total());
 
-    for (const auto neuron_id : NeuronID::range_id(num_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(num_neurons)) {
         ASSERT_EQ(cp_neuron_id_to_group_ids[neuron_id], translator.get_group_ids_for_neuron_id(neuron_id));
 
         const auto& group_ids = cp_neuron_id_to_group_ids[neuron_id];
@@ -221,7 +222,7 @@ TEST_F(LocalGroupTranslatorTest, testGroupGetters) {
     auto neuron_id_to_group_ids = std::vector<RelearnTypes::group_ids>(num_neurons);
     auto group0 = std::vector<RelearnTypes::neuron_id>{};
     auto group1 = std::vector<RelearnTypes::neuron_id>{};
-    for (const auto neuron_id : NeuronID::range_id(num_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(num_neurons)) {
         neuron_id_to_group_ids[neuron_id].emplace_back(0);
         group0.emplace_back(neuron_id);
 
@@ -282,7 +283,7 @@ TEST_F(LocalGroupTranslatorTest, testGetterExceptions) {
 
     const auto num_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 1;
 
-    auto group_id_to_group_name = NeuronsFactory::get_random_group_names_specific(RandomFactory::get_random_integer(NeuronID::value_type{ 1 }, num_neurons, mt), mt);
+    auto group_id_to_group_name = NeuronsFactory::get_random_group_names_specific(RandomFactory::get_random_integer(RelearnTypes::number_neurons_type{ 1 }, num_neurons, mt), mt);
     const auto num_groups = group_id_to_group_name.size();
     const auto neuron_id_to_group_ids = NeuronsFactory::get_random_group_ids({ group_id_to_group_name.size(), num_neurons }, mt);
 

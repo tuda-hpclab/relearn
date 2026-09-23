@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2025-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -9,9 +9,6 @@
  */
 
 #include "io/NeuronToAlgorithmIO.h"
-
-#include "Types.h"
-#include "Types2.h"
 
 #include "algorithm/AlgorithmEnum.h"
 #include "algorithm/Kernel/Gamma.h"
@@ -21,16 +18,21 @@
 #include "algorithm/Kernel/Linear.h"
 #include "algorithm/Kernel/Weibull.h"
 #include "io/parser/MonitorParser.h"
+#include "types/AlgorithmTypes.h"
+#include "types/BasicTypes.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
-#include "util/SetUtil.h"
-#include "util/StringUtil.h"
-
-#include "cpp-utility/ranges/views/IO.hpp"
-
-#include "mpi-wrapper/MPIRank.h"
 
 #include <boost/lexical_cast.hpp>
+
+#include <cpp-utility/StringUtil.hpp>
+#include <cpp-utility/data/intersection.hpp>
+#include <cpp-utility/ranges/views/IO.hpp>
+
+#include <fmt/std.h>
+
+#include <mpi-wrapper/core/MPIRank.h>
+
 #include <range/v3/action/sort.hpp>
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/getlines.hpp>
@@ -84,7 +86,7 @@
               }
               const auto& parsed_ids = MonitorParser::parse_my_ids(descriptions, my_rank, local_group_translator);
 
-              const auto id_already_seen = SetUtil::containers_have_common_element(already_seen_neuron_ids, parsed_ids);
+              const auto id_already_seen = utility::containers_intersect(already_seen_neuron_ids, parsed_ids);
 
               RelearnException::check(!id_already_seen, "NeuronToAlgorithmIO::read_descriptions: A neuron is not supposed to use multiple different algorithm configs. Each neuron should only get assigned to one!");
 
@@ -100,7 +102,7 @@
 
     file.close();
 
-    auto number_neuron_ids = 0UL;
+    auto number_neuron_ids = RelearnTypes::number_neurons_type{ 0 };
     for (const auto& [_algorithm_config, neuron_ids] : algorithmidxes_and_ids) {
         number_neuron_ids += neuron_ids.size();
     }
@@ -111,10 +113,10 @@
 
 // barnes-hut:gaussian(1,5);1.5
 [[nodiscard]] AlgorithmConfig NeuronToAlgorithmIO::get_algorithm_config(std::string description) {
-    StringUtil::to_lower(description);
+    utility::to_lower(description);
     const auto ind1 = description.find(':');
     const auto algorithm_type = description.substr(0, ind1);
-    const auto params = StringUtil::split_string(description.substr(ind1 + 1), ';');
+    const auto params = utility::split_string(description.substr(ind1 + 1), ';');
 
     const auto string_to_algorithm = std::map<std::string, AlgorithmEnum>{
         { "naive", AlgorithmEnum::Naive },
@@ -146,7 +148,7 @@
         RelearnException::check((ind3 != std::string::npos && ind3 > ind2), "NeuronToAlgorithmIO::get_algorithm_config: Closing brackets missing! ({})", description);
         const auto& kernel_params_str = kernel_description.substr(ind2 + 1, ind3 - ind2 - 1); // "1,5"
         if (!kernel_params_str.empty()) {
-            kernel_params = StringUtil::split_string(kernel_params_str, ','); // ["1", "5"]
+            kernel_params = utility::split_string(kernel_params_str, ','); // ["1", "5"]
         }
     }
 
@@ -165,7 +167,7 @@
         if (kernel_params.empty()) {
             kernel_to_use = std::make_unique<GaussianDistributionKernel>();
         } else if (kernel_params.size() == 2) {
-            kernel_to_use = std::make_unique<GaussianDistributionKernel>(boost::lexical_cast<double>(kernel_params[0]), boost::lexical_cast<double>(kernel_params[1]));
+            kernel_to_use = std::make_unique<GaussianDistributionKernel>(boost::lexical_cast<RelearnTypes::attraction_type>(kernel_params[0]), boost::lexical_cast<RelearnTypes::attraction_type>(kernel_params[1]));
         } else {
             RelearnException::fail("NeuronToAlgorithmIO::get_algorithm_config: Expected 0 or 2 parameters for gaussian kernel, but got {}, ({})", kernel_params.size(), description);
         }
@@ -174,7 +176,7 @@
         if (kernel_params.empty()) {
             kernel_to_use = std::make_unique<LinearDistributionKernel>();
         } else if (kernel_params.size() == 1) {
-            kernel_to_use = std::make_unique<LinearDistributionKernel>(boost::lexical_cast<double>(kernel_params[0]));
+            kernel_to_use = std::make_unique<LinearDistributionKernel>(boost::lexical_cast<RelearnTypes::attraction_type>(kernel_params[0]));
         } else {
             RelearnException::fail("NeuronToAlgorithmIO::get_algorithm_config: Expected 0 or 1 parameters for linear kernel, but got {}, ({})", kernel_params.size(), description);
         }
@@ -183,7 +185,7 @@
         if (kernel_params.empty()) {
             kernel_to_use = std::make_unique<GammaDistributionKernel>();
         } else if (kernel_params.size() == 2) {
-            kernel_to_use = std::make_unique<GammaDistributionKernel>(boost::lexical_cast<double>(kernel_params[0]), boost::lexical_cast<double>(kernel_params[1]));
+            kernel_to_use = std::make_unique<GammaDistributionKernel>(boost::lexical_cast<RelearnTypes::attraction_type>(kernel_params[0]), boost::lexical_cast<RelearnTypes::attraction_type>(kernel_params[1]));
         } else {
             RelearnException::fail("NeuronToAlgorithmIO::get_algorithm_config: Expected 0 or 2 parameters for gamma kernel, but got {}, ({})", kernel_params.size(), description);
         }
@@ -192,7 +194,7 @@
         if (kernel_params.empty()) {
             kernel_to_use = std::make_unique<WeibullDistributionKernel>();
         } else if (kernel_params.size() == 2) {
-            kernel_to_use = std::make_unique<WeibullDistributionKernel>(boost::lexical_cast<double>(kernel_params[0]), boost::lexical_cast<double>(kernel_params[1]));
+            kernel_to_use = std::make_unique<WeibullDistributionKernel>(boost::lexical_cast<RelearnTypes::attraction_type>(kernel_params[0]), boost::lexical_cast<RelearnTypes::attraction_type>(kernel_params[1]));
         } else {
             RelearnException::fail("NeuronToAlgorithmIO::get_algorithm_config: Expected 0 or 2 parameters for weibull kernel, but got {}, ({})", kernel_params.size(), description);
         }
@@ -209,5 +211,5 @@
 
     const auto& theta = params[1];
 
-    return { algorithm_enum, std::move(kernel_to_use), boost::lexical_cast<double>(theta) };
+    return { algorithm_enum, std::move(kernel_to_use), boost::lexical_cast<RelearnTypes::acceptance_criterion_type>(theta) };
 }

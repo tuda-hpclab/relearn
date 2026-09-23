@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -14,10 +14,11 @@
 #include "algorithm/Internal/octree/Octree.h"
 #include "algorithm/Internal/octree/OctreeNode.h"
 #include "neurons/helper/RankNeuronId.h"
+#include "types/SpaceTypes.h"
 #include "util/NeuronID.h"
 #include "util/Vec3.h"
 
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <range/v3/algorithm/for_each.hpp>
 
@@ -33,8 +34,8 @@
 class OctreeAdapter {
 public:
     template <typename AdditionalCellAttributes>
-    static std::vector<std::pair<Vec3d, size_t>> extract_virtual_neurons(const OctreeNode<AdditionalCellAttributes>* root) {
-        std::vector<std::pair<Vec3d, size_t>> return_value{};
+    static std::vector<std::pair<RelearnTypes::position_type, size_t>> extract_virtual_neurons(const OctreeNode<AdditionalCellAttributes>* root) {
+        std::vector<std::pair<RelearnTypes::position_type, size_t>> return_value{};
 
         std::stack<std::pair<const OctreeNode<AdditionalCellAttributes>*, size_t>> octree_nodes{};
         octree_nodes.emplace(root, 0);
@@ -145,8 +146,8 @@ public:
     }
 
     template <typename AdditionalCellAttributes>
-    static std::vector<std::pair<Vec3d, NeuronID>> extract_neurons(const OctreeNode<AdditionalCellAttributes>* root) {
-        std::vector<std::pair<Vec3d, NeuronID>> return_value{};
+    static std::vector<std::pair<RelearnTypes::position_type, NeuronID>> extract_neurons(const OctreeNode<AdditionalCellAttributes>* root) {
+        std::vector<std::pair<RelearnTypes::position_type, NeuronID>> return_value{};
 
         std::stack<const OctreeNode<AdditionalCellAttributes>*> octree_nodes{};
         octree_nodes.push(root);
@@ -181,7 +182,7 @@ public:
     }
 
     template <typename AdditionalCellAttributes>
-    static std::vector<std::pair<Vec3d, NeuronID>> extract_neurons_tree(const Octree<AdditionalCellAttributes>& octree) {
+    static std::vector<std::pair<RelearnTypes::position_type, NeuronID>> extract_neurons_tree(const Octree<AdditionalCellAttributes>& octree) {
         const auto root = octree.get_root();
         if (root == nullptr) {
             return {};
@@ -191,7 +192,7 @@ public:
     }
 
     template <typename AdditionalCellAttributes>
-    static std::vector<OctreeNode<AdditionalCellAttributes>*> extract_branch_nodes(OctreeNode<AdditionalCellAttributes>* root, const std::uint8_t branch_node_level) {
+    static std::vector<OctreeNode<AdditionalCellAttributes>*> extract_branch_nodes(OctreeNode<AdditionalCellAttributes>* root, const RelearnTypes::level_type branch_node_level) {
         std::vector<OctreeNode<AdditionalCellAttributes>*> branch_nodes{};
 
         std::stack<OctreeNode<AdditionalCellAttributes>*> octree_nodes{};
@@ -217,7 +218,7 @@ public:
     }
 
     template <typename AdditionalCellAttributes>
-    static void mark_node_as_distributed(OctreeNode<AdditionalCellAttributes>* root, const std::uint8_t level_of_branch_nodes) {
+    static void mark_node_as_distributed(OctreeNode<AdditionalCellAttributes>* root, const RelearnTypes::level_type level_of_branch_nodes) {
         std::vector<OctreeNode<AdditionalCellAttributes>*> branch_nodes{};
         branch_nodes.reserve(static_cast<size_t>(std::pow(8.0, level_of_branch_nodes) * 2));
 

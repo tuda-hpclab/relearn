@@ -3,16 +3,16 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-
 #include "neurons/enums/SynapticElementType.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
 #include "util/NeuronID.h"
 
 /**
@@ -34,8 +34,8 @@ struct LoadedNeuron {
  * of loaded inhibitory neurons
  */
 struct LoadedNeuronsInfo {
-    RelearnTypes::position_type minimum{};
-    RelearnTypes::position_type maximum{};
+    RelearnTypes::position_type minimum;
+    RelearnTypes::position_type maximum;
     RelearnTypes::number_neurons_type number_excitatory_neurons{};
     RelearnTypes::number_neurons_type number_inhibitory_neurons{};
 };

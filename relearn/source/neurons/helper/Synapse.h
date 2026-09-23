@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -109,6 +109,7 @@ private:
 };
 
 namespace std {
+// NOLINTBEGIN(cert-dcl58-cpp) - specializing tuple_size/tuple_element for a program-defined type is standard-sanctioned
 template <typename Target, typename Source, typename Weight>
 struct tuple_size<::Synapse<Target, Source, Weight>> {
     static constexpr size_t value = 3;
@@ -128,5 +129,6 @@ template <typename Target, typename Source, typename Weight>
 struct tuple_element<2, ::Synapse<Target, Source, Weight>> {
     using type = Weight;
 };
+// NOLINTEND(cert-dcl58-cpp)
 
 } // namespace std

@@ -3,14 +3,14 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
+#include "types/SynapseTypes.h"
 
 #include <memory>
 #include <tuple>
@@ -58,7 +58,7 @@ public:
     synapses_pair_type load_synapses(const std::unique_ptr<Essentials>& essentials);
 
 protected:
-    std::shared_ptr<Partition> partition{};
+    std::shared_ptr<Partition> partition;
 
     virtual synapses_pair_type internal_load_synapses() = 0;
 };

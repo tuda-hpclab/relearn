@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,15 +11,12 @@
 #include "test_interactive_neuron_io.h"
 
 #include "RelearnTest.hpp"
-#include "Types.h"
 
 #include "io/InteractiveNeuronIO.h"
 #include "neurons/LocalGroupTranslator.h"
+#include "types/BasicTypes.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "factory/interval/interval_factory.h"
 #include "factory/local_group_translator/local_group_translator_factory.h"
@@ -28,6 +25,9 @@
 #include "factory/random/random_factory.h"
 
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/indices.hpp>

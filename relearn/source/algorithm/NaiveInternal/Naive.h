@@ -3,15 +3,12 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
-
-#include "Types.h"
-#include "Types3.h"
 
 #include "algorithm/Algorithm.h"
 #include "algorithm/AlgorithmEnum.h"
@@ -24,6 +21,10 @@
 #include "neurons/helper/RankNeuronId.h"
 #include "neurons/helper/SynapseCreationRequests.h"
 #include "structure/SpaceFillingCurve.h"
+#include "types/BasicTypes.h"
+#include "types/CommunicationTypes.h"
+#include "types/SpaceTypes.h"
+#include "types/SynapseTypes.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
 
@@ -40,7 +41,7 @@ class OctreeNode;
  * This class represents the implementation of the trivial O(n^2) algorithm.
  * It is strongly tied to Octree, and might perform MPI communication via NodeCache::get_children()
  */
-class Naive : public ForwardAlgorithm<SynapseCreationRequest, SynapseCreationResponse>, private OctreeAlgorithm<NaiveCell> {
+class Naive : public ForwardCPUAlgorithm<SynapseCreationRequest, SynapseCreationResponse>, private OctreeAlgorithm<NaiveCell> {
 public:
     using AdditionalCellAttributes = NaiveCell;
     using position_type = RelearnTypes::position_type;
@@ -54,10 +55,14 @@ public:
      * @exception Throws a RelearnException if _space_filling_curve is nullptr
      */
     Naive(const RelearnTypes::bounding_box_type& bounding_box, std::shared_ptr<SpaceFillingCurve> _space_filling_curve)
-        : ForwardAlgorithm()
-        , OctreeAlgorithm(bounding_box, std::move(_space_filling_curve)) { }
+        : OctreeAlgorithm(bounding_box, std::move(_space_filling_curve), true) { }
 
-    virtual ~Naive() = default;
+    ~Naive() override = default;
+
+    Naive(const Naive&) = delete;
+    Naive& operator=(const Naive&) = delete;
+    Naive(Naive&&) = default;
+    Naive& operator=(Naive&&) = default;
 
     /**
      * @brief Sets the extra infos for the neurons. They hold the positions and update flags for the neurons.
@@ -65,7 +70,7 @@ public:
      * @exception throws a RelearnException if infos is empty
      */
     void set_neuron_extra_infos(std::shared_ptr<NeuronsExtraInfo> infos) override {
-        ForwardAlgorithm::set_neuron_extra_infos(infos);
+        ForwardCPUAlgorithm::set_neuron_extra_infos(infos);
         OctreeAlgorithm::set_neuron_extra_infos(infos);
     }
 
@@ -105,16 +110,16 @@ public:
      * @exception Can throw a RelearnException
      */
     void prepare_update_connectivity(const std::span<const SignalType> signal_types,
-                                     const std::span<const unsigned int> vacant_axons,
-                                     const std::span<const unsigned int> vacant_excitatory_dendrites,
-                                     const std::span<const unsigned int> vacant_inhibitory_dendrites) override {
+                                     const std::span<const counter_type> vacant_axons,
+                                     const std::span<const counter_type> vacant_excitatory_dendrites,
+                                     const std::span<const counter_type> vacant_inhibitory_dendrites) override {
         OctreeAlgorithm::update_tree(signal_types, vacant_axons, vacant_excitatory_dendrites, vacant_inhibitory_dendrites);
     }
 
     /**
      * @brief Returns the octree that is used by this algorithm
      */
-    [[nodiscard]] const std::unique_ptr<Octree<AdditionalCellAttributes>>& get_octree() {
+    [[nodiscard]] const std::shared_ptr<Octree<AdditionalCellAttributes>>& get_octree() {
         return OctreeAlgorithm::get_octree();
     }
 
@@ -123,10 +128,10 @@ public:
      * @param footprint Where to store the current footprint
      */
     void record_memory_footprint(const std::unique_ptr<utility::MemoryFootprint>& footprint) override {
-        const auto my_footprint = sizeof(*this) - sizeof(ForwardAlgorithm<SynapseCreationRequest, SynapseCreationResponse>);
+        const auto my_footprint = sizeof(*this) - sizeof(ForwardCPUAlgorithm<SynapseCreationRequest, SynapseCreationResponse>);
         footprint->emplace("Naive", my_footprint);
 
-        ForwardAlgorithm<SynapseCreationRequest, SynapseCreationResponse>::record_memory_footprint(footprint);
+        ForwardCPUAlgorithm<SynapseCreationRequest, SynapseCreationResponse>::record_memory_footprint(footprint);
     }
 
     [[nodiscard]] std::tuple<Algorithm::ResultType, RequestTypeEnum, DirectionEnum> find_target_neurons_for_combined_algorithms(const std::vector<NeuronID>& neuron_ids) override;
@@ -134,6 +139,7 @@ public:
     [[nodiscard]] AlgorithmEnum get_algorithm_type() const override {
         return AlgorithmEnum::Naive;
     }
+
 protected:
     /**
      * @brief Returns a collection of proposed synapse creations for each neuron with vacant axons
@@ -149,7 +155,7 @@ protected:
      * @exception Can throw a RelearnException
      * @return A pair of (1) The responses to each request and (2) another pair of (a) all local synapses and (b) all distant synapses to the local rank
      */
-    [[nodiscard]] std::pair<RelearnTypes::comm_map_creation<SynapseCreationResponse>, std::pair<PlasticLocalSynapses, PlasticDistantInSynapses>>
+    [[nodiscard]] ForwardProcessRequestsResult<SynapseCreationResponse>
     process_requests(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests) override;
 
     /**

@@ -3,25 +3,24 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-
 #include "io/parser/NeuronIdParser.h"
 #include "neurons/LocalGroupTranslator.h"
 #include "neurons/helper/RankNeuronId.h"
+#include "types/BasicTypes.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
-#include "util/StringUtil.h"
 
-#include "cpp-utility/ranges/Functional.hpp"
+#include <cpp-utility/StringUtil.hpp>
+#include <cpp-utility/ranges/Functional.hpp>
 
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <range/v3/action/insert.hpp>
 #include <range/v3/iterator/operations.hpp>
@@ -52,7 +51,7 @@ public:
      */
     [[nodiscard]] static std::vector<RelearnTypes::group_id> parse_group_names(const std::string_view description,
                                                                                const std::shared_ptr<const LocalGroupTranslator>& local_group_translator) {
-        const auto& vector = StringUtil::split_string(std::string(description), ';');
+        const auto& vector = utility::split_string(std::string(description), ';');
         return parse_group_names(vector, local_group_translator);
     }
 
@@ -68,7 +67,7 @@ public:
         const auto& known_group_names = local_group_translator->get_all_group_names();
 
         return vector | ranges::views::filter([](const auto& desc) {
-                   return !(desc.find(':') != std::string::npos || StringUtil::is_number(desc));
+                   return !(desc.find(':') != std::string::npos || utility::is_number(desc));
                })
                | ranges::views::transform([&known_group_names](const auto& parsed_group_name) -> std::set<std::string> {
                      std::set<RelearnTypes::group_name> matching_group_names{};
@@ -108,7 +107,7 @@ public:
      */
     [[nodiscard]] static std::vector<NeuronID> parse_my_ids(const std::string_view description, const mpiPP::MPIRank my_rank,
                                                             const std::shared_ptr<const LocalGroupTranslator>& local_group_translator) {
-        const auto& descriptions = StringUtil::split_string(description, ';');
+        const auto& descriptions = utility::split_string(description, ';');
         return parse_my_ids(descriptions, my_rank, local_group_translator);
     }
 

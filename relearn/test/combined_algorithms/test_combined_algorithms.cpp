@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2025-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -10,10 +10,8 @@
 
 #include "test_combined_algorithms.h"
 
-#include "Types.h"
-#include "Types2.h"
-
 #include "algorithm/AlgorithmEnum.h"
+#include "algorithm/Algorithms.h"
 #include "algorithm/BarnesHutInternal/BarnesHut.h"
 #include "algorithm/BarnesHutInternal/BarnesHutCell.h"
 #include "algorithm/BarnesHutInternal/BarnesHutInverted.h"
@@ -26,6 +24,9 @@
 #include "neurons/NeuronsExtraInfo.h"
 #include "neurons/enums/SynapticElementType.h"
 #include "structure/Morton.h"
+#include "types/AlgorithmTypes.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
 #include "util/NeuronID.h"
 
 #include "adapter/octree/OctreeAdapter.h"
@@ -42,6 +43,8 @@
 #include "factory/simulation/simulation_factory.h"
 #include "factory/synaptic_elements/synaptic_elements_factory.h"
 
+#include <cpp-utility/Cast.hpp>
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -52,6 +55,8 @@
 #include <limits>
 #include <memory>
 #include <utility>
+
+#ifndef RELEARN_CUDA_ENABLED
 
 TEST_F(CombinedAlgorithmsTest, testAlgorithmPointers) {
     if (mpiPP::MPIInfo::get_number_ranks() != 1) {
@@ -67,7 +72,7 @@ TEST_F(CombinedAlgorithmsTest, testAlgorithmPointers) {
     const auto number_neurons = number_excitatory_neurons + number_inhibitory_neurons;
 
     const auto& [min, max] = SimulationFactory::get_random_simulation_box_size(mt);
-    const auto level = std::uint8_t{ 0 };
+    const auto level = RelearnTypes::level_type{ 0 };
     const auto morton = std::make_shared<Morton>(level);
 
     const auto signal_types = SynapticElementsFactory::get_signal_types(number_excitatory_neurons, number_inhibitory_neurons, mt);
@@ -76,7 +81,7 @@ TEST_F(CombinedAlgorithmsTest, testAlgorithmPointers) {
 
     const auto& neurons_to_place = NeuronsFactory::generate_random_neurons(min, max, number_neurons, mt);
 
-    auto positions = std::map<NeuronID::value_type, Vec3d>{};
+    auto positions = std::map<NeuronID::value_type, RelearnTypes::position_type>{};
     for (const auto& [position, id] : neurons_to_place) {
         positions[id.get_neuron_id()] = position;
     }
@@ -93,9 +98,9 @@ TEST_F(CombinedAlgorithmsTest, testAlgorithmPointers) {
 
     const auto indices_and_neurons_placeholder = RelearnTypes::AlgorithmIndexWithNeuronsType{};
 
-    const auto theta = RandomFactory::get_random_double(std::numeric_limits<double>::min(), 0.5, mt); // the default theta to be used if none is given in the configuration file for a config
+    const auto theta = RandomFactory::get_random_double(std::numeric_limits<RelearnTypes::acceptance_criterion_type>::min(), utility::as<RelearnTypes::acceptance_criterion_type>(0.5), mt); // the default theta to be used if none is given in the configuration file for a config
 
-    auto combined_algorithms = CombinedAlgorithms{ RelearnTypes::bounding_box_type{ min, max }, morton, std::move(configs), indices_and_neurons_placeholder, theta };
+    auto combined_algorithms = CombinedAlgorithms{ RelearnTypes::bounding_box_type{ min, max }, morton, std::move(configs), indices_and_neurons_placeholder, utility::cast<RelearnTypes::acceptance_criterion_type>(theta) };
 
     auto extra_infos = std::make_shared<NeuronsExtraInfo>();
     extra_infos->init(number_neurons);
@@ -129,16 +134,16 @@ TEST_F(CombinedAlgorithmsTest, testAlgorithmPointers) {
         ASSERT_TRUE((*alg_kernel).is_approximately_equal(*remembered_kernels[i]));
         ASSERT_EQ(alg_type, config.get_algorithm_type());
         if (is_barnes_hut(alg_type)) {
-            double alg_theta{};
+            RelearnTypes::acceptance_criterion_type alg_theta{};
             switch (alg_type) {
             case AlgorithmEnum::BarnesHut:
-                alg_theta = std::static_pointer_cast<BarnesHut>(alg_ptr)->get_acceptance_criterion();
+                alg_theta = utility::cast<double>(std::static_pointer_cast<BarnesHut>(alg_ptr)->get_acceptance_criterion());
                 break;
             case AlgorithmEnum::BarnesHutInverted:
-                alg_theta = std::static_pointer_cast<BarnesHutInverted>(alg_ptr)->get_acceptance_criterion();
+                alg_theta = utility::cast<double>(std::static_pointer_cast<BarnesHutInverted>(alg_ptr)->get_acceptance_criterion());
                 break;
             case AlgorithmEnum::BarnesHutLocationAware:
-                alg_theta = std::static_pointer_cast<BarnesHutLocationAware>(alg_ptr)->get_acceptance_criterion();
+                alg_theta = utility::cast<double>(std::static_pointer_cast<BarnesHutLocationAware>(alg_ptr)->get_acceptance_criterion());
                 break;
             default:
                 RelearnException::fail("CombinedAlgorithmsTest::testAlgorithmPointers: algorithm type is said to be barnes hut, but it is not! (actual algorithm type: {})", alg_type);
@@ -164,11 +169,11 @@ TEST_F(CombinedAlgorithmsTest, testTwoNeuronsAlmostDeterministic1) {
 
     std::unique_ptr<KernelBase> first_kernel = KernelFactory::get_standard_gaussian();
     auto first_algorithm_config = AlgorithmConfig(AlgorithmEnum::BarnesHut, std::move(first_kernel));
-    auto first_indices_and_neurons_pair = std::pair<std::size_t, std::vector<NeuronID>>(0, { NeuronID(0) });
+    auto first_indices_and_neurons_pair = std::make_pair<std::size_t, std::vector<NeuronID>>(0, { NeuronID(0) });
 
     std::unique_ptr<KernelBase> second_kernel = KernelFactory::get_standard_gaussian();
     auto second_algorithm_config = AlgorithmConfig(AlgorithmEnum::BarnesHutInverted, std::move(second_kernel));
-    auto second_indices_and_neurons_pair = std::pair<std::size_t, std::vector<NeuronID>>(1, { NeuronID(1) });
+    auto second_indices_and_neurons_pair = std::make_pair<std::size_t, std::vector<NeuronID>>(1, { NeuronID(1) });
 
     auto algorithm_configs = RelearnTypes::AlgorithmConfigs{};
     algorithm_configs.push_back(std::move(first_algorithm_config));
@@ -177,7 +182,7 @@ TEST_F(CombinedAlgorithmsTest, testTwoNeuronsAlmostDeterministic1) {
 
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
 
-    const auto level = std::uint8_t{ 0 };
+    const auto level = RelearnTypes::level_type{ 0 };
     const auto morton = std::make_shared<Morton>(level);
 
     auto combined_algorithms = std::make_shared<CombinedAlgorithms>(RelearnTypes::bounding_box_type{ minimum, maximum }, morton, std::move(algorithm_configs), indices_and_neurons);
@@ -185,13 +190,11 @@ TEST_F(CombinedAlgorithmsTest, testTwoNeuronsAlmostDeterministic1) {
     const auto signal_type = RandomFactory::get_random_bool(mt) ? SignalType::Excitatory : SignalType::Inhibitory;
     const auto signal_types = std::vector<SignalType>(number_neurons, signal_type);
 
-    auto synaptic_elements = SynapticElementsFactory::construct_synaptic_elements_with_fixed_number_axons_dendrites(signal_types, 1.0, 1.0);
-
     auto network_graph = NetworkGraphFactory::construct_empty_network_graph(number_neurons);
 
     const auto& neurons_to_place = NeuronsFactory::generate_random_neurons(minimum, maximum, number_neurons, mt);
 
-    auto positions = std::map<NeuronID::value_type, Vec3d>{};
+    auto positions = std::map<NeuronID::value_type, RelearnTypes::position_type>{};
     for (const auto& [position, id] : neurons_to_place) {
         positions[id.get_neuron_id()] = position;
     }
@@ -201,7 +204,7 @@ TEST_F(CombinedAlgorithmsTest, testTwoNeuronsAlmostDeterministic1) {
     extra_infos->init(number_neurons);
     extra_infos->set_positions(neuron_positions);
 
-    synaptic_elements->set_extra_infos(extra_infos);
+    auto synaptic_elements = SynapticElementsFactory::construct_synaptic_elements_with_fixed_number_axons_dendrites(extra_infos, signal_types, 1.0, 1.0);
 
     combined_algorithms->set_synaptic_elements(synaptic_elements);
     combined_algorithms->set_network_graph(network_graph);
@@ -260,11 +263,11 @@ TEST_F(CombinedAlgorithmsTest, testTwoNeuronsAlmostDeterministic2) {
 
     std::unique_ptr<KernelBase> first_kernel = KernelFactory::get_standard_linear();
     auto first_algorithm_config = AlgorithmConfig(AlgorithmEnum::BarnesHutInverted, std::move(first_kernel));
-    auto first_indices_and_neurons_pair = std::pair<std::size_t, std::vector<NeuronID>>(0, { NeuronID(0) });
+    auto first_indices_and_neurons_pair = std::make_pair<std::size_t, std::vector<NeuronID>>(0, { NeuronID(0) });
 
     std::unique_ptr<KernelBase> second_kernel = KernelFactory::get_standard_weibull();
     auto second_algorithm_config = AlgorithmConfig(AlgorithmEnum::BarnesHut, std::move(second_kernel));
-    auto second_indices_and_neurons_pair = std::pair<std::size_t, std::vector<NeuronID>>(1, { NeuronID(1) });
+    auto second_indices_and_neurons_pair = std::make_pair<std::size_t, std::vector<NeuronID>>(1, { NeuronID(1) });
 
     auto algorithm_configs = RelearnTypes::AlgorithmConfigs{};
     algorithm_configs.push_back(std::move(first_algorithm_config));
@@ -273,7 +276,7 @@ TEST_F(CombinedAlgorithmsTest, testTwoNeuronsAlmostDeterministic2) {
 
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
 
-    const auto level = std::uint8_t{ 0 };
+    const auto level = RelearnTypes::level_type{ 0 };
     const auto morton = std::make_shared<Morton>(level);
 
     auto combined_algorithms = std::make_shared<CombinedAlgorithms>(RelearnTypes::bounding_box_type{ minimum, maximum }, morton, std::move(algorithm_configs), indices_and_neurons);
@@ -281,13 +284,11 @@ TEST_F(CombinedAlgorithmsTest, testTwoNeuronsAlmostDeterministic2) {
     const auto signal_type = RandomFactory::get_random_bool(mt) ? SignalType::Excitatory : SignalType::Inhibitory;
     const auto signal_types = std::vector<SignalType>(number_neurons, signal_type);
 
-    auto synaptic_elements = SynapticElementsFactory::construct_synaptic_elements_with_fixed_number_axons_dendrites(signal_types, 1.0, 1.0);
-
     auto network_graph = NetworkGraphFactory::construct_empty_network_graph(number_neurons);
 
     const auto& neurons_to_place = NeuronsFactory::generate_random_neurons(minimum, maximum, number_neurons, mt);
 
-    auto positions = std::map<NeuronID::value_type, Vec3d>{};
+    auto positions = std::map<NeuronID::value_type, RelearnTypes::position_type>{};
     for (const auto& [position, id] : neurons_to_place) {
         positions[id.get_neuron_id()] = position;
     }
@@ -297,7 +298,7 @@ TEST_F(CombinedAlgorithmsTest, testTwoNeuronsAlmostDeterministic2) {
     extra_infos->init(number_neurons);
     extra_infos->set_positions(neuron_positions);
 
-    synaptic_elements->set_extra_infos(extra_infos);
+    auto synaptic_elements = SynapticElementsFactory::construct_synaptic_elements_with_fixed_number_axons_dendrites(extra_infos, signal_types, 1.0, 1.0);
 
     combined_algorithms->set_synaptic_elements(synaptic_elements);
     combined_algorithms->set_network_graph(network_graph);
@@ -356,11 +357,11 @@ TEST_F(CombinedAlgorithmsTest, testTwoNeuronsAlmostDeterministic3) {
 
     std::unique_ptr<KernelBase> first_kernel = KernelFactory::get_standard_gamma();
     auto first_algorithm_config = AlgorithmConfig(AlgorithmEnum::BarnesHutInverted, std::move(first_kernel));
-    auto first_indices_and_neurons_pair = std::pair<std::size_t, std::vector<NeuronID>>(0, { NeuronID(0) });
+    auto first_indices_and_neurons_pair = std::make_pair<std::size_t, std::vector<NeuronID>>(0, { NeuronID(0) });
 
     std::unique_ptr<KernelBase> second_kernel = KernelFactory::get_standard_gaussian();
     auto second_algorithm_config = AlgorithmConfig(AlgorithmEnum::BarnesHutLocationAware, std::move(second_kernel));
-    auto second_indices_and_neurons_pair = std::pair<std::size_t, std::vector<NeuronID>>(1, { NeuronID(1) });
+    auto second_indices_and_neurons_pair = std::make_pair<std::size_t, std::vector<NeuronID>>(1, { NeuronID(1) });
 
     auto algorithm_configs = RelearnTypes::AlgorithmConfigs{};
     algorithm_configs.push_back(std::move(first_algorithm_config));
@@ -369,7 +370,7 @@ TEST_F(CombinedAlgorithmsTest, testTwoNeuronsAlmostDeterministic3) {
 
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
 
-    const auto level = std::uint8_t{ 0 };
+    const auto level = RelearnTypes::level_type{ 0 };
     const auto morton = std::make_shared<Morton>(level);
 
     auto combined_algorithms = std::make_shared<CombinedAlgorithms>(RelearnTypes::bounding_box_type{ minimum, maximum }, morton, std::move(algorithm_configs), indices_and_neurons);
@@ -377,13 +378,11 @@ TEST_F(CombinedAlgorithmsTest, testTwoNeuronsAlmostDeterministic3) {
     const auto signal_type = RandomFactory::get_random_bool(mt) ? SignalType::Excitatory : SignalType::Inhibitory;
     const auto signal_types = std::vector<SignalType>(number_neurons, signal_type);
 
-    auto synaptic_elements = SynapticElementsFactory::construct_synaptic_elements_with_fixed_number_axons_dendrites(signal_types, 2.0, 2.0);
-
     auto network_graph = NetworkGraphFactory::construct_empty_network_graph(number_neurons);
 
     const auto& neurons_to_place = NeuronsFactory::generate_random_neurons(minimum, maximum, number_neurons, mt);
 
-    auto positions = std::map<NeuronID::value_type, Vec3d>{};
+    auto positions = std::map<NeuronID::value_type, RelearnTypes::position_type>{};
     for (const auto& [position, id] : neurons_to_place) {
         positions[id.get_neuron_id()] = position;
     }
@@ -393,7 +392,7 @@ TEST_F(CombinedAlgorithmsTest, testTwoNeuronsAlmostDeterministic3) {
     extra_infos->init(number_neurons);
     extra_infos->set_positions(neuron_positions);
 
-    synaptic_elements->set_extra_infos(extra_infos);
+    auto synaptic_elements = SynapticElementsFactory::construct_synaptic_elements_with_fixed_number_axons_dendrites(extra_infos, signal_types, 2.0, 2.0);
 
     combined_algorithms->set_synaptic_elements(synaptic_elements);
     combined_algorithms->set_network_graph(network_graph);
@@ -453,11 +452,11 @@ TEST_F(CombinedAlgorithmsTest, testTwoNeuronsAlmostDeterministic4) {
 
     std::unique_ptr<KernelBase> first_kernel = KernelFactory::get_standard_linear();
     auto first_algorithm_config = AlgorithmConfig(AlgorithmEnum::BarnesHut, std::move(first_kernel));
-    auto first_indices_and_neurons_pair = std::pair<std::size_t, std::vector<NeuronID>>(0, { NeuronID(0) });
+    auto first_indices_and_neurons_pair = std::make_pair<std::size_t, std::vector<NeuronID>>(0, { NeuronID(0) });
 
     std::unique_ptr<KernelBase> second_kernel = KernelFactory::get_standard_gaussian();
     auto second_algorithm_config = AlgorithmConfig(AlgorithmEnum::Naive, std::move(second_kernel));
-    auto second_indices_and_neurons_pair = std::pair<std::size_t, std::vector<NeuronID>>(1, { NeuronID(1) });
+    auto second_indices_and_neurons_pair = std::make_pair<std::size_t, std::vector<NeuronID>>(1, { NeuronID(1) });
 
     auto algorithm_configs = RelearnTypes::AlgorithmConfigs{};
     algorithm_configs.push_back(std::move(first_algorithm_config));
@@ -466,7 +465,7 @@ TEST_F(CombinedAlgorithmsTest, testTwoNeuronsAlmostDeterministic4) {
 
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
 
-    const auto level = std::uint8_t{ 0 };
+    const auto level = RelearnTypes::level_type{ 0 };
     const auto morton = std::make_shared<Morton>(level);
 
     auto combined_algorithms = std::make_shared<CombinedAlgorithms>(RelearnTypes::bounding_box_type{ minimum, maximum }, morton, std::move(algorithm_configs), indices_and_neurons);
@@ -474,13 +473,11 @@ TEST_F(CombinedAlgorithmsTest, testTwoNeuronsAlmostDeterministic4) {
     const auto signal_type = RandomFactory::get_random_bool(mt) ? SignalType::Excitatory : SignalType::Inhibitory;
     const auto signal_types = std::vector<SignalType>(number_neurons, signal_type);
 
-    auto synaptic_elements = SynapticElementsFactory::construct_synaptic_elements_with_fixed_number_axons_dendrites(signal_types, 2.0, 2.0);
-
     auto network_graph = NetworkGraphFactory::construct_empty_network_graph(number_neurons);
 
     const auto& neurons_to_place = NeuronsFactory::generate_random_neurons(minimum, maximum, number_neurons, mt);
 
-    auto positions = std::map<NeuronID::value_type, Vec3d>{};
+    auto positions = std::map<NeuronID::value_type, RelearnTypes::position_type>{};
     for (const auto& [position, id] : neurons_to_place) {
         positions[id.get_neuron_id()] = position;
     }
@@ -490,7 +487,7 @@ TEST_F(CombinedAlgorithmsTest, testTwoNeuronsAlmostDeterministic4) {
     extra_infos->init(number_neurons);
     extra_infos->set_positions(neuron_positions);
 
-    synaptic_elements->set_extra_infos(extra_infos);
+    auto synaptic_elements = SynapticElementsFactory::construct_synaptic_elements_with_fixed_number_axons_dendrites(extra_infos, signal_types, 2.0, 2.0);
 
     combined_algorithms->set_synaptic_elements(synaptic_elements);
     combined_algorithms->set_network_graph(network_graph);
@@ -549,12 +546,12 @@ TEST_F(CombinedAlgorithmsTest, testAllAlgorithmsRunNoThrow) {
     for (std::uint64_t i = 0; i < number_configs; ++i) { // when AlgorithmEnum changes, this might need update
         std::unique_ptr<KernelBase> kernel = KernelFactory::get_random_standard_kernel(mt);
         const auto algorithm_type = AlgorithmEnum{ static_cast<std::uint8_t>(i) };
-        algorithm_configs.emplace_back(algorithm_type, std::move(kernel));
+        algorithm_configs.push_back(AlgorithmConfig(algorithm_type, std::move(kernel)));
     }
 
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
 
-    const auto level = std::uint8_t{ 0 };
+    const auto level = RelearnTypes::level_type{ 0 };
     const auto morton = std::make_shared<Morton>(level);
 
     auto indices_and_neurons = RelearnTypes::AlgorithmIndexWithNeuronsType{};
@@ -565,12 +562,12 @@ TEST_F(CombinedAlgorithmsTest, testAllAlgorithmsRunNoThrow) {
 
     for (auto i = 0ULL; i < number_neurons; ++i) { // assigns neurons to algorithms. 0 neurons for an algorithm are unlikely but not a problem
         const auto index = RandomFactory::get_random_integer<NeuronID::value_type>(NeuronID::value_type{ 0 }, number_configs - 1, mt);
-        indices_and_neurons[index].second.emplace_back(i);
+        indices_and_neurons[index].second.push_back(NeuronID(i));
     }
 
     auto combined_algorithms = std::make_shared<CombinedAlgorithms>(RelearnTypes::bounding_box_type{ minimum, maximum }, morton, std::move(algorithm_configs), indices_and_neurons);
 
-    const auto number_excitatory_neurons = RandomFactory::get_random_integer<NeuronID::value_type>(NeuronID::value_type{ 0 }, number_neurons, mt);
+    const auto number_excitatory_neurons = RandomFactory::get_random_integer<RelearnTypes::number_neurons_type>(RelearnTypes::number_neurons_type{ 0 }, number_neurons, mt);
     const auto number_inhibitory_neurons = number_neurons - number_excitatory_neurons;
 
     const auto signal_types = SynapticElementsFactory::get_signal_types(number_excitatory_neurons, number_inhibitory_neurons, mt);
@@ -581,7 +578,7 @@ TEST_F(CombinedAlgorithmsTest, testAllAlgorithmsRunNoThrow) {
 
     const auto& neurons_to_place = NeuronsFactory::generate_random_neurons(minimum, maximum, number_neurons, mt);
 
-    auto positions = std::map<NeuronID::value_type, Vec3d>{};
+    auto positions = std::map<NeuronID::value_type, RelearnTypes::position_type>{};
     for (const auto& [position, id] : neurons_to_place) {
         positions[id.get_neuron_id()] = position;
     }
@@ -607,3 +604,4 @@ TEST_F(CombinedAlgorithmsTest, testAllAlgorithmsRunNoThrow) {
 
     ASSERT_NO_THROW(std::ignore = combined_algorithms->update_connectivity(number_neurons));
 }
+#endif

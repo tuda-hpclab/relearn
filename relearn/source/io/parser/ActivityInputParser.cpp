@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -23,30 +23,35 @@
 
 #include <ctpg/ctpg.hpp>
 
+#include <mpi-wrapper/core/MPIInfo.h>
+
 #include <charconv>
 #include <cstddef>
 #include <iostream>
 #include <memory>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace {
-using activity_type = std::shared_ptr<ActivityInput>;
-using list_type = std::vector<activity_type>;
+using activity_input_type = std::shared_ptr<ActivityInput>;
+using list_type = std::vector<activity_input_type>;
 
-constexpr ctpg::nterm<activity_type> activity("activity");
+constexpr ctpg::nterm<activity_input_type> activity("activity");
 constexpr ctpg::nterm<list_type> activity_list("activity list");
 
-constexpr char double_pattern[] = "[0-9]*(\\.[0-9]*)?";
+[[maybe_unused]] constexpr char double_pattern[] = "[0-9]*(\\.[0-9]*)?";
 constexpr ctpg::regex_term<double_pattern> double_literal("double literal");
-constexpr ctpg::nterm<double> double_number("double number");
+constexpr ctpg::nterm<RelearnTypes::activity_type> double_number("double number");
 constexpr ctpg::nterm<std::size_t> size_t_number("std::size_t number");
 
+#ifndef RELEARN_CUDA_ENABLED
 constexpr ctpg::nterm<ActivityInputParseContext::scaling_function_type> scaling_function("scaling function");
+#else
+constexpr ctpg::nterm<CudaConfig::scaling_function_enum> scaling_function("scaling function");
+#endif
 
 namespace kw {
 constexpr ctpg::char_term lparen('(');
@@ -142,7 +147,7 @@ constexpr ctpg::parser activity_input_parser(
         activity_list(activity_list, kw::comma, activity) >= ctpg::ftors::push_back<1, 3>{},
         activity_list(activity) >= ctpg::ftors::construct<list_type>{},
 
-        double_number(double_literal) >= parse_arithmetic<double>,
+        double_number(double_literal) >= parse_arithmetic<RelearnTypes::activity_type>,
         size_t_number(double_literal) >= parse_arithmetic<std::size_t>,
 
         double_number(kw::background_base) >>= [](const ActivityInputParseContext& context, const auto& /*background_base*/) { return context.background_base; },
@@ -156,45 +161,45 @@ constexpr ctpg::parser activity_input_parser(
         activity(kw::const_, kw::lparen, double_number, kw::rparen) >=
             [](const auto& /*const*/,
                const auto& /*(*/,
-               const double constant,
-               const auto& /*)*/) -> activity_type {
-            return std::make_shared<ConstantActivityInput>(constant);
+               const RelearnTypes::activity_type constant,
+               const auto& /*)*/) -> activity_input_type {
+            return std::make_shared<ConstantActivityInput>(mpiPP::MPIInfo::get_number_ranks(), constant);
         },
 
         activity(kw::normal, kw::lparen, double_number, kw::comma, double_number, kw::rparen) >=
             [](const auto& /*normal*/,
                const auto& /*(*/,
-               const double mean,
+               const RelearnTypes::activity_type mean,
                const auto& /*,*/,
-               const double stddev,
-               const auto& /*)*/) -> activity_type {
-            return std::make_shared<NormalActivityInput>(mean, stddev);
+               const RelearnTypes::activity_type stddev,
+               const auto& /*)*/) -> activity_input_type {
+            return std::make_shared<NormalActivityInput>(mpiPP::MPIInfo::get_number_ranks(), mean, stddev);
         },
 
         activity(kw::fastnormal, kw::lparen, double_number, kw::comma, double_number, kw::comma, size_t_number, kw::rparen) >=
             [](const auto& /*fastnormal*/,
                const auto& /*(*/,
-               const double mean,
+               const RelearnTypes::activity_type mean,
                const auto& /*,*/,
-               const double stddev,
+               const RelearnTypes::activity_type stddev,
                const auto& /*,*/,
                const std::size_t multiplier,
-               const auto& /*)*/) -> activity_type {
-            return std::make_shared<FastNormalActivityInput>(mean, stddev, multiplier);
+               const auto& /*)*/) -> activity_input_type {
+            return std::make_shared<FastNormalActivityInput>(mpiPP::MPIInfo::get_number_ranks(), mean, stddev, multiplier);
         },
 
         activity(kw::combined, kw::lparen, activity_list, kw::rparen) >=
             [](const auto& /*combined*/,
                const auto& /*(*/,
                list_type&& activities,
-               const auto& /*)*/) -> activity_type {
-            return std::make_shared<CombinedActivityInput>(std::move(activities));
+               const auto& /*)*/) -> activity_input_type {
+            return std::make_shared<CombinedActivityInput>(mpiPP::MPIInfo::get_number_ranks(), std::move(activities));
         },
 
         activity(kw::synaptic_equally_weighted) >>=
         [](const ActivityInputParseContext& context,
-           const auto& /*synaptic_equally_weighted*/) -> activity_type {
-            auto parsed_activity = std::make_shared<SynapticEquallyWeightedActivityInput>(context.communicator);
+           const auto& /*synaptic_equally_weighted*/) -> activity_input_type {
+            auto parsed_activity = std::make_shared<SynapticEquallyWeightedActivityInput>(mpiPP::MPIInfo::get_number_ranks(), context.communicator, context.synapse_conductance);
             return parsed_activity;
         },
 
@@ -202,37 +207,51 @@ constexpr ctpg::parser activity_input_parser(
         [](const ActivityInputParseContext& context,
            const auto& /*synaptic_scaling*/,
            const auto& /*(*/,
-           const double constant,
-           const auto& /*)*/) -> activity_type {
-            auto parsed_activity = std::make_shared<SynapticScalingActivityInput>(context.communicator, constant);
+           const RelearnTypes::activity_type constant,
+           const auto& /*)*/) -> activity_input_type {
+            auto parsed_activity = std::make_shared<SynapticScalingActivityInput>(mpiPP::MPIInfo::get_number_ranks(), context.communicator, constant);
             return parsed_activity;
         },
+#ifdef RELEARN_CUDA_ENABLED
+        activity(kw::scale, kw::lparen, activity, kw::comma, scaling_function, kw::rparen)
+        >>=
+        [](const ActivityInputParseContext& context,
+           const auto& /*scale*/,
+           const auto& /*(*/,
+           const activity_input_type& inner_activity,
+           const auto& /*,*/,
+           const CudaConfig::scaling_function_enum scale_function,
+           const auto& /*)*/) {
+            return std::make_shared<ScaleActivityInput>(mpiPP::MPIInfo::get_number_ranks(), inner_activity, scale_function, context.input_scale);
+        },
+#else
 
         activity(kw::scale, kw::lparen, activity, kw::comma, scaling_function, kw::rparen)
             >=
             [](const auto& /*scale*/,
                const auto& /*(*/,
-               const activity_type& inner_activity,
+               const activity_input_type& inner_activity,
                const auto& /*,*/,
                const ActivityInputParseContext::scaling_function_type& scale_function,
                const auto& /*)*/) {
-                return std::make_shared<ScaleActivityInput>(inner_activity, scale_function);
+                return std::make_shared<ScaleActivityInput>(mpiPP::MPIInfo::get_number_ranks(), inner_activity, scale_function);
             },
+#endif
 
         activity(kw::flexible) >>=
         [](const ActivityInputParseContext& Context,
-           const auto& /*flexible*/) -> activity_type {
-            auto tup = Context.flexible_background();
-            auto inputs = tup.first;
-            auto fun = std::move(tup.second);
-            return std::make_shared<FlexibleActivityInput>(inputs, std::move(fun));
+           const auto& /*flexible*/) -> activity_input_type {
+            auto loaded = Context.flexible_background();
+            auto inputs = loaded.inputs;
+            auto fun = std::move(loaded.choice_function);
+            return std::make_shared<FlexibleActivityInput>(mpiPP::MPIInfo::get_number_ranks(), inputs, std::move(fun));
         },
 
         activity(kw::stimulated) >>=
         [](const ActivityInputParseContext& Context,
-           const auto& /*stimulated*/) -> activity_type {
+           const auto& /*stimulated*/) -> activity_input_type {
             auto fun = Context.load_stimulus();
-            return std::make_shared<StimulationActivityInput>(std::move(fun));
+            return std::make_shared<StimulationActivityInput>(mpiPP::MPIInfo::get_number_ranks(), std::move(fun));
         }
 
         ));

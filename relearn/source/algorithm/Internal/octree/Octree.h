@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,23 +11,25 @@
  */
 
 #include "Config.h"
-#include "Types.h"
 
 #include "algorithm/Internal/octree/NodeCache.h"
 #include "algorithm/Internal/octree/OctreeNode.h"
 #include "algorithm/Internal/octree/OctreeNodeHelper.h"
 #include "structure/SpaceFillingCurve.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnException.h"
 #include "util/Timers.h"
 #include "util/Vec3.h"
 
-#include "cpp-utility/MemoryFootprint.hpp"
-#include "cpp-utility/data-structure/Stack.hpp"
+#include <cpp-utility/MemoryFootprint.hpp>
+#include <cpp-utility/data-structure/Stack.hpp>
 
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/RMAWindow.h"
-#include "mpi-wrapper/collectives/MPIAllGather.h"
+#include <mpi-wrapper/collectives/MPIAllGather.h>
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/rma/RMAWindow.h>
 
 #include <range/v3/functional/indirect.hpp>
 #include <range/v3/range/conversion.hpp>
@@ -53,7 +55,9 @@
 template <typename AdditionalCellAttributes>
 class Octree {
 public:
-    using box_size_type = RelearnTypes::box_size_type;
+    using position_type = RelearnTypes::position_type;
+    using level_type = RelearnTypes::level_type;
+    using space_type = RelearnTypes::space_type;
     using bounding_box_type = RelearnTypes::bounding_box_type;
 
     /**
@@ -62,20 +66,26 @@ public:
      * @param _space_filling_curve The space filling curve; contains the level at which the branch nodes (that are exchanged via MPI) are, not nullptr
      * @exception Throws a RelearnException if space_filling_curve was empty
      */
-    Octree(const bounding_box_type& box_size, std::shared_ptr<SpaceFillingCurve> _space_filling_curve)
+    Octree(const bounding_box_type& box_size, std::shared_ptr<SpaceFillingCurve> _space_filling_curve, bool rma_required)
         : simulation_box(box_size)
         , space_curve(std::move(_space_filling_curve))
-        , rma_window{ Constants::mpi_alloc_mem } {
+        , level_of_branch_nodes(space_curve->get_current_refinement_level()) {
 
         RelearnException::check(space_curve != nullptr, "Octree::Octree: _space_filling_curve was empty");
-        level_of_branch_nodes = space_curve->get_current_refinement_level();
 
-        node_cache.set_rma_window(&rma_window);
+        const auto number_ranks = mpiPP::MPIInfo::get_number_ranks();
+        if (rma_required && number_ranks > 1) {
+            memory_holder = std::make_shared<RMAMemoryHolder<AdditionalCellAttributes>>();
+            auto rma_memory_holder = std::static_pointer_cast<RMAMemoryHolder<AdditionalCellAttributes>>(memory_holder);
+            node_cache.set_rma_window(rma_memory_holder->get_rma_window());
+        } else {
+            memory_holder = std::make_shared<SemiStableVectorMemoryHolder<AdditionalCellAttributes>>();
+        }
 
         const auto num_local_trees = 1ULL << (3U * level_of_branch_nodes);
         branch_nodes.resize(num_local_trees, nullptr);
 
-        memory_holder.init(std::span{ rma_window.get_pointer(), Constants::mpi_alloc_mem });
+        memory_holder->init(Constants::mpi_alloc_mem);
 
         construct_global_tree_part();
     }
@@ -123,7 +133,7 @@ public:
      * @brief Returns the underling memory holder that manages the memory for the octree nodes
      * @return The underling memory holder
      */
-    [[nodiscard]] const MemoryHolder<AdditionalCellAttributes>& get_memory_holder() const noexcept {
+    [[nodiscard]] const std::shared_ptr<MemoryHolder<AdditionalCellAttributes>>& get_memory_holder() const noexcept {
         return memory_holder;
     }
 
@@ -147,7 +157,7 @@ public:
      * @brief Returns the level at which the branch nodes (that are exchanged via MPI) are
      * @return The level at which the branch nodes (that are exchanged via MPI) are
      */
-    [[nodiscard]] std::uint16_t get_level_of_branch_nodes() const noexcept {
+    [[nodiscard]] level_type get_level_of_branch_nodes() const noexcept {
         return level_of_branch_nodes;
     }
 
@@ -174,6 +184,10 @@ public:
                | ranges::to_vector;
     }
 
+    [[nodiscard]] const std::vector<OctreeNode<AdditionalCellAttributes>*>& get_all_branch_nodes() const {
+        return branch_nodes;
+    }
+
     /**
      * @brief Inserts a neuron with the specified id and the specified position into the octree.
      * @param position The position of the new neuron
@@ -184,11 +198,11 @@ public:
      *      (c) Allocating a new object in the shared memory window fails
      *      (d) Something went wrong within the insertion
      */
-    void insert(const box_size_type& position, const NeuronID& neuron_id) {
+    void insert(const position_type& position, const NeuronID& neuron_id) {
         RelearnException::check(neuron_id.is_initialized(), "Octree::insert: neuron_id {} was uninitialized", neuron_id);
 
         const auto& bounding_box = get_simulation_box();
-        RelearnException::check(bounding_box.check_in_box(position), "Octree::insert: position was not in range: {} vs {}", position, bounding_box);
+        RelearnException::check(bounding_box.contains(position), "Octree::insert: position was not in range: {} vs {}", position, bounding_box);
 
         auto* res = root.insert(position, neuron_id, memory_holder);
         RelearnException::check(res != nullptr, "Octree::insert: res was nullptr");
@@ -244,7 +258,7 @@ public:
             }
         }
 
-        for (const auto neuron_id : NeuronID::range(num_neurons)) {
+        for (const auto neuron_id : NeuronIDRange::range(num_neurons)) {
             const auto& node = leaf_nodes[neuron_id.get_neuron_id()];
             RelearnException::check(node != nullptr, "Octree::initializes_leaf_nodes: Leaf node {} is null", neuron_id);
             RelearnException::check(node->is_leaf(), "Octree::initializes_leaf_nodes: Leaf node {} is not a leaf node", neuron_id);
@@ -296,7 +310,7 @@ public:
                                   + (all_leaf_nodes.capacity() * sizeof(OctreeNode<AdditionalCellAttributes>*));
         footprint->emplace("Octree", my_footprint);
 
-        const auto octree_node_footprint = memory_holder.get_size() * sizeof(OctreeNode<AdditionalCellAttributes>);
+        const auto octree_node_footprint = memory_holder->get_size() * sizeof(OctreeNode<AdditionalCellAttributes>);
         footprint->emplace("OctreeNode", octree_node_footprint);
     }
 
@@ -317,9 +331,9 @@ private:
     void construct_global_tree_part() {
         const auto _level_of_branch_nodes = get_level_of_branch_nodes();
         const auto num_cells_per_dimension = 1ULL << _level_of_branch_nodes; // (2^level_of_branch_nodes)
-        const auto num_cells_per_dimension_cast = static_cast<double>(num_cells_per_dimension);
+        const auto num_cells_per_dimension_cast = static_cast<space_type>(num_cells_per_dimension);
 
-        auto branch_nodes_positions = std::vector<box_size_type>{};
+        auto branch_nodes_positions = std::vector<position_type>{};
         branch_nodes_positions.reserve(num_cells_per_dimension * num_cells_per_dimension * num_cells_per_dimension);
 
         const auto& [xyz_min, xyz_max] = get_simulation_box();
@@ -330,16 +344,16 @@ private:
         const auto box_y = (y_max - y_min) / num_cells_per_dimension_cast;
         const auto box_z = (z_max - z_min) / num_cells_per_dimension_cast;
 
-        const auto half_x = box_x / 2.0;
-        const auto half_y = box_y / 2.0;
-        const auto half_z = box_z / 2.0;
+        const auto half_x = box_x / space_type{ 2 };
+        const auto half_y = box_y / space_type{ 2 };
+        const auto half_z = box_z / space_type{ 2 };
 
         for (auto z_it = 0U; z_it < num_cells_per_dimension; z_it++) {
             for (auto y_it = 0U; y_it < num_cells_per_dimension; y_it++) {
                 for (auto x_it = 0U; x_it < num_cells_per_dimension; x_it++) {
-                    const auto x = (x_it * box_x) + half_x + x_min;
-                    const auto y = (y_it * box_y) + half_y + y_min;
-                    const auto z = (z_it * box_z) + half_z + z_min;
+                    const auto x = (static_cast<space_type>(x_it) * box_x) + half_x + x_min;
+                    const auto y = (static_cast<space_type>(y_it) * box_y) + half_y + y_min;
+                    const auto z = (static_cast<space_type>(z_it) * box_z) + half_z + z_min;
                     branch_nodes_positions.emplace_back(x, y, z);
                 }
             }
@@ -367,12 +381,12 @@ private:
                 continue;
             }
 
-            for (auto id = std::size_t{ 0 }; id < Constants::number_oct; id++) {
+            for (auto id = static_cast<unsigned char>(0); id < Constants::number_oct; id++) {
                 auto* child_node = ptr->get_child(id);
 
-                const auto larger_x = ((id & 1ULL) == 0) ? 0ULL : 1ULL;
-                const auto larger_y = ((id & 2ULL) == 0) ? 0ULL : 1ULL;
-                const auto larger_z = ((id & 4ULL) == 0) ? 0ULL : 1ULL;
+                const auto larger_x = ((id & 1U) == 0) ? 0ULL : 1ULL;
+                const auto larger_y = ((id & 2U) == 0) ? 0ULL : 1ULL;
+                const auto larger_z = ((id & 4U) == 0) ? 0ULL : 1ULL;
 
                 const auto offset = Vec3s{ larger_x, larger_y, larger_z };
                 const auto pos = Vec3s{ index3d * 2 } + offset;
@@ -438,7 +452,7 @@ private:
         if (const auto _level_of_branch_nodes = get_level_of_branch_nodes(); _level_of_branch_nodes > 0) {
             // Only update whenever there are other branches to update
             // The nodes at level_of_branch_nodes are already updated (by other MPI ranks)
-            update_tree_parallel(&root, _level_of_branch_nodes - 1);
+            update_tree_parallel(&root, static_cast<level_type>(_level_of_branch_nodes - 1));
         }
         Timers::stop_and_add(TimerRegion::UPDATE_GLOBAL_TREE);
     }
@@ -451,7 +465,7 @@ private:
      * @param max_depth The depth where the updates shall stop
      * @exception Throws a RelearnException if local_tree_root is nullptr or if max_depth is smaller than the depth of local_tree_root
      */
-    void update_tree_parallel(OctreeNode<AdditionalCellAttributes>* local_tree_root, const std::uint16_t max_depth = std::numeric_limits<std::uint16_t>::max()) {
+    void update_tree_parallel(OctreeNode<AdditionalCellAttributes>* local_tree_root, const level_type max_depth = std::numeric_limits<level_type>::max()) {
         RelearnException::check(local_tree_root != nullptr, "Octree::update_tree_parallel: local_tree_root was nullptr");
         RelearnException::check(local_tree_root->get_level() <= max_depth, "Octree::update_tree_parallel: The root had a larger depth than max_depth.");
 
@@ -489,7 +503,7 @@ private:
         }
 
 #pragma omp parallel for shared(subtrees, max_depth) default(none)
-        for (auto i = 0UL; i < subtrees.size(); i++) {
+        for (auto i = 0UL; i < subtrees.size(); i++) { // NOLINT(openmp-exception-escape) - only throwable calls are RelearnException::check on octree-construction invariants, already validated earlier
             auto* other_local_tree_root = subtrees[i];
             OctreeNodeUpdater<AdditionalCellAttributes>::update_tree(other_local_tree_root, max_depth);
         }
@@ -504,13 +518,12 @@ private:
         }
     }
 
-    bounding_box_type simulation_box{};
+    bounding_box_type simulation_box;
 
     std::shared_ptr<SpaceFillingCurve> space_curve{};
-    std::uint16_t level_of_branch_nodes{ std::numeric_limits<std::uint16_t>::max() };
+    level_type level_of_branch_nodes{ std::numeric_limits<level_type>::max() };
 
-    mpiPP::RMAWindow<OctreeNode<AdditionalCellAttributes>> rma_window{};
-    MemoryHolder<AdditionalCellAttributes> memory_holder{};
+    std::shared_ptr<MemoryHolder<AdditionalCellAttributes>> memory_holder{};
     NodeCache<AdditionalCellAttributes> node_cache{};
 
     // Root of the tree

@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2025-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -19,9 +19,11 @@
 #include "algorithm/Kernel/KernelType.h"
 #include "algorithm/Kernel/Linear.h"
 #include "algorithm/Kernel/Weibull.h"
+#include "types/BasicTypes.h"
 
 #include <boost/lexical_cast.hpp>
 
+#include <cmath>
 #include <memory>
 #include <optional>
 #include <string>
@@ -33,6 +35,9 @@
  */
 class AlgorithmConfig {
 public:
+    using attraction_type = RelearnTypes::attraction_type;
+    using acceptance_criterion_type = RelearnTypes::acceptance_criterion_type;
+
     /**
      * Constructs a new AlgorithmConfig object
      * @param algorithm_type The type of the algorithm
@@ -40,7 +45,7 @@ public:
      * @param theta Optionally a theta value if the algorithm implements barnes-hut. If none is given but the algorithm is barnes-hut,
      *              the theta given through --theta will be used in usage with CombinedAlgorithms. If that is not given, the default value will be used.
      */
-    AlgorithmConfig(AlgorithmEnum algorithm_type, std::unique_ptr<KernelBase> kernel, std::optional<double> theta = std::nullopt)
+    AlgorithmConfig(AlgorithmEnum algorithm_type, std::unique_ptr<KernelBase> kernel, std::optional<acceptance_criterion_type> theta = std::nullopt)
         : _algorithm_type{ algorithm_type }
         , _kernel{ std::move(kernel) }
         , _theta{ theta } { }
@@ -54,17 +59,17 @@ public:
 
     /**
      * @brief Checks whether this AlgorithmConfig is approximately equal to the other one. This is not transitive! It accounts for
-     *        small deviations in parameters of type double by using Constants::eps
+     *        small deviations in the parameters by using Constants::eps
      * @param other The other AlgorithmConfig
-     * @param epsilon The epsilon used to compare the double parameters
+     * @param epsilon The epsilon used to compare the parameters
      * @return Whether this and the other AlgorithmConfig are approximately equal
      */
-    [[nodiscard]] bool is_approximately_equal(const AlgorithmConfig& other, double epsilon = Constants::eps) const noexcept {
+    [[nodiscard]] bool is_approximately_equal(const AlgorithmConfig& other, acceptance_criterion_type epsilon = static_cast<acceptance_criterion_type>(Constants::eps)) const noexcept {
         if (_algorithm_type != other.get_algorithm_type() || has_theta() != other.has_theta()) {
             return false;
         }
         if (has_theta()) {
-            if (fabs(_theta.value() - other.get_theta().value()) >= epsilon) { // checks inequality for doubles by testing if the difference is greater epsilon
+            if (std::fabs(_theta.value() - other.get_theta().value()) >= epsilon) { // checks inequality by testing if the difference is greater epsilon
                 return false;
             }
         }
@@ -102,7 +107,7 @@ public:
      * @brief Returns the theta optional
      * @return The theta optional of the config (can be empty)
      */
-    [[nodiscard]] std::optional<double> get_theta() const {
+    [[nodiscard]] std::optional<acceptance_criterion_type> get_theta() const {
         return _theta;
     }
 
@@ -145,21 +150,21 @@ private:
      * @brief Returns the kernel parameters of the kernel
      * @return The kernel parameters of the kernel in a vector
      */
-    [[nodiscard]] std::vector<double> get_kernel_parameters(const KernelType kernel_type) const;
+    [[nodiscard]] std::vector<attraction_type> get_kernel_parameters(const KernelType kernel_type) const;
 
     /**
      * @brief Returns whether the kernel parameters are default parameters
      * @return A bool indicating whether the kernel parameters are default
      */
-    [[nodiscard]] bool check_parameters_default(const std::vector<double>& parameters, const KernelType kernel_type) const;
+    [[nodiscard]] bool check_parameters_default(const std::vector<attraction_type>& parameters, const KernelType kernel_type) const;
 
     /**
      * @brief Returns a string representation of the kernel parameters as they could be used in a combined algorithms config file
      * @return A string representation of the kernel parameters as they could be used in a combined algorithms config file
      */
-    [[nodiscard]] std::string kernel_parameters_to_string(const std::vector<double>& parameters) const;
+    [[nodiscard]] std::string kernel_parameters_to_string(const std::vector<attraction_type>& parameters) const;
 
     AlgorithmEnum _algorithm_type;
     std::unique_ptr<KernelBase> _kernel;
-    std::optional<double> _theta;
+    std::optional<acceptance_criterion_type> _theta;
 };

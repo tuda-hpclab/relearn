@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -14,9 +14,12 @@
 #include "neurons/LocalGroupTranslator.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
-#include "util/SetUtil.h"
 
-#include "mpi-wrapper/MPIRank.h"
+#include <cpp-utility/data/intersection.hpp>
+
+#include <fmt/std.h>
+
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <spdlog/spdlog.h>
 
@@ -38,11 +41,11 @@ std::pair<CalciumIO::initial_value_calculator, CalciumIO::target_value_calculato
 
     RelearnException::check(file_is_good && !file_is_not_good, "InteractiveNeuronIO::load_enable_interrupts: Opening the file '{}' was not successful", path_to_file);
 
-    auto default_initial_calcium = std::optional<double>{};
-    auto default_target_calcium = std::optional<double>{};
+    auto default_initial_calcium = std::optional<calcium_type>{};
+    auto default_target_calcium = std::optional<calcium_type>{};
 
-    auto id_to_initial = std::unordered_map<NeuronID::value_type, double>{};
-    auto id_to_target = std::unordered_map<NeuronID::value_type, double>{};
+    auto id_to_initial = std::unordered_map<NeuronID::value_type, calcium_type>{};
+    auto id_to_target = std::unordered_map<NeuronID::value_type, calcium_type>{};
 
     auto already_seen_neuron_ids = std::unordered_set<NeuronID>{};
 
@@ -55,8 +58,8 @@ std::pair<CalciumIO::initial_value_calculator, CalciumIO::target_value_calculato
         auto sstream = std::stringstream(line);
 
         auto description = std::string{};
-        auto initial_calcium = double{};
-        auto target_calcium = double{};
+        auto initial_calcium = calcium_type{};
+        auto target_calcium = calcium_type{};
 
         const auto success = (sstream >> description) && (sstream >> initial_calcium) && (sstream >> target_calcium);
 
@@ -77,7 +80,7 @@ std::pair<CalciumIO::initial_value_calculator, CalciumIO::target_value_calculato
 
         const auto& parsed_ids = MonitorParser::parse_my_ids(description, my_rank, local_group_translator);
 
-        const auto id_already_seen = SetUtil::containers_have_common_element(already_seen_neuron_ids, parsed_ids);
+        const auto id_already_seen = utility::containers_intersect(already_seen_neuron_ids, parsed_ids);
 
         RelearnException::check(!id_already_seen, "CalciumIO::load_initial_and_target_function: A neuron is not supposed to be assigned to multiple calcium value pairs. Each neuron should only get assigned to one!");
 
@@ -98,7 +101,7 @@ std::pair<CalciumIO::initial_value_calculator, CalciumIO::target_value_calculato
     auto initial_calculator = [lookup = std::move(id_to_initial), default_initial = default_initial_calcium]([[maybe_unused]] mpiPP::MPIRank mpi_rank, NeuronID::value_type neuron_id) {
         const auto& contains = lookup.find(neuron_id) != lookup.end();
         if (contains) {
-            const double initial = lookup.at(neuron_id);
+            const calcium_type initial = lookup.at(neuron_id);
             return initial;
         }
 
@@ -109,7 +112,7 @@ std::pair<CalciumIO::initial_value_calculator, CalciumIO::target_value_calculato
     auto target_calculator = [lookup = std::move(id_to_target), default_target = default_target_calcium]([[maybe_unused]] mpiPP::MPIRank mpi_rank, NeuronID::value_type neuron_id) {
         const auto& contains = lookup.find(neuron_id) != lookup.end();
         if (contains) {
-            const double target = lookup.at(neuron_id);
+            const calcium_type target = lookup.at(neuron_id);
             return target;
         }
 

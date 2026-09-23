@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -637,8 +637,8 @@ public:
 
         if constexpr (has_excitatory_dendrite) {
             output_stream << "\tNumber excitatory dendrites: " << base_cell.get_number_excitatory_dendrites() << '\n';
-            if (base_cell.get_excitatory_dendrites_position().has_value()) {
-                output_stream << "\tPosition excitatory dendrites: " << base_cell.get_excitatory_dendrites_position().value() << '\n';
+            if (const auto& position = base_cell.get_excitatory_dendrites_position(); position.has_value()) {
+                output_stream << "\tPosition excitatory dendrites: " << position.value() << '\n';
             } else {
                 output_stream << "\tPosition excitatory dendrites: empty\n";
             }
@@ -646,8 +646,8 @@ public:
 
         if constexpr (has_inhibitory_dendrite) {
             output_stream << "\tNumber inhibitory dendrites: " << base_cell.get_number_inhibitory_dendrites() << '\n';
-            if (base_cell.get_inhibitory_dendrites_position().has_value()) {
-                output_stream << "\tPosition inhibitory dendrites: " << base_cell.get_inhibitory_dendrites_position().value() << '\n';
+            if (const auto& position = base_cell.get_inhibitory_dendrites_position(); position.has_value()) {
+                output_stream << "\tPosition inhibitory dendrites: " << position.value() << '\n';
             } else {
                 output_stream << "\tPosition inhibitory dendrites: empty\n";
             }
@@ -655,8 +655,8 @@ public:
 
         if constexpr (has_excitatory_axon) {
             output_stream << "\tNumber excitatory axons: " << base_cell.get_number_excitatory_axons() << '\n';
-            if (base_cell.get_excitatory_axons_position().has_value()) {
-                output_stream << "\tPosition excitatory axons: " << base_cell.get_excitatory_axons_position().value() << '\n';
+            if (const auto& position = base_cell.get_excitatory_axons_position(); position.has_value()) {
+                output_stream << "\tPosition excitatory axons: " << position.value() << '\n';
             } else {
                 output_stream << "\tPosition excitatory axons: empty\n";
             }
@@ -664,8 +664,8 @@ public:
 
         if constexpr (has_inhibitory_axon) {
             output_stream << "\tNumber inhibitory axons: " << base_cell.get_number_inhibitory_axons() << '\n';
-            if (base_cell.get_inhibitory_axons_position().has_value()) {
-                output_stream << "\tPosition inhibitory axons: " << base_cell.get_inhibitory_axons_position().value() << '\n';
+            if (const auto& position = base_cell.get_inhibitory_axons_position(); position.has_value()) {
+                output_stream << "\tPosition inhibitory axons: " << position.value() << '\n';
             } else {
                 output_stream << "\tPosition inhibitory axons: empty\n";
             }

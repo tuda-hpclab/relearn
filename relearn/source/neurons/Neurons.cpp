@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2020-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,17 +11,16 @@
 #include "Neurons.h"
 
 #include "Config.h"
-#include "Types.h"
-#include "Types3.h"
 
+#include "cuda/random/RandomNumberHost.h"
 #include "io/Event.h"
 #include "io/LogFiles.h"
 #include "io/NeuronIO.h"
 #include "neurons/LocalGroupTranslator.h"
 #include "neurons/NetworkGraph.h"
+#include "neurons/enums/FiredStatus.h"
 #include "neurons/enums/SynapticElementType.h"
 #include "neurons/enums/UpdateStatus.h"
-#include "neurons/firing/FiredStatusCommunicator.h"
 #include "neurons/firing/FiredStatusRecorder.h"
 #include "neurons/helper/NeuronMonitor.h"
 #include "neurons/helper/RankNeuronId.h"
@@ -29,24 +28,28 @@
 #include "neurons/models/NeuronModel.h"
 #include "sim/Essentials.h"
 #include "structure/Partition.h"
+#include "types/BasicTypes.h"
+#include "types/CommunicationTypes.h"
+#include "types/SynapseTypes.h"
 #include "util/Accumulate.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnException.h"
 #include "util/StatisticalMeasures.h"
 #include "util/Timers.h"
 
-#include "cpp-utility/Cast.hpp"
-#include "cpp-utility/ranges/Functional.hpp"
+#include <cpp-utility/Cast.hpp>
+#include <cpp-utility/ranges/Functional.hpp>
 
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
-#include "mpi-wrapper/MPIReductions.h"
-#include "mpi-wrapper/MPISynchronization.h"
-#include "mpi-wrapper/RMAWindow.h"
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
+#include <mpi-wrapper/core/MPISynchronization.h>
+#include <mpi-wrapper/reductions/MPIComponentwiseReductions.h>
+#include <mpi-wrapper/reductions/MPIReductions.h>
+#include <mpi-wrapper/rma/RMAWindow.h>
 
 #include <range/v3/numeric/accumulate.hpp>
 #include <range/v3/range/conversion.hpp>
-#include <range/v3/view/filter.hpp>
 #include <range/v3/view/transform.hpp>
 
 #include <algorithm>
@@ -56,7 +59,6 @@
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
-#include <map>
 #include <memory>
 #include <ranges>
 #include <span>
@@ -72,11 +74,7 @@ void Neurons::init(const number_neurons_type number_neurons_init, std::vector<Ne
 
     number_neurons = number_neurons_init;
 
-    if (network_graph->get_number_neurons() == 0) {
-        // This is here to ensure the initialization of the network graph
-        // This functionality moved
-        network_graph->init(number_neurons);
-    }
+    RelearnException::check(network_graph->get_number_neurons() != 0, "Neurons::init: The network graph must already be initialized");
 
     neuron_model->set_network_graph(network_graph);
     neuron_model->set_extra_infos(extra_info);
@@ -97,6 +95,7 @@ void Neurons::init(const number_neurons_type number_neurons_init, std::vector<Ne
     algorithm->set_synaptic_elements(synaptic_elements);
     algorithm->set_probability_kernel(std::move(probability_kernel));
     algorithm->init(number_neurons);
+    LogFiles::print_message_rank(mpiPP::MPIRank::root_rank(), "Octree created");
 
     synapse_deletion_finder->set_extra_infos(extra_info);
     synapse_deletion_finder->set_network_graph(network_graph);
@@ -108,14 +107,14 @@ void Neurons::init_synaptic_elements(const PlasticLocalSynapses& local_synapses_
     last_created_in_synapses = in_synapses_plastic;
     last_created_out_synapses = out_synapses_plastic;
 
-    for (const auto id : NeuronID::range_id(number_neurons)) {
+    for (const auto id : NeuronIDRange::range_id(number_neurons)) {
         const auto [axon_connections, _1] = network_graph->get_number_out_edges(id);
         const auto [dendrites_ex_connections, _2] = network_graph->get_number_excitatory_in_edges(id);
         const auto [dendrites_in_connections, _3] = network_graph->get_number_inhibitory_in_edges(id);
 
-        const auto axons_cast = utility::save_cast<unsigned int>(axon_connections);
-        const auto dendrites_ex_cast = utility::save_cast<unsigned int>(dendrites_ex_connections);
-        const auto dendrites_in_cast = utility::save_cast<unsigned int>(dendrites_in_connections);
+        const auto axons_cast = utility::safe_cast<unsigned int>(axon_connections);
+        const auto dendrites_ex_cast = utility::safe_cast<unsigned int>(dendrites_ex_connections);
+        const auto dendrites_in_cast = utility::safe_cast<unsigned int>(dendrites_in_connections);
 
         synaptic_elements->add_connected_elements(axons_cast, id, SynapticElementType::Axon);
         synaptic_elements->add_connected_elements(dendrites_ex_cast, id, SynapticElementType::DendriteExcitatory);
@@ -123,12 +122,14 @@ void Neurons::init_synaptic_elements(const PlasticLocalSynapses& local_synapses_
     }
 
     check_signal_types(network_graph, synaptic_elements->get_signal_types(), mpiPP::MPIInfo::get_my_rank());
+
+    network_graph->rebuild();
 }
 
 void Neurons::check_signal_types(const std::shared_ptr<NetworkGraph>& network_graph,
                                  const std::span<const SignalType> signal_types, const mpiPP::MPIRank my_rank) {
 
-    for (const auto neuron_id : NeuronID::range_id(signal_types.size())) {
+    for (const auto neuron_id : NeuronIDRange::range_id(signal_types.size())) {
         const auto& signal_type = signal_types[neuron_id];
 
         const auto& [distant_out_edges, _1] = network_graph->get_distant_out_edges(neuron_id);
@@ -147,28 +148,28 @@ void Neurons::check_signal_types(const std::shared_ptr<NetworkGraph>& network_gr
     }
 }
 
-std::pair<size_t, RelearnTypes::comm_map_deletion<SynapseDeletionRequest>> Neurons::disable_neurons(const step_type step, const std::span<const NeuronID> local_neuron_ids, const int num_ranks) {
+std::pair<RelearnTypes::number_synapse_type, RelearnTypes::comm_map_deletion<SynapseDeletionRequest>> Neurons::disable_neurons(const step_type step, const std::span<const NeuronID> local_neuron_ids, const int num_ranks) {
     const auto transformed_ids = local_neuron_ids | ranges::views::transform([](auto val) { return val.get_neuron_id(); }) | ranges::to_vector;
 
     extra_info->set_disabled_neurons(local_neuron_ids);
 
     neuron_model->disable_neurons(local_neuron_ids);
 
-    auto deleted_axon_ex_connections = std::vector<unsigned int>(number_neurons, 0);
-    auto deleted_axon_in_connections = std::vector<unsigned int>(number_neurons, 0);
-    auto deleted_dend_ex_connections = std::vector<unsigned int>(number_neurons, 0);
-    auto deleted_dend_in_connections = std::vector<unsigned int>(number_neurons, 0);
+    auto deleted_axon_ex_connections = std::vector<RelearnTypes::counter_type>(number_neurons, 0);
+    auto deleted_axon_in_connections = std::vector<RelearnTypes::counter_type>(number_neurons, 0);
+    auto deleted_dend_ex_connections = std::vector<RelearnTypes::counter_type>(number_neurons, 0);
+    auto deleted_dend_in_connections = std::vector<RelearnTypes::counter_type>(number_neurons, 0);
 
-    auto number_deleted_out_inh_edges_within = std::size_t{ 0 };
-    auto number_deleted_out_exc_edges_within = std::size_t{ 0 };
+    auto number_deleted_out_inh_edges_within = RelearnTypes::number_synapse_type{ 0 };
+    auto number_deleted_out_exc_edges_within = RelearnTypes::number_synapse_type{ 0 };
 
-    auto number_deleted_out_inh_edges_to_outside = std::size_t{ 0 };
-    auto number_deleted_out_exc_edges_to_outside = std::size_t{ 0 };
+    auto number_deleted_out_inh_edges_to_outside = RelearnTypes::number_synapse_type{ 0 };
+    auto number_deleted_out_exc_edges_to_outside = RelearnTypes::number_synapse_type{ 0 };
 
-    auto number_deleted_distant_out_exc = std::size_t{ 0 };
-    auto number_deleted_distant_out_inh = std::size_t{ 0 };
-    auto number_deleted_distant_in_exc = std::size_t{ 0 };
-    auto number_deleted_distant_in_inh = std::size_t{ 0 };
+    auto number_deleted_distant_out_exc = RelearnTypes::number_synapse_type{ 0 };
+    auto number_deleted_distant_out_inh = RelearnTypes::number_synapse_type{ 0 };
+    auto number_deleted_distant_in_exc = RelearnTypes::number_synapse_type{ 0 };
+    auto number_deleted_distant_in_inh = RelearnTypes::number_synapse_type{ 0 };
 
     const auto size_hint = std::min(number_neurons, static_cast<number_neurons_type>(num_ranks));
     auto synapse_deletion_requests_outgoing = RelearnTypes::comm_map_deletion<SynapseDeletionRequest>(num_ranks, size_hint);
@@ -230,7 +231,7 @@ std::pair<size_t, RelearnTypes::comm_map_deletion<SynapseDeletionRequest>> Neuro
         }
     }
 
-    auto number_deleted_in_edges_from_outside = std::size_t{ 0 };
+    auto number_deleted_in_edges_from_outside = RelearnTypes::number_synapse_type{ 0 };
 
     for (const auto neuron_id : local_neuron_ids) {
         const auto id = neuron_id.get_neuron_id();
@@ -285,6 +286,10 @@ std::pair<size_t, RelearnTypes::comm_map_deletion<SynapseDeletionRequest>> Neuro
     synaptic_elements->disable_neurons(transformed_ids);
 
     neuron_model->notify_of_plasticity_change(step);
+
+#ifdef RELEARN_CUDA_ENABLED
+    network_graph->sync_with_gpu();
+#endif
 
     LogFiles::print_message_rank(mpiPP::MPIRank::root_rank(),
                                  "Deleted {} in-edges with and ({}, {}) out-edges (exc., inh.) within the deleted portion",
@@ -346,6 +351,7 @@ void Neurons::register_neuron_monitor(NeuronMonitor& monitor) {
 void Neurons::update_electrical_activity(const step_type step) {
     neuron_model->update_electrical_activity(step);
 
+#ifndef RELEARN_CUDA_ENABLED
     const auto& fired = neuron_model->get_fired();
     calcium_calculator->update_calcium(step, fired);
 
@@ -357,13 +363,24 @@ void Neurons::update_electrical_activity(const step_type step) {
     LogFiles::write_to_file(LogFiles::EventType::ExtremeCalciumValues, false, "{};{:.6f};{};{:.6f}",
                             current_min_id, calcium_values[current_min_id], current_max_id, calcium_values[current_max_id]);
     Timers::stop_and_add(TimerRegion::CALC_CALCIUM_EXTREME_VALUES);
+#else
+    const auto* d_fired = neuron_model->get_fired_status_recorder()->get_d_fired_const();
+    calcium_calculator->update_calcium(step, d_fired);
+#endif
 }
 
-void Neurons::update_number_synaptic_elements_delta(const step_type step) {
+void Neurons::update_number_synaptic_elements_delta([[maybe_unused]] const step_type step) {
+
+#ifndef RELEARN_CUDA_ENABLED
     const auto& calcium = calcium_calculator->get_calcium();
     const auto& target_calcium = calcium_calculator->get_target_calcium();
-
     synaptic_elements->update_number_elements(step, calcium, target_calcium);
+#else
+    const auto* d_calcium = calcium_calculator->get_d_calcium_const();
+    const auto* d_target_calcium = calcium_calculator->get_d_target_calcium_const();
+
+    synaptic_elements->update_number_elements(d_calcium, d_target_calcium);
+#endif
 }
 
 void Neurons::record_memory_footprint(const std::unique_ptr<utility::MemoryFootprint>& footprint) {
@@ -379,6 +396,11 @@ void Neurons::record_memory_footprint(const std::unique_ptr<utility::MemoryFootp
     synaptic_elements->record_memory_footprint(footprint);
     synapse_deletion_finder->record_memory_footprint(footprint);
     extra_info->record_memory_footprint(footprint);
+    footprint->emplace("Random GPU", RandomNumbers::get_memory_usage());
+}
+
+void Neurons::record_usage_footprint(const std::unique_ptr<utility::MemoryFootprint>& footprint) {
+    network_graph->record_usage_footprint(footprint);
 }
 
 StatisticalMeasures Neurons::global_statistics(const std::span<const double> local_values, [[maybe_unused]] const mpiPP::MPIRank root) const {
@@ -397,7 +419,7 @@ StatisticalMeasures Neurons::global_statistics(const std::span<const double> loc
     /**
      * Calc variance
      */
-    const auto my_var = ranges::accumulate(NeuronID::range_id(number_neurons)
+    const auto my_var = ranges::accumulate(NeuronIDRange::range_id(number_neurons)
                                                | ranges::views::filter(utility::not_equal_to(UpdateStatus::Disabled), utility::lookup(disable_flags))
                                                | ranges::views::transform([&local_values, avg](const auto neuron_id) {
                                                      const auto val = local_values[neuron_id] - avg;
@@ -415,16 +437,16 @@ StatisticalMeasures Neurons::global_statistics(const std::span<const double> loc
     return { .min = d_min, .max = d_max, .avg = avg, .var = var, .std = std };
 }
 
-std::uint64_t Neurons::create_synapses() {
+RelearnTypes::number_synapse_type Neurons::create_synapses() {
     // const auto my_rank = mpiPP::MPIInfo::get_my_rank();
 
     Event::create_and_print_duration_begin_event("Neurons::prepare_update_connectivity", { EventCategory::mpi, EventCategory::calculation }, {}, true);
 
     const auto signal_types = synaptic_elements->get_signal_types();
 
-    const auto vacant_axons = synaptic_elements->get_vacant_elements(SynapticElementType::Axon);
-    const auto vacant_excitatory_dendrites = synaptic_elements->get_vacant_elements(SynapticElementType::DendriteExcitatory);
-    const auto vacant_inhibitory_dendrites = synaptic_elements->get_vacant_elements(SynapticElementType::DendriteInhibitory);
+    const auto& vacant_axons = synaptic_elements->get_vacant_elements(SynapticElementType::Axon);
+    const auto& vacant_excitatory_dendrites = synaptic_elements->get_vacant_elements(SynapticElementType::DendriteExcitatory);
+    const auto& vacant_inhibitory_dendrites = synaptic_elements->get_vacant_elements(SynapticElementType::DendriteInhibitory);
 
     algorithm->prepare_update_connectivity(signal_types, vacant_axons, vacant_excitatory_dendrites, vacant_inhibitory_dendrites);
     Event::create_and_print_duration_end_event(true);
@@ -435,19 +457,17 @@ std::uint64_t Neurons::create_synapses() {
 
     // Delegate the creation of new synapses to the algorithm
     Event::create_and_print_duration_begin_event("Neurons::update_connectivity", { EventCategory::mpi, EventCategory::calculation }, {}, true);
-    auto [local_synapses, distant_in_synapses, distant_out_synapses]
+    auto [num_synapses_created, local_synapses, distant_in_synapses, distant_out_synapses]
         = algorithm->update_connectivity(number_neurons);
     Event::create_and_print_duration_end_event(true);
 
     // Update the network graph all at once
+    // TODO That is too slow
     Timers::start(TimerRegion::ADD_SYNAPSES_TO_NETWORK_GRAPH);
     Event::create_and_print_duration_begin_event("Neurons::add_edges", { EventCategory::mpi, EventCategory::calculation }, {}, true);
     network_graph->add_edges(local_synapses, distant_in_synapses, distant_out_synapses);
     Event::create_and_print_duration_end_event(true);
     Timers::stop_and_add(TimerRegion::ADD_SYNAPSES_TO_NETWORK_GRAPH);
-
-    // The distant_out_synapses are counted on the ranks where they are in
-    const auto num_synapses_created = local_synapses.size() + distant_in_synapses.size();
 
     last_created_local_synapses = std::move(local_synapses);
     last_created_in_synapses = std::move(distant_in_synapses);
@@ -465,17 +485,19 @@ void Neurons::debug_check_counts() {
 
     const auto my_rank = mpiPP::MPIInfo::get_my_rank();
 
+    network_graph->debug_check();
+
     const auto ga = synaptic_elements->get_grown_elements(SynapticElementType::Axon);
     const auto ged = synaptic_elements->get_grown_elements(SynapticElementType::DendriteExcitatory);
     const auto gid = synaptic_elements->get_grown_elements(SynapticElementType::DendriteInhibitory);
 
-    const auto va = synaptic_elements->get_vacant_elements(SynapticElementType::Axon);
-    const auto ved = synaptic_elements->get_vacant_elements(SynapticElementType::DendriteExcitatory);
-    const auto vid = synaptic_elements->get_vacant_elements(SynapticElementType::DendriteInhibitory);
+    const auto& va = synaptic_elements->get_vacant_elements(SynapticElementType::Axon);
+    const auto& ved = synaptic_elements->get_vacant_elements(SynapticElementType::DendriteExcitatory);
+    const auto& vid = synaptic_elements->get_vacant_elements(SynapticElementType::DendriteInhibitory);
 
-    const auto ca = synaptic_elements->get_connected_elements(SynapticElementType::Axon);
-    const auto ced = synaptic_elements->get_connected_elements(SynapticElementType::DendriteExcitatory);
-    const auto cid = synaptic_elements->get_connected_elements(SynapticElementType::DendriteInhibitory);
+    const auto& ca = synaptic_elements->get_connected_elements(SynapticElementType::Axon);
+    const auto& ced = synaptic_elements->get_connected_elements(SynapticElementType::DendriteExcitatory);
+    const auto& cid = synaptic_elements->get_connected_elements(SynapticElementType::DendriteInhibitory);
 
     for (auto neuron_id = number_neurons_type{ 0 }; neuron_id < number_neurons; neuron_id++) {
         const auto integral_axons = va[neuron_id] + ca[neuron_id];
@@ -513,8 +535,8 @@ void Neurons::debug_check_counts() {
 }
 
 StatisticalMeasures Neurons::get_statistics(const NeuronAttribute attribute) const {
-    auto buffer = std::vector<double>{};
-    auto buffer_unsigned = std::vector<unsigned int>{};
+    auto buffer = std::vector<RelearnTypes::calcium_type>{};
+    auto buffer_unsigned = std::vector<RelearnTypes::counter_type>{};
 
     switch (attribute) {
     case NeuronAttribute::Calcium:
@@ -524,38 +546,38 @@ StatisticalMeasures Neurons::get_statistics(const NeuronAttribute attribute) con
         return global_statistics(calcium_calculator->get_target_calcium(), mpiPP::MPIRank::root_rank());
 
     case NeuronAttribute::CalciumDifference:
-        buffer = std::vector<double>{ calcium_calculator->get_calcium().begin(), calcium_calculator->get_calcium().end() };
+        buffer = std::vector<RelearnTypes::calcium_type>{ calcium_calculator->get_calcium().begin(), calcium_calculator->get_calcium().end() };
         for (auto i = 0U; i < buffer.size(); i++) {
             buffer[i] -= calcium_calculator->get_target_calcium()[i];
         }
-        return global_statistics(buffer, mpiPP::MPIRank::root_rank());
+        return global_statistics(std::span<const RelearnTypes::calcium_type>{ buffer }, mpiPP::MPIRank::root_rank());
 
     case NeuronAttribute::X:
         return global_statistics(neuron_model->get_x(), mpiPP::MPIRank::root_rank());
 
     case NeuronAttribute::Fired:
-        return global_statistics_integral(neuron_model->get_fired(), mpiPP::MPIRank::root_rank());
+        return global_statistics(neuron_model->get_fired(), mpiPP::MPIRank::root_rank());
 
-    case NeuronAttribute::ActivityInput:
+    case NeuronAttribute::InputActivity:
         return global_statistics(neuron_model->get_input(), mpiPP::MPIRank::root_rank());
 
-    case NeuronAttribute::Axons:
+    case NeuronAttribute::AxonsGrown:
         return global_statistics(synaptic_elements->get_grown_elements(SynapticElementType::Axon), mpiPP::MPIRank::root_rank());
 
     case NeuronAttribute::AxonsConnected:
-        return global_statistics_integral(synaptic_elements->get_connected_elements(SynapticElementType::Axon), mpiPP::MPIRank::root_rank());
+        return global_statistics(synaptic_elements->get_connected_elements(SynapticElementType::Axon), mpiPP::MPIRank::root_rank());
 
     case NeuronAttribute::DendritesExcitatory:
         return global_statistics(synaptic_elements->get_grown_elements(SynapticElementType::DendriteExcitatory), mpiPP::MPIRank::root_rank());
 
     case NeuronAttribute::DendritesExcitatoryConnected:
-        return global_statistics_integral(synaptic_elements->get_connected_elements(SynapticElementType::DendriteExcitatory), mpiPP::MPIRank::root_rank());
+        return global_statistics(synaptic_elements->get_connected_elements(SynapticElementType::DendriteExcitatory), mpiPP::MPIRank::root_rank());
 
     case NeuronAttribute::DendritesInhibitory:
         return global_statistics(synaptic_elements->get_grown_elements(SynapticElementType::DendriteInhibitory), mpiPP::MPIRank::root_rank());
 
     case NeuronAttribute::DendritesInhibitoryConnected:
-        return global_statistics_integral(synaptic_elements->get_connected_elements(SynapticElementType::DendriteInhibitory), mpiPP::MPIRank::root_rank());
+        return global_statistics(synaptic_elements->get_connected_elements(SynapticElementType::DendriteInhibitory), mpiPP::MPIRank::root_rank());
     }
 
     RelearnException::fail("Neurons::get_statistics: Got an unsupported attribute: {}", static_cast<int>(attribute));
@@ -563,26 +585,30 @@ StatisticalMeasures Neurons::get_statistics(const NeuronAttribute attribute) con
     return {};
 }
 
-std::tuple<std::uint64_t, std::uint64_t, std::uint64_t> Neurons::update_connectivity(const step_type step) {
+std::tuple<RelearnTypes::number_synapse_type, RelearnTypes::number_synapse_type, RelearnTypes::number_synapse_type> Neurons::update_connectivity(const step_type step) {
     RelearnException::check(network_graph != nullptr, "Network graph is nullptr");
     RelearnException::check(algorithm != nullptr, "Algorithm is nullptr");
 
+    // Drain the background spike exchange before ANY MPI on the main thread.
+    // delete_synapses() calls MPIAdvancedCommunicationPatterns::exchange_requests,
+    // and create_synapses() issues collectives — both corrupt UCX shared transport
+    // state if the background point-to-point exchange is still in flight.
+    neuron_model->wait_for_spike_exchange();
     debug_check_counts();
-    network_graph->debug_check();
     const auto& [num_axons_deleted, num_dendrites_deleted] = synapse_deletion_finder->delete_synapses();
     debug_check_counts();
-    network_graph->debug_check();
     const auto num_synapses_created = create_synapses();
     debug_check_counts();
-    network_graph->debug_check();
 
     neuron_model->notify_of_plasticity_change(step);
+
+    network_graph->rebuild();
 
     return { num_axons_deleted, num_dendrites_deleted, num_synapses_created };
 }
 
-std::size_t Neurons::delete_disabled_distant_synapses(const RelearnTypes::comm_map_deletion<SynapseDeletionRequest>& list, const mpiPP::MPIRank my_rank) {
-    auto num_synapses_deleted = std::size_t{ 0 };
+RelearnTypes::number_synapse_type Neurons::delete_disabled_distant_synapses(const RelearnTypes::comm_map_deletion<SynapseDeletionRequest>& list, const mpiPP::MPIRank my_rank) {
+    auto num_synapses_deleted = RelearnTypes::number_synapse_type{ 0 };
 
     const auto& disable_flags = extra_info->get_disable_flags();
 
@@ -635,9 +661,9 @@ std::size_t Neurons::delete_disabled_distant_synapses(const RelearnTypes::comm_m
 }
 
 void Neurons::print_sums_of_synapses_and_elements_to_log_file_on_rank_0(const step_type step,
-                                                                        const std::uint64_t sum_axon_deleted,
-                                                                        const std::uint64_t sum_dendrites_deleted,
-                                                                        const std::uint64_t sum_synapses_created) {
+                                                                        const RelearnTypes::number_synapse_type sum_axon_deleted,
+                                                                        const RelearnTypes::number_synapse_type sum_dendrites_deleted,
+                                                                        const RelearnTypes::number_synapse_type sum_synapses_created) {
 
     const auto sum_dends_exc_vacant = ranges::accumulate(synaptic_elements->get_vacant_elements(SynapticElementType::DendriteExcitatory), 0U);
     const auto sum_dends_inh_vacant = ranges::accumulate(synaptic_elements->get_vacant_elements(SynapticElementType::DendriteInhibitory), 0U);
@@ -687,9 +713,10 @@ void Neurons::print_sums_of_synapses_and_elements_to_log_file_on_rank_0(const st
 }
 
 void Neurons::print_neurons_overview_to_log_file_on_rank_0(const step_type step) const {
+    return;
     const auto& calcium_statistics = get_statistics(NeuronAttribute::Calcium);
     const auto& calcium_difference_statistics = get_statistics(NeuronAttribute::CalciumDifference);
-    const auto& axons_statistics = get_statistics(NeuronAttribute::Axons);
+    const auto& axons_statistics = get_statistics(NeuronAttribute::AxonsGrown);
     const auto& axons_connected_statistics = get_statistics(NeuronAttribute::AxonsConnected);
     const auto& dendrites_excitatory_statistics = get_statistics(NeuronAttribute::DendritesExcitatory);
     const auto& dendrites_excitatory_connected_statistics = get_statistics(NeuronAttribute::DendritesExcitatoryConnected);
@@ -866,8 +893,7 @@ void Neurons::print_neurons_overview_to_log_file_on_rank_0(const step_type step)
 void Neurons::print_calcium_statistics_to_essentials(const std::unique_ptr<Essentials>& essentials) {
     const auto& calcium = calcium_calculator->get_calcium();
     const auto& calcium_statistics = global_statistics(calcium, mpiPP::MPIRank::root_rank());
-
-    if (mpiPP::MPIRank::root_rank() == mpiPP::MPIInfo::get_my_rank()) {
+    if (mpiPP::MPIRank::root_rank() != mpiPP::MPIInfo::get_my_rank()) {
         // All ranks must compute the statistics, but only one should print them
         return;
     }
@@ -906,6 +932,8 @@ void Neurons::print_network_graph_to_log_file(const step_type step, const bool w
         LogFiles::save_and_open_new(LogFiles::EventType::OutNetwork, "out_network", "network/");
     }
 
+    network_graph->update_host_if_necessary();
+
     auto ss_in_network = std::stringstream{};
     auto ss_out_network = std::stringstream{};
 
@@ -929,7 +957,7 @@ void Neurons::print_network_graph_to_log_file(const step_type step, const bool w
 
 void Neurons::print_positions_to_log_file() const {
     auto sstream = std::stringstream{};
-    NeuronIO::write_neuron_positions_and_signals_componentwise(NeuronID::range(number_neurons) | ranges::to_vector, extra_info->get_positions(),
+    NeuronIO::write_neuron_positions_and_signals_componentwise(NeuronIDRange::range(number_neurons) | ranges::to_vector, extra_info->get_positions(),
                                                                synaptic_elements->get_signal_types(), sstream, partition->get_total_number_neurons(), partition->get_simulation_box_size(), partition->get_all_local_subdomain_boundaries());
 
     LogFiles::write_to_file(LogFiles::EventType::Positions, false, sstream.str());
@@ -973,7 +1001,7 @@ void Neurons::print() {
                             "gid", "x", "AP", "refractory_time", "C", "A_ex", "A_in", "D_ex", "D_in");
 
     // Values
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         const auto local_neuron_id = neuron_id.get_neuron_id();
 
         LogFiles::write_to_file(LogFiles::EventType::Cout, true,
@@ -994,9 +1022,9 @@ void Neurons::print_info_for_algorithm() {
     const auto dendrites_exc_counts = synaptic_elements->get_grown_elements(SynapticElementType::DendriteExcitatory);
     const auto dendrites_inh_counts = synaptic_elements->get_grown_elements(SynapticElementType::DendriteInhibitory);
 
-    const auto axons_connected_counts = synaptic_elements->get_connected_elements(SynapticElementType::Axon);
-    const auto dendrites_exc_connected_counts = synaptic_elements->get_connected_elements(SynapticElementType::DendriteExcitatory);
-    const auto dendrites_inh_connected_counts = synaptic_elements->get_connected_elements(SynapticElementType::DendriteInhibitory);
+    const auto& axons_connected_counts = synaptic_elements->get_connected_elements(SynapticElementType::Axon);
+    const auto& dendrites_exc_connected_counts = synaptic_elements->get_connected_elements(SynapticElementType::DendriteExcitatory);
+    const auto& dendrites_inh_connected_counts = synaptic_elements->get_connected_elements(SynapticElementType::DendriteInhibitory);
 
     // Column widths
     const int cwidth_small = 8;
@@ -1013,7 +1041,7 @@ void Neurons::print_info_for_algorithm() {
     sstream << std::setw(cwidth_big) << "inh_den (exist|connected)\n";
 
     // Values
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         const auto local_neuron_id = neuron_id.get_neuron_id();
 
         sstream << std::left << std::setw(cwidth_small) << neuron_id;
@@ -1068,37 +1096,37 @@ void Neurons::print_fire_rate_to_file(const step_type current_step) {
     sstream << '#' << current_step;
     for (const auto val : fire_recorder) {
         // This gives the frequency in [Hz] as every step is 1 ms
-        const auto frequency = val / static_cast<double>(Config::fire_rate_log_step) * 1000.0;
+        const auto frequency = static_cast<RelearnTypes::fire_rate_type>(val) / static_cast<RelearnTypes::fire_rate_type>(Config::fire_rate_log_step) * RelearnTypes::fire_rate_type{ 1000 };
         sstream << ';' << frequency;
     }
 
     LogFiles::write_to_file(LogFiles::EventType::FireRates, false, sstream.str());
 }
-
-void Neurons::print_fire_steps_to_file(const step_type current_step, const step_type steps_since_last_print) const {
-    if (LogFiles::get_log_status(LogFiles::EventType::FireSteps)) {
-        return;
-    }
-
-    const auto& fired_recorder = neuron_model->get_fired_status_recorder();
-    const auto fire_history_size = fired_recorder->get_fire_history_size();
-    RelearnException::check(steps_since_last_print <= fire_history_size, "Neurons::Print_fire_steps_to_file: Fire history is too small {} {}", steps_since_last_print, fire_history_size);
-    auto sstream = std::stringstream{};
-
-    const auto offset_bitset = std::min(static_cast<std::int64_t>(fire_history_size - 1), static_cast<std::int64_t>(steps_since_last_print));
-
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
-        const auto& fire_history = fired_recorder->get_fire_history(neuron_id);
-
-        sstream << neuron_id.get_neuron_id() + 1 << ',';
-        for (auto i = offset_bitset; i >= 0; i--) {
-            if (fire_history.test(static_cast<unsigned int>(i))) {
-                const auto step = current_step - i;
-                sstream << step << ',';
-            }
-        }
-        sstream << '\n';
-    }
-
-    LogFiles::write_to_file(LogFiles::EventType::FireSteps, false, sstream.rdbuf()->view());
-}
+//
+// void Neurons::print_fire_steps_to_file(const step_type current_step, const step_type steps_since_last_print) const {
+//     if (LogFiles::get_log_status(LogFiles::EventType::FireSteps)) {
+//         return;
+//     }
+//
+//     const auto& fired_recorder = neuron_model->get_fired_status_recorder();
+//     const auto fire_history_size = fired_recorder->get_fire_history_size();
+//     RelearnException::check(steps_since_last_print <= fire_history_size, "Neurons::Print_fire_steps_to_file: Fire history is too small {} {}", steps_since_last_print, fire_history_size);
+//     auto ss = std::stringstream{};
+//
+//     const auto offset_bitset = std::min(static_cast<std::int64_t>(fire_history_size - 1), static_cast<std::int64_t>(steps_since_last_print));
+//
+//     for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
+//         const auto& fire_history = fired_recorder->get_fire_history(neuron_id);
+//
+//         ss << neuron_id.get_neuron_id() + 1 << ',';
+//         for (auto i = offset_bitset; i >= 0; i--) {
+//             if (fire_history.test(static_cast<unsigned int>(i))) {
+//                 const auto step = current_step - i;
+//                 ss << step << ',';
+//             }
+//         }
+//         ss << '\n';
+//     }
+//
+//     LogFiles::write_to_file(LogFiles::EventType::FireSteps, false, ss.rdbuf()->view());
+// }

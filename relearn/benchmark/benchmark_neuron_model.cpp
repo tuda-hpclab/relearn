@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,6 +11,7 @@
 #include "main.h"
 
 #include "neurons/models/NeuronModel.h"
+#include "util/OMPHelper.h"
 
 #include "adapter/extra_info/ExtraInfoAdapter.h"
 
@@ -19,18 +20,25 @@
 #include "factory/neuron_model/neuron_model_factory.h"
 
 #include <benchmark/benchmark.h>
-#include <omp.h>
+
 #include <range/v3/numeric/accumulate.hpp>
+
+#include <omp.h>
 
 #include <memory>
 #include <utility>
 
 namespace {
 void BM_NeuronModel_Update(benchmark::State& state, std::unique_ptr<NeuronModel> model) {
-    omp_set_num_threads(1);
+    omp_set_num_threads(static_cast<int>(state.range(1)));
+
+#pragma omp parallel
+    {
+    }
+    model->update_electrical_activity(101);
 
     for (auto _ : state) {
-        model->update_electrical_activity(101);
+        model->update_activity();
 
         state.PauseTiming();
 
@@ -42,10 +50,16 @@ void BM_NeuronModel_Update(benchmark::State& state, std::unique_ptr<NeuronModel>
 }
 
 void BM_NeuronModel_Update_Benchmark(benchmark::State& state, std::unique_ptr<NeuronModel> model) {
-    omp_set_num_threads(1);
+    omp_set_num_threads(static_cast<int>(state.range(1)));
+
+#pragma omp parallel
+    {
+    }
+
+    model->update_electrical_activity_benchmark(101);
 
     for (auto _ : state) {
-        model->update_electrical_activity_benchmark(101);
+        model->update_activity_benchmark();
 
         state.PauseTiming();
 
@@ -202,11 +216,11 @@ void BM_NeuronModel_Update_Poisson_Benchmark(benchmark::State& state) {
 
 } // namespace
 
-BENCHMARK(BM_NeuronModel_Update_AEIF)->Unit(benchmark::kMillisecond)->Arg(large_number_neurons)->Iterations(50);
-BENCHMARK(BM_NeuronModel_Update_AEIF_Benchmark)->Unit(benchmark::kMillisecond)->Arg(large_number_neurons)->Iterations(50);
-BENCHMARK(BM_NeuronModel_Update_FitzHughNagumo)->Unit(benchmark::kMillisecond)->Arg(large_number_neurons)->Iterations(50);
-BENCHMARK(BM_NeuronModel_Update_FitzHughNagumo_Benchmark)->Unit(benchmark::kMillisecond)->Arg(large_number_neurons)->Iterations(50);
-BENCHMARK(BM_NeuronModel_Update_Izhikevich)->Unit(benchmark::kMillisecond)->Arg(large_number_neurons)->Iterations(50);
-BENCHMARK(BM_NeuronModel_Update_Izhikevich_Benchmark)->Unit(benchmark::kMillisecond)->Arg(large_number_neurons)->Iterations(50);
-BENCHMARK(BM_NeuronModel_Update_Poisson)->Unit(benchmark::kMillisecond)->Arg(large_number_neurons)->Iterations(50);
-BENCHMARK(BM_NeuronModel_Update_Poisson_Benchmark)->Unit(benchmark::kMillisecond)->Arg(large_number_neurons)->Iterations(50);
+BENCHMARK(BM_NeuronModel_Update_AEIF)->Unit(benchmark::kMillisecond)->ArgsProduct({ { large_number_neurons }, { 1, 2, 4, 8 } })->Iterations(50);
+BENCHMARK(BM_NeuronModel_Update_AEIF_Benchmark)->Unit(benchmark::kMillisecond)->ArgsProduct({ { large_number_neurons }, { 1, 2, 4, 8 } })->Iterations(50);
+BENCHMARK(BM_NeuronModel_Update_FitzHughNagumo)->Unit(benchmark::kMillisecond)->ArgsProduct({ { large_number_neurons }, { 1, 2, 4, 8 } })->Iterations(50);
+BENCHMARK(BM_NeuronModel_Update_FitzHughNagumo_Benchmark)->Unit(benchmark::kMillisecond)->ArgsProduct({ { large_number_neurons }, { 1, 2, 4, 8 } })->Iterations(50);
+BENCHMARK(BM_NeuronModel_Update_Izhikevich)->Unit(benchmark::kMillisecond)->ArgsProduct({ { large_number_neurons }, { 1, 2, 4, 8 } })->Iterations(50);
+BENCHMARK(BM_NeuronModel_Update_Izhikevich_Benchmark)->Unit(benchmark::kMillisecond)->ArgsProduct({ { large_number_neurons }, { 1, 2, 4, 8 } })->Iterations(50);
+BENCHMARK(BM_NeuronModel_Update_Poisson)->Unit(benchmark::kMillisecond)->ArgsProduct({ { large_number_neurons }, { 1, 2, 4, 8 } })->Iterations(50);
+BENCHMARK(BM_NeuronModel_Update_Poisson_Benchmark)->Unit(benchmark::kMillisecond)->ArgsProduct({ { large_number_neurons }, { 1, 2, 4, 8 } })->Iterations(50);

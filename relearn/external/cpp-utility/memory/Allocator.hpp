@@ -1,28 +1,35 @@
 #pragma once
 
 /*
- * This file is part of the ScalableGraphAlgorithm software developed at Technical University Darmstadt.
+ * This file is part of the CPP-Utility software developed at Technical University Darmstadt
  *
- * Copyright (c) 2024, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "cpp-utility/Cast.hpp"
-
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <memory>
+#include <new>
 #include <type_traits>
 #include <utility>
 
 namespace utility {
 
 /**
- * @brief A custom allocator that uses the memory pool.
- * @tparam T The data type
+ * @brief A stateful standard allocator that first tries a size-segregated CombinatorChunk.
+ *
+ * Requests that do not fit, whose bucket is exhausted, or whose returned address is insufficiently aligned for T
+ * fall back to std::allocator. Copies and rebound allocators retain the same non-owning combinator pointer, so the
+ * combinator must outlive every container and allocation using this allocator. A null combinator selects the
+ * std::allocator fallback for every request. The combinator is not synchronized.
+ *
+ * @tparam T The allocated element type.
+ * @tparam combinator_chunk_type A resource exposing get_pointer(byte_count) and return_pointer(byte_count, pointer).
  */
 template <class T, class combinator_chunk_type>
 class Allocator {
@@ -47,35 +54,74 @@ public:
 
     using is_always_equal = std::false_type;
 
-    constexpr Allocator(combinator_chunk_type* const combinator_ptr) noexcept
+    /**
+     * @brief Associates the allocator with a combinator resource.
+     * @param combinator_ptr A resource that must outlive this allocator and its allocations, or nullptr to use only
+     *      the std::allocator fallback.
+     */
+    constexpr explicit Allocator(combinator_chunk_type* const combinator_ptr) noexcept
         : combinator{ combinator_ptr } {
     }
 
     template <class U>
-    constexpr explicit Allocator(const Allocator<U, combinator_chunk_type>& a) noexcept
+    constexpr Allocator(const Allocator<U, combinator_chunk_type>& a) noexcept
         : combinator{ a.combinator }
         , alloc{ a.alloc } {
     }
 
     ~Allocator() = default;
 
-    [[nodiscard]] constexpr T* allocate(const size_type n, [[maybe_unused]] const void* const hint = nullptr) {
-        auto* const ptr = combinator->get_pointer(n * sizeof(T));
+    /**
+     * @brief Allocates uninitialized storage for @p n elements.
+     * @exception std::bad_array_new_length If @p n exceeds max_size().
+     * @exception std::bad_alloc If both resource selection and fallback allocation cannot provide storage.
+     */
+    [[nodiscard]] T* allocate(const size_type n, [[maybe_unused]] const void* const hint = nullptr) {
+        if (n > max_size()) {
+            throw std::bad_array_new_length{};
+        }
+        if (n == 0) {
+            return alloc.allocate(0);
+        }
+        if (combinator == nullptr) {
+            return alloc.allocate(n);
+        }
+
+        const auto number_bytes = n * sizeof(T);
+        auto* const ptr = combinator->get_pointer(number_bytes);
         if (ptr == nullptr) {
             return alloc.allocate(n);
         }
 
-        auto* const cast_ptr = reinterpret_cast<T*>(ptr);
-        return cast_ptr;
+        const auto address = reinterpret_cast<std::uintptr_t>(ptr);
+        if (address % alignof(T) == 0) {
+            return reinterpret_cast<T*>(ptr);
+        }
+
+        [[maybe_unused]] const auto returned = combinator->return_pointer(number_bytes, ptr);
+        return alloc.allocate(n);
     }
 
-    constexpr void deallocate(T* const p, const size_type n) {
+    /**
+     * @brief Deallocates storage using the same byte-count bucket used by allocate().
+     * @param p A pointer obtained from an equal allocator; nullptr is ignored.
+     * @param n The exact element count passed to allocate().
+     */
+    void deallocate(T* const p, const size_type n) {
         if (!p) {
             return;
         }
 
-        auto* const cast_ptr = reinterpret_cast<std::byte*>(p);
+        if (n == 0) {
+            alloc.deallocate(p, 0);
+            return;
+        }
+        if (combinator == nullptr) {
+            alloc.deallocate(p, n);
+            return;
+        }
 
+        auto* const cast_ptr = reinterpret_cast<std::byte*>(p);
         const auto is_returned = combinator->return_pointer(n * sizeof(T), cast_ptr);
         if (is_returned) {
             return;
@@ -92,7 +138,7 @@ public:
         return std::addressof(x);
     }
 
-    size_type max_size() const noexcept {
+    [[nodiscard]] constexpr size_type max_size() const noexcept {
         return std::numeric_limits<size_type>::max() / sizeof(T);
     }
 
@@ -106,7 +152,16 @@ public:
         p->~U();
     }
 
-    [[nodiscard]] friend constexpr bool operator==(const Allocator&, const Allocator&) = default;
+    /** @brief Returns the non-owning resource pointer used by allocator equality. */
+    [[nodiscard]] constexpr combinator_chunk_type* get_combinator() const noexcept {
+        return combinator;
+    }
+
+    template <class U>
+    [[nodiscard]] friend constexpr bool operator==(
+        const Allocator& lhs, const Allocator<U, combinator_chunk_type>& rhs) noexcept {
+        return lhs.combinator == rhs.get_combinator();
+    }
 
 private:
     combinator_chunk_type* combinator{};

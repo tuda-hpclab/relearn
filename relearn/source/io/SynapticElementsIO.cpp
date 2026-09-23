@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -10,17 +10,17 @@
 
 #include "SynapticElementsIO.h"
 
-#include "Types2.h"
-
 #include "io/parser/MonitorParser.h"
+#include "types/BasicTypes.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
 
-#include "mpi-wrapper/MPIRank.h"
+#include <fmt/std.h>
+
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <spdlog/spdlog.h>
 
-#include <array>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -29,7 +29,34 @@
 #include <string>
 #include <unordered_map>
 
-std::array<SynapticElementsIO::neuron_id_to_calcium_calculator, 15>
+namespace {
+/**
+ * The values of one line of the file, in the order in which the file spells them.
+ * Only the minimum calcium of each element type is a calcium concentration, the others are
+ * continuous numbers of synaptic elements.
+ */
+struct ParsedValues {
+    RelearnTypes::calcium_type min_calcium_axons{};
+    RelearnTypes::grown_type nu_axons{};
+    RelearnTypes::grown_type vacant_retract_ratio_axons{};
+    RelearnTypes::grown_type min_elements_axons{};
+    RelearnTypes::grown_type max_elements_axons{};
+
+    RelearnTypes::calcium_type min_calcium_den_exc{};
+    RelearnTypes::grown_type nu_den_exc{};
+    RelearnTypes::grown_type vacant_retract_ratio_den_exc{};
+    RelearnTypes::grown_type min_elements_den_exc{};
+    RelearnTypes::grown_type max_elements_den_exc{};
+
+    RelearnTypes::calcium_type min_calcium_den_inh{};
+    RelearnTypes::grown_type nu_den_inh{};
+    RelearnTypes::grown_type vacant_retract_ratio_den_inh{};
+    RelearnTypes::grown_type min_elements_den_inh{};
+    RelearnTypes::grown_type max_elements_den_inh{};
+};
+} // namespace
+
+SynapticElementsIO::Calculators
 SynapticElementsIO::load_function_from_file(const std::filesystem::path& path_to_file, mpiPP::MPIRank my_rank,
                                             const std::shared_ptr<const LocalGroupTranslator>& local_group_translator) {
     auto file = std::ifstream{ path_to_file };
@@ -40,9 +67,9 @@ SynapticElementsIO::load_function_from_file(const std::filesystem::path& path_to
     RelearnException::check(file_is_good && !file_is_not_good,
                             "SynapticElementsIO::load_function_from_file: Opening the file '{}' was not successful", std::filesystem::absolute(path_to_file));
 
-    auto default_value = std::optional<std::array<RelearnTypes::calcium_type, 15>>{};
+    auto default_value = std::optional<ParsedValues>{};
 
-    auto id_to_values = std::unordered_map<RelearnTypes::number_neurons_type, std::array<RelearnTypes::calcium_type, 15>>{};
+    auto id_to_values = std::unordered_map<RelearnTypes::number_neurons_type, ParsedValues>{};
 
     for (auto line = std::string{}; std::getline(file, line);) {
         // Skip line with comments
@@ -53,26 +80,12 @@ SynapticElementsIO::load_function_from_file(const std::filesystem::path& path_to
         auto sstream = std::stringstream(line);
 
         auto description = std::string{};
-        auto min_calcium_axons = double{};
-        auto nu_axons = double{};
-        auto vacant_retract_ratio_axons = double{};
-        auto min_calcium_den_exc = double{};
-        auto nu_den_exc = double{};
-        auto vacant_retract_ratio_den_exc = double{};
-        auto min_calcium_den_inh = double{};
-        auto nu_den_inh = double{};
-        auto vacant_retract_ratio_den_inh = double{};
-        auto min_elements_axons = double{};
-        auto max_elements_axons = double{};
-        auto min_elements_den_exc = double{};
-        auto max_elements_den_exc = double{};
-        auto min_elements_den_inh = double{};
-        auto max_elements_den_inh = double{};
+        auto values = ParsedValues{};
 
         const auto success = (sstream >> description)
-                             && (sstream >> min_calcium_axons) && (sstream >> nu_axons) && (sstream >> vacant_retract_ratio_axons) && (sstream >> min_elements_axons) && (sstream >> max_elements_axons)
-                             && (sstream >> min_calcium_den_exc) && (sstream >> nu_den_exc) && (sstream >> vacant_retract_ratio_den_exc) && (sstream >> min_elements_den_exc) && (sstream >> max_elements_den_exc)
-                             && (sstream >> min_calcium_den_inh) && (sstream >> nu_den_inh) && (sstream >> vacant_retract_ratio_den_inh) && (sstream >> min_elements_den_inh) && (sstream >> max_elements_den_inh);
+                             && (sstream >> values.min_calcium_axons) && (sstream >> values.nu_axons) && (sstream >> values.vacant_retract_ratio_axons) && (sstream >> values.min_elements_axons) && (sstream >> values.max_elements_axons)
+                             && (sstream >> values.min_calcium_den_exc) && (sstream >> values.nu_den_exc) && (sstream >> values.vacant_retract_ratio_den_exc) && (sstream >> values.min_elements_den_exc) && (sstream >> values.max_elements_den_exc)
+                             && (sstream >> values.min_calcium_den_inh) && (sstream >> values.nu_den_inh) && (sstream >> values.vacant_retract_ratio_den_inh) && (sstream >> values.min_elements_den_inh) && (sstream >> values.max_elements_den_inh);
 
         if (!success) {
             spdlog::info("Skipping line: {}", line);
@@ -84,9 +97,7 @@ SynapticElementsIO::load_function_from_file(const std::filesystem::path& path_to
                                     "CalciumIO: {} had more than one default neuron (with group default)",
                                     path_to_file.string());
 
-            default_value = { min_calcium_axons, nu_axons, vacant_retract_ratio_axons, min_elements_axons, max_elements_axons,
-                              min_calcium_den_exc, nu_den_exc, vacant_retract_ratio_den_exc, min_elements_den_exc, max_elements_den_exc,
-                              min_calcium_den_inh, nu_den_inh, vacant_retract_ratio_den_inh, min_elements_den_inh, max_elements_den_inh };
+            default_value = values;
             continue;
         }
 
@@ -98,30 +109,45 @@ SynapticElementsIO::load_function_from_file(const std::filesystem::path& path_to
 
             RelearnException::check(!found, "CalciumIO: Found the neuron id {} twice", (local_neuron_id + 1));
 
-            id_to_values[local_neuron_id] = { min_calcium_axons, nu_axons, vacant_retract_ratio_axons, min_elements_axons, max_elements_axons,
-                                              min_calcium_den_exc, nu_den_exc, vacant_retract_ratio_den_exc, min_elements_den_exc, max_elements_den_exc,
-                                              min_calcium_den_inh, nu_den_inh, vacant_retract_ratio_den_inh, min_elements_den_inh, max_elements_den_inh };
+            id_to_values[local_neuron_id] = values;
         }
     }
 
-    auto construct_calculator = [id_to_values, default_value](auto index) {
-        return [id_to_values, default_value, index](const RelearnTypes::number_neurons_type neuron_id) {
+    auto construct_calculator = [id_to_values, default_value](auto ParsedValues::* member) {
+        return [id_to_values, default_value, member](const RelearnTypes::number_neurons_type neuron_id) {
             const auto it = id_to_values.find(neuron_id);
             if (it != id_to_values.end()) {
-                const double value = it->second[index];
-                return value;
+                return it->second.*member;
             }
 
             RelearnException::check(default_value.has_value(),
                                     "Synaptic Elements IO Calculator: Got id {} but I don't have a default value",
                                     neuron_id);
-            return default_value.value()[index];
+            return default_value.value().*member;
         };
     };
 
-    return {
-        construct_calculator(0U), construct_calculator(1U), construct_calculator(2U), construct_calculator(3U), construct_calculator(4U),
-        construct_calculator(5U), construct_calculator(6U), construct_calculator(7U), construct_calculator(8U), construct_calculator(9U),
-        construct_calculator(10U), construct_calculator(11U), construct_calculator(12U), construct_calculator(13U), construct_calculator(14U)
+    return Calculators{
+        .axons = {
+            .min_calcium = construct_calculator(&ParsedValues::min_calcium_axons),
+            .nu = construct_calculator(&ParsedValues::nu_axons),
+            .vacant_retract_ratio = construct_calculator(&ParsedValues::vacant_retract_ratio_axons),
+            .min_elements = construct_calculator(&ParsedValues::min_elements_axons),
+            .max_elements = construct_calculator(&ParsedValues::max_elements_axons),
+        },
+        .dendrites_excitatory = {
+            .min_calcium = construct_calculator(&ParsedValues::min_calcium_den_exc),
+            .nu = construct_calculator(&ParsedValues::nu_den_exc),
+            .vacant_retract_ratio = construct_calculator(&ParsedValues::vacant_retract_ratio_den_exc),
+            .min_elements = construct_calculator(&ParsedValues::min_elements_den_exc),
+            .max_elements = construct_calculator(&ParsedValues::max_elements_den_exc),
+        },
+        .dendrites_inhibitory = {
+            .min_calcium = construct_calculator(&ParsedValues::min_calcium_den_inh),
+            .nu = construct_calculator(&ParsedValues::nu_den_inh),
+            .vacant_retract_ratio = construct_calculator(&ParsedValues::vacant_retract_ratio_den_inh),
+            .min_elements = construct_calculator(&ParsedValues::min_elements_den_inh),
+            .max_elements = construct_calculator(&ParsedValues::max_elements_den_inh),
+        },
     };
 }

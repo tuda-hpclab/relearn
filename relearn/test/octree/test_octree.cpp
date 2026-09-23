@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -10,8 +10,6 @@
 
 #include "test_octree.h"
 
-#include "Types.h"
-
 #include "algorithm/Algorithms.h"
 #include "algorithm/BarnesHutInternal/BarnesHutCell.h"
 #include "algorithm/BarnesHutInternal/BarnesHutInvertedCell.h"
@@ -19,17 +17,11 @@
 #include "algorithm/FMMInternal/FastMultipoleMethodCell.h"
 #include "algorithm/Internal/octree/Octree.h"
 #include "algorithm/NaiveInternal/NaiveCell.h"
-#include "gtest/gtest.h"
 #include "neurons/synaptic_elements/SynapticElements.h"
 #include "structure/Morton.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
 #include "util/Vec3.h"
-
-#include "cpp-utility/ranges/Functional.hpp"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "adapter/octree/OctreeAdapter.h"
 
@@ -39,7 +31,12 @@
 #include "factory/random/random_factory.h"
 #include "factory/simulation/simulation_factory.h"
 
+#include <cpp-utility/ranges/Functional.hpp>
+
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <range/v3/algorithm/sort.hpp>
 #include <range/v3/view/map.hpp>
@@ -70,7 +67,7 @@ TYPED_TEST(OctreeTest, testConstructor) {
     const auto level_of_branch_nodes = SimulationFactory::get_small_refinement_level(this->mt);
     const auto morton = std::make_shared<Morton>(level_of_branch_nodes);
 
-    auto octree = Octree<TypeParam>({ min, max }, morton);
+    auto octree = Octree<TypeParam>({ min, max }, morton, false);
 
     ASSERT_EQ(octree.get_level_of_branch_nodes(), level_of_branch_nodes);
 
@@ -112,7 +109,7 @@ TYPED_TEST(OctreeTest, testConstructorExceptions) {
     const auto level_of_branch_nodes = SimulationFactory::get_small_refinement_level(this->mt);
     const auto morton = std::make_shared<Morton>(level_of_branch_nodes);
 
-    ASSERT_THROW_NO_PRINT(const Octree<TypeParam> octree({ max, min }, morton), RelearnException);
+    ASSERT_THROW_NO_PRINT(const Octree<TypeParam> octree({ max, min }, morton, false), RelearnException);
 }
 
 TYPED_TEST(OctreeTest, testInsertNeurons) {
@@ -128,7 +125,7 @@ TYPED_TEST(OctreeTest, testInsertNeurons) {
     const auto level_of_branch_nodes = SimulationFactory::get_small_refinement_level(this->mt);
     const auto morton = std::make_shared<Morton>(level_of_branch_nodes);
 
-    auto octree = Octree<TypeParam>({ min, max }, morton);
+    auto octree = Octree<TypeParam>({ min, max }, morton, false);
 
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(this->mt);
 
@@ -166,20 +163,20 @@ TYPED_TEST(OctreeTest, testInsertNeuronsExceptions) {
     const auto level_of_branch_nodes = SimulationFactory::get_small_refinement_level(this->mt);
     const auto morton = std::make_shared<Morton>(level_of_branch_nodes);
 
-    auto octree = Octree<TypeParam>({ min, max }, morton);
+    auto octree = Octree<TypeParam>({ min, max }, morton, false);
 
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(this->mt);
 
     const auto& neurons_to_place = NeuronsFactory::generate_random_neurons(min, max, number_neurons, this->mt);
 
     for (const auto& [position, id] : neurons_to_place) {
-        const auto pos_invalid_x_max = max + Vec3d{ 1, 0, 0 };
-        const auto pos_invalid_y_max = max + Vec3d{ 0, 1, 0 };
-        const auto pos_invalid_z_max = max + Vec3d{ 0, 0, 1 };
+        const auto pos_invalid_x_max = max + RelearnTypes::position_type{ 1, 0, 0 };
+        const auto pos_invalid_y_max = max + RelearnTypes::position_type{ 0, 1, 0 };
+        const auto pos_invalid_z_max = max + RelearnTypes::position_type{ 0, 0, 1 };
 
-        const auto pos_invalid_x_min = min - Vec3d{ 1, 0, 0 };
-        const auto pos_invalid_y_min = min - Vec3d{ 0, 1, 0 };
-        const auto pos_invalid_z_min = min - Vec3d{ 0, 0, 1 };
+        const auto pos_invalid_x_min = min - RelearnTypes::position_type{ 1, 0, 0 };
+        const auto pos_invalid_y_min = min - RelearnTypes::position_type{ 0, 1, 0 };
+        const auto pos_invalid_z_min = min - RelearnTypes::position_type{ 0, 0, 1 };
 
         ASSERT_THROW_NO_PRINT(octree.insert(position, NeuronID::uninitialized_id()), RelearnException);
 
@@ -208,7 +205,7 @@ TYPED_TEST(OctreeTest, testStructure) {
     const auto level_of_branch_nodes = SimulationFactory::get_small_refinement_level(this->mt);
     const auto morton = std::make_shared<Morton>(level_of_branch_nodes);
 
-    auto octree = Octree<TypeParam>({ min, max }, morton);
+    auto octree = Octree<TypeParam>({ min, max }, morton, false);
 
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(this->mt);
 
@@ -235,13 +232,13 @@ TYPED_TEST(OctreeTest, testStructure) {
             const auto& childs = current_node->get_children();
             auto one_child_exists = false;
 
-            for (auto i = 0U; i < 8U; i++) {
+            for (auto i = static_cast<unsigned char>(0); i < 8U; i++) {
                 const auto child = childs[i];
                 if (child != nullptr) {
                     octree_nodes.emplace(child, level + 1);
 
                     const auto& subcell_size = child->get_cell().get_size();
-                    const auto& expected_subcell_size = current_node->get_cell().get_size_for_octant(static_cast<unsigned char>(i));
+                    const auto& expected_subcell_size = current_node->get_cell().get_size_for_octant(i);
 
                     ASSERT_EQ(expected_subcell_size, subcell_size);
 
@@ -293,7 +290,7 @@ TYPED_TEST(OctreeTest, testMemoryStructure) {
     const auto level_of_branch_nodes = SimulationFactory::get_small_refinement_level(this->mt);
     const auto morton = std::make_shared<Morton>(level_of_branch_nodes);
 
-    auto octree = Octree<TypeParam>({ min, max }, morton);
+    auto octree = Octree<TypeParam>({ min, max }, morton, false);
 
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(this->mt);
 
@@ -318,7 +315,7 @@ TYPED_TEST(OctreeTest, testMemoryStructure) {
         OctreeNode<AdditionalCellAttributes>* child_pointer = nullptr;
         int child_id = -1;
 
-        for (auto i = 0U; i < 8U; i++) {
+        for (auto i = static_cast<unsigned char>(0); i < 8U; i++) {
             const auto child = children[i];
             if (child == nullptr) {
                 continue;
@@ -338,6 +335,7 @@ TYPED_TEST(OctreeTest, testMemoryStructure) {
     }
 }
 
+#ifndef RELEARN_CUDA_ENABLED
 TYPED_TEST(OctreeTest, testMemoryFootprint) {
     if (mpiPP::MPIInfo::get_number_ranks() != 1) {
         if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
@@ -350,10 +348,10 @@ TYPED_TEST(OctreeTest, testMemoryFootprint) {
     using AdditionalCellAttributes = TypeParam;
 
     const auto& [min, max] = SimulationFactory::get_random_simulation_box_size(this->mt);
-    const auto level_of_branch_nodes = SimulationFactory::get_small_refinement_level(this->mt);
+    const auto level_of_branch_nodes = SimulationFactory::get_small_positive_refinement_level(this->mt);
     const auto morton = std::make_shared<Morton>(level_of_branch_nodes);
 
-    auto octree = Octree<TypeParam>({ min, max }, morton);
+    auto octree = Octree<TypeParam>({ min, max }, morton, false);
 
     auto footprint = std::make_unique<utility::MemoryFootprint>(10);
 
@@ -368,6 +366,7 @@ TYPED_TEST(OctreeTest, testMemoryFootprint) {
     ASSERT_TRUE(footprint_description.contains("OctreeNode"));
     ASSERT_GE(footprint_description.at("OctreeNode"), sizeof(OctreeNode<AdditionalCellAttributes>));
 }
+#endif
 
 TYPED_TEST(OctreeTest, testBranchNodes) {
     if (mpiPP::MPIInfo::get_number_ranks() != 1) {
@@ -382,7 +381,7 @@ TYPED_TEST(OctreeTest, testBranchNodes) {
     const auto level_of_branch_nodes = SimulationFactory::get_small_refinement_level(this->mt);
     const auto morton = std::make_shared<Morton>(level_of_branch_nodes);
 
-    auto octree = Octree<TypeParam>({ min, max }, morton);
+    auto octree = Octree<TypeParam>({ min, max }, morton, false);
 
     auto expected_number_elements = 1U;
     for (auto i = 0U; i < level_of_branch_nodes; i++) {
@@ -426,7 +425,7 @@ TYPED_TEST(OctreeTest, testBranchNodesPatheticNonlocal) {
     const auto level_of_branch_nodes = SimulationFactory::get_small_refinement_level(this->mt);
     const auto morton = std::make_shared<Morton>(level_of_branch_nodes);
 
-    auto octree = Octree<TypeParam>({ min, max }, morton);
+    auto octree = Octree<TypeParam>({ min, max }, morton, false);
 
     auto local_branch_nodes_expected = std::vector<OctreeNode<AdditionalCellAttributes>*>{};
 
@@ -468,7 +467,7 @@ TYPED_TEST(OctreeTest, testLeafNodes) {
     const auto level_of_branch_nodes = SimulationFactory::get_small_refinement_level(this->mt);
     const auto morton = std::make_shared<Morton>(level_of_branch_nodes);
 
-    auto octree = Octree<TypeParam>({ min, max }, morton);
+    auto octree = Octree<TypeParam>({ min, max }, morton, false);
 
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(this->mt);
 
@@ -508,7 +507,7 @@ TYPED_TEST(OctreeTest, testLeafNodesException1) {
     const auto level_of_branch_nodes = SimulationFactory::get_small_refinement_level(this->mt);
     const auto morton = std::make_shared<Morton>(level_of_branch_nodes);
 
-    auto octree = Octree<TypeParam>({ min, max }, morton);
+    auto octree = Octree<TypeParam>({ min, max }, morton, false);
 
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(this->mt);
 
@@ -540,7 +539,7 @@ TYPED_TEST(OctreeTest, testLeafNodesException2) {
     const auto level_of_branch_nodes = SimulationFactory::get_small_refinement_level(this->mt);
     const auto morton = std::make_shared<Morton>(level_of_branch_nodes);
 
-    auto octree = Octree<TypeParam>({ min, max }, morton);
+    auto octree = Octree<TypeParam>({ min, max }, morton, false);
 
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(this->mt) + 20;
 

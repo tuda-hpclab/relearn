@@ -3,14 +3,15 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
 
 #include <optional>
 
@@ -89,7 +90,7 @@ public:
 private:
     // Avoiding std::optional<> saves 8 bytes, which translates to 32 bytes per FFM-cell
 
-    position_type position{};
+    position_type position;
     counter_type num_free_elements{ 0 };
     bool is_valid{ false };
 };
@@ -158,7 +159,7 @@ public:
     }
 
 private:
-    std::optional<position_type> position{};
+    std::optional<position_type> position;
     counter_type num_free_elements{ 0 };
 };
 

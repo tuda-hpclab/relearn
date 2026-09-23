@@ -3,19 +3,23 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
+#include "types/BasicTypes.h"
+
+#include <cpp-utility/Cast.hpp>
+
 namespace models::izhikevich {
 /**
  * This class contains the parameters for the Izhikevich model.
- * @tparam real_type The type of the parameters, default is double
+ * @tparam real_type The type of the parameters, i.e., of the membrane potential and the recovery variables
  */
-template <typename real_type = double>
+template <typename real_type = RelearnTypes::activity_type>
 class Parameters {
 public:
     /**
@@ -116,32 +120,32 @@ public:
         return k3;
     }
 
-    static constexpr real_type default_a{ 0.1 };
-    static constexpr real_type default_b{ 0.2 };
-    static constexpr real_type default_c{ -65.0 };
-    static constexpr real_type default_d{ 2.0 };
-    static constexpr real_type default_V_spike{ 30.0 };
-    static constexpr real_type default_k1{ 0.04 };
-    static constexpr real_type default_k2{ 5.0 };
-    static constexpr real_type default_k3{ 140.0 };
+    static constexpr real_type default_a{ utility::as<real_type>(0.1) };
+    static constexpr real_type default_b{ utility::as<real_type>(0.2) };
+    static constexpr real_type default_c{ utility::as<real_type>(-65.0) };
+    static constexpr real_type default_d{ utility::as<real_type>(2.0) };
+    static constexpr real_type default_V_spike{ utility::as<real_type>(30.0) };
+    static constexpr real_type default_k1{ utility::as<real_type>(0.04) };
+    static constexpr real_type default_k2{ utility::as<real_type>(5.0) };
+    static constexpr real_type default_k3{ utility::as<real_type>(140.0) };
 
-    static constexpr real_type min_a{ 0.0 };
-    static constexpr real_type min_b{ 0.0 };
-    static constexpr real_type min_c{ -150.0 };
-    static constexpr real_type min_d{ 0.0 };
-    static constexpr real_type min_V_spike{ 0.0 };
-    static constexpr real_type min_k1{ 0.0 };
-    static constexpr real_type min_k2{ 0.0 };
-    static constexpr real_type min_k3{ 50.0 };
+    static constexpr real_type min_a{ utility::as<real_type>(0.0) };
+    static constexpr real_type min_b{ utility::as<real_type>(0.0) };
+    static constexpr real_type min_c{ utility::as<real_type>(-150.0) };
+    static constexpr real_type min_d{ utility::as<real_type>(0.0) };
+    static constexpr real_type min_V_spike{ utility::as<real_type>(0.0) };
+    static constexpr real_type min_k1{ utility::as<real_type>(0.0) };
+    static constexpr real_type min_k2{ utility::as<real_type>(0.0) };
+    static constexpr real_type min_k3{ utility::as<real_type>(50.0) };
 
-    static constexpr real_type max_a{ 1.0 };
-    static constexpr real_type max_b{ 1.0 };
-    static constexpr real_type max_c{ -50.0 };
-    static constexpr real_type max_d{ 10.0 };
-    static constexpr real_type max_V_spike{ 100.0 };
-    static constexpr real_type max_k1{ 1.0 };
-    static constexpr real_type max_k2{ 10.0 };
-    static constexpr real_type max_k3{ 200.0 };
+    static constexpr real_type max_a{ utility::as<real_type>(1.0) };
+    static constexpr real_type max_b{ utility::as<real_type>(1.0) };
+    static constexpr real_type max_c{ utility::as<real_type>(-50.0) };
+    static constexpr real_type max_d{ utility::as<real_type>(10.0) };
+    static constexpr real_type max_V_spike{ utility::as<real_type>(100.0) };
+    static constexpr real_type max_k1{ utility::as<real_type>(1.0) };
+    static constexpr real_type max_k2{ utility::as<real_type>(10.0) };
+    static constexpr real_type max_k3{ utility::as<real_type>(200.0) };
 
 private:
     real_type a{ default_a };

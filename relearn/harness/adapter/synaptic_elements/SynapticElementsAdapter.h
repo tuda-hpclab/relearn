@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -19,9 +19,9 @@
 
 class SynapticElementsAdapter {
 public:
-    static void increase_grown_axons(const std::shared_ptr<SynapticElements>& synaptic_elements, std::span<const double> grown_elements);
+    static void increase_grown_axons(const std::shared_ptr<SynapticElements>& synaptic_elements, std::span<const RelearnTypes::grown_type> grown_elements);
 
-    static void increase_grown_dendrites(const std::shared_ptr<SynapticElements>& synaptic_elements, std::span<const double> grown_elements, SignalType signal_type);
+    static void increase_grown_dendrites(const std::shared_ptr<SynapticElements>& synaptic_elements, std::span<const RelearnTypes::grown_type> grown_elements, SignalType signal_type);
 
     static void increase_connected_axons(const std::shared_ptr<SynapticElements>& synaptic_elements, std::span<const unsigned int> connected_elements);
 

@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,9 +11,10 @@
  */
 
 #include "Config.h"
-#include "Types.h"
 
 #include "algorithm/Kernel/KernelBase.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
 #include "util/RelearnException.h"
 #include "util/Vec3.h"
 
@@ -27,21 +28,23 @@
  */
 class LinearDistributionKernel : public KernelBase {
 public:
+    using attraction_type = RelearnTypes::attraction_type;
     using counter_type = RelearnTypes::counter_type;
     using position_type = RelearnTypes::position_type;
+    using space_type = RelearnTypes::space_type;
 
     using KernelBase::get_probability;
 
-    static constexpr double default_cutoff = std::numeric_limits<double>::infinity();
+    static constexpr attraction_type default_cutoff = std::numeric_limits<attraction_type>::infinity();
 
     /**
      * @brief Constructs a new Gaussian kernel
      * @param _cutoff The variance sigma, must be >= 0.0
      * @exception Throws a RelearnException if _cutoff < 0.0
      */
-    explicit LinearDistributionKernel(const double _cutoff = default_cutoff)
+    explicit LinearDistributionKernel(const attraction_type _cutoff = default_cutoff)
         : cutoff{ _cutoff } {
-        RelearnException::check(_cutoff >= 0.0, "LinearDistributionKernel::LinearDistributionKernel, _cutoff was less than 0.0");
+        RelearnException::check(_cutoff >= attraction_type{ 0 }, "LinearDistributionKernel::LinearDistributionKernel, _cutoff was less than 0.0");
     }
 
     ~LinearDistributionKernel() override = default;
@@ -50,7 +53,7 @@ public:
      * @brief Returns the currently used cut-off parameter
      * @return The currently used cut-off parameter
      */
-    [[nodiscard]] double get_cutoff() const noexcept {
+    [[nodiscard]] attraction_type get_cutoff() const noexcept {
         return cutoff;
     }
 
@@ -60,7 +63,7 @@ public:
      * @param distance The distance between the source and target neuron
      * @return The probability for a connection, >= 0.0; not normalized to [0, 1]
      */
-    [[nodiscard]] double get_probability(const double distance) const override {
+    [[nodiscard]] attraction_type get_probability(const space_type distance) const override {
         if (std::isinf(cutoff)) {
             return 1.0;
         }
@@ -73,15 +76,15 @@ public:
         return 1 - factor;
     }
 
-    [[nodiscard]] bool is_approximately_equal(const KernelBase& other, double epsilon = Constants::eps) const override {
-        const auto double_equal = [epsilon](double a, double b) {
-            return fabs(a - b) < epsilon;
+    [[nodiscard]] bool is_approximately_equal(const KernelBase& other, attraction_type epsilon = static_cast<attraction_type>(Constants::eps)) const override {
+        const auto values_equal = [epsilon](const attraction_type a, const attraction_type b) {
+            return std::fabs(a - b) < epsilon;
         };
         const auto* other_kernel = dynamic_cast<const LinearDistributionKernel*>(&other);
         if (!other_kernel) {
             return false;
         }
-        return double_equal(get_cutoff(), other_kernel->get_cutoff());
+        return values_equal(get_cutoff(), other_kernel->get_cutoff());
     }
 
     [[nodiscard]] KernelType get_kernel_type() const override {
@@ -93,5 +96,5 @@ public:
     }
 
 private:
-    double cutoff{ default_cutoff };
+    attraction_type cutoff{ default_cutoff };
 };

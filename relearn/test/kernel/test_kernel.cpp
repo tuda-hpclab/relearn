@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -10,18 +10,15 @@
 
 #include "test_kernel.h"
 
-#include "Types.h"
-
 #include "algorithm/BarnesHutInternal/BarnesHutCell.h"
 #include "algorithm/FMMInternal/FastMultipoleMethodCell.h"
 #include "algorithm/Kernel/Gaussian.h"
 #include "algorithm/Kernel/Kernel.h"
 #include "neurons/enums/SynapticElementType.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
 #include "util/Random.h"
 #include "util/RelearnException.h"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "adapter/kernel/KernelAdapter.h"
 
@@ -30,9 +27,13 @@
 #include "factory/random/random_factory.h"
 #include "factory/simulation/simulation_factory.h"
 
+#include <cpp-utility/Cast.hpp>
+
 #include <gtest/gtest.h>
 
-#include <cpp-utility/Cast.hpp>
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
+
 #include <range/v3/algorithm/contains.hpp>
 #include <range/v3/view/indices.hpp>
 
@@ -41,6 +42,9 @@
 #include <iostream>
 #include <tuple>
 #include <vector>
+
+// The positions below are written as decimal literals; they are spelled in the type the positions are stored in.
+using space_type = RelearnTypes::space_type;
 
 TEST_F(KernelTest, testCalculateAttractivenessSameNode) {
     if (mpiPP::MPIInfo::get_number_ranks() != 1) {
@@ -52,7 +56,7 @@ TEST_F(KernelTest, testCalculateAttractivenessSameNode) {
     }
 
     const auto neuron_id = NeuronID{ 423 };
-    const auto position = RelearnTypes::position_type{ 13.2, 14.5, 0.2 };
+    const auto position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(0.2) };
 
     auto node = OctreeNode<FastMultipoleMethodCell>{};
     node.set_cell_neuron_id(neuron_id);
@@ -82,7 +86,7 @@ TEST_F(KernelTest, testCalculateAttractivenessExceptionNoPosition) {
 
     const auto neuron_id_1 = NeuronID{ 423 };
     const auto neuron_id_2 = NeuronID{ 12 };
-    const auto source_position = RelearnTypes::position_type{ 13.2, 14.5, 0.2 };
+    const auto source_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(0.2) };
 
     auto node = OctreeNode<FastMultipoleMethodCell>{};
     node.set_cell_neuron_id(neuron_id_1);
@@ -123,7 +127,7 @@ TEST_F(KernelTest, testCreateProbabilityIntervalEmptyVector) {
     }
 
     const auto& neuron_id = NeuronID{ 423 };
-    const auto& position = RelearnTypes::position_type{ 13.2, 14.5, 0.2 };
+    const auto& position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(0.2) };
 
     const auto kernel = GaussianDistributionKernel{};
 
@@ -162,7 +166,7 @@ TEST_F(KernelTest, testCreateProbabilityIntervalAutapseVector) {
     }
 
     const auto neuron_id = NeuronID{ 423 };
-    const auto position = RelearnTypes::position_type{ 13.2, 14.5, 0.2 };
+    const auto position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(0.2) };
 
     const auto number_nodes = NeuronID::value_type{ 23 };
 
@@ -174,15 +178,15 @@ TEST_F(KernelTest, testCreateProbabilityIntervalAutapseVector) {
         nodes[i].set_rank(mpiPP::MPIRank::root_rank());
         nodes[i].set_cell_size(SimulationFactory::get_minimum_position(), SimulationFactory::get_maximum_position());
 
-        const auto& target_excitatory_axon_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
-        const auto& target_inhibitory_axon_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
-        const auto& target_excitatory_dendrite_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
-        const auto& target_inhibitory_dendrite_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
+        const auto& target_excitatory_axon_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
+        const auto& target_inhibitory_axon_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
+        const auto& target_excitatory_dendrite_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
+        const auto& target_inhibitory_dendrite_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
 
-        const auto& number_vacant_excitatory_axons = utility::save_cast<RelearnTypes::counter_type>(i);
-        const auto& number_vacant_inhibitory_axons = utility::save_cast<RelearnTypes::counter_type>(i + 1);
-        const auto& number_vacant_excitatory_dendrites = utility::save_cast<RelearnTypes::counter_type>(i + 1) / 2;
-        const auto& number_vacant_inhibitory_dendrites = utility::save_cast<RelearnTypes::counter_type>(i + 3) / 3;
+        const auto& number_vacant_excitatory_axons = utility::safe_cast<RelearnTypes::counter_type>(i);
+        const auto& number_vacant_inhibitory_axons = utility::safe_cast<RelearnTypes::counter_type>(i + 1);
+        const auto& number_vacant_excitatory_dendrites = utility::safe_cast<RelearnTypes::counter_type>(i + 1) / 2;
+        const auto& number_vacant_inhibitory_dendrites = utility::safe_cast<RelearnTypes::counter_type>(i + 3) / 3;
 
         nodes[i].set_cell_excitatory_axons_position(target_excitatory_axon_position);
         nodes[i].set_cell_inhibitory_axons_position(target_inhibitory_axon_position);
@@ -232,7 +236,7 @@ TEST_F(KernelTest, testCreateProbabilityIntervalVectorException) {
     }
 
     const auto neuron_id = NeuronID{ 423 };
-    const auto position = RelearnTypes::position_type{ 13.2, 14.5, 0.2 };
+    const auto position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(0.2) };
 
     const auto number_nodes = NeuronID::value_type{ 23 };
 
@@ -244,15 +248,15 @@ TEST_F(KernelTest, testCreateProbabilityIntervalVectorException) {
         nodes[i].set_rank(mpiPP::MPIRank::root_rank());
         nodes[i].set_cell_size(SimulationFactory::get_minimum_position(), SimulationFactory::get_maximum_position());
 
-        const auto target_excitatory_axon_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
-        const auto target_inhibitory_axon_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
-        const auto target_excitatory_dendrite_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
-        const auto target_inhibitory_dendrite_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
+        const auto target_excitatory_axon_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
+        const auto target_inhibitory_axon_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
+        const auto target_excitatory_dendrite_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
+        const auto target_inhibitory_dendrite_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
 
-        const auto number_vacant_excitatory_axons = utility::save_cast<RelearnTypes::counter_type>(i);
-        const auto number_vacant_inhibitory_axons = utility::save_cast<RelearnTypes::counter_type>(i + 1);
-        const auto number_vacant_excitatory_dendrites = utility::save_cast<RelearnTypes::counter_type>(i + 1) / 2;
-        const auto number_vacant_inhibitory_dendrites = utility::save_cast<RelearnTypes::counter_type>(i + 3) / 3;
+        const auto number_vacant_excitatory_axons = utility::safe_cast<RelearnTypes::counter_type>(i);
+        const auto number_vacant_inhibitory_axons = utility::safe_cast<RelearnTypes::counter_type>(i + 1);
+        const auto number_vacant_excitatory_dendrites = utility::safe_cast<RelearnTypes::counter_type>(i + 1) / 2;
+        const auto number_vacant_inhibitory_dendrites = utility::safe_cast<RelearnTypes::counter_type>(i + 3) / 3;
 
         nodes[i].set_cell_excitatory_axons_position(target_excitatory_axon_position);
         nodes[i].set_cell_inhibitory_axons_position(target_inhibitory_axon_position);
@@ -315,7 +319,7 @@ TEST_F(KernelTest, testCreateProbabilityIntervalVector) {
     }
 
     const auto neuron_id = NeuronID{ 423 };
-    const auto position = RelearnTypes::position_type{ 13.2, 14.5, 0.2 };
+    const auto position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(0.2) };
 
     const auto number_nodes = NeuronID::value_type{ 32 };
 
@@ -327,15 +331,15 @@ TEST_F(KernelTest, testCreateProbabilityIntervalVector) {
         nodes[i].set_cell_size(SimulationFactory::get_minimum_position(), SimulationFactory::get_maximum_position());
         nodes[i].set_rank(mpiPP::MPIRank(0));
 
-        const auto target_excitatory_axon_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
-        const auto target_inhibitory_axon_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
-        const auto target_excitatory_dendrite_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
-        const auto target_inhibitory_dendrite_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
+        const auto target_excitatory_axon_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
+        const auto target_inhibitory_axon_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
+        const auto target_excitatory_dendrite_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
+        const auto target_inhibitory_dendrite_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
 
-        const auto number_vacant_excitatory_axons = utility::save_cast<RelearnTypes::counter_type>(i);
-        const auto number_vacant_inhibitory_axons = utility::save_cast<RelearnTypes::counter_type>(i + 1);
-        const auto number_vacant_excitatory_dendrites = utility::save_cast<RelearnTypes::counter_type>(i + 1) / 2;
-        const auto number_vacant_inhibitory_dendrites = utility::save_cast<RelearnTypes::counter_type>(i + 3) / 3;
+        const auto number_vacant_excitatory_axons = utility::safe_cast<RelearnTypes::counter_type>(i);
+        const auto number_vacant_inhibitory_axons = utility::safe_cast<RelearnTypes::counter_type>(i + 1);
+        const auto number_vacant_excitatory_dendrites = utility::safe_cast<RelearnTypes::counter_type>(i + 1) / 2;
+        const auto number_vacant_inhibitory_dendrites = utility::safe_cast<RelearnTypes::counter_type>(i + 3) / 3;
 
         nodes[i].set_cell_excitatory_axons_position(target_excitatory_axon_position);
         nodes[i].set_cell_inhibitory_axons_position(target_inhibitory_axon_position);
@@ -350,7 +354,7 @@ TEST_F(KernelTest, testCreateProbabilityIntervalVector) {
 
     const auto kernel = GaussianDistributionKernel{};
 
-    auto total_attractiveness = 0.0;
+    auto total_attractiveness = RelearnTypes::attraction_type{ 0 };
     auto attractivenesses = std::vector<double>{};
     for (const auto i : ranges::views::indices(number_nodes)) {
         const auto attr = Kernel<FastMultipoleMethodCell>::calculate_attractiveness_to_connect(kernel, { mpiPP::MPIRank::root_rank(), neuron_id }, position, &nodes[i], ElementType::Axon, SignalType::Excitatory);
@@ -362,7 +366,7 @@ TEST_F(KernelTest, testCreateProbabilityIntervalVector) {
     const auto& [sum, attrs] = Kernel<FastMultipoleMethodCell>::create_probability_interval(kernel,
                                                                                             { mpiPP::MPIRank::root_rank(), neuron_id }, position, node_pointers, ElementType::Axon, SignalType::Excitatory);
 
-    if (total_attractiveness > 0.0) {
+    if (total_attractiveness > RelearnTypes::attraction_type{ 0 }) {
         ASSERT_NEAR(sum, total_attractiveness, eps);
         ASSERT_EQ(attractivenesses.size(), attrs.size());
 
@@ -382,7 +386,7 @@ TEST_F(KernelTest, testCreateProbabilityIntervalEdgeCase) {
     }
 
     const auto neuron_id = NeuronID{ 423 };
-    const auto position = RelearnTypes::position_type{ 130000000.2, 140000000.5, 1000000000.2 };
+    const auto position = RelearnTypes::position_type{ utility::as<space_type>(130000000.2), utility::as<space_type>(140000000.5), utility::as<space_type>(1000000000.2) };
 
     const auto number_nodes = NeuronID::value_type{ 12 };
 
@@ -394,15 +398,15 @@ TEST_F(KernelTest, testCreateProbabilityIntervalEdgeCase) {
         nodes[i].set_cell_size(SimulationFactory::get_minimum_position(), SimulationFactory::get_maximum_position());
         nodes[i].set_rank(mpiPP::MPIRank(0));
 
-        const auto target_excitatory_axon_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
-        const auto target_inhibitory_axon_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
-        const auto target_excitatory_dendrite_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
-        const auto target_inhibitory_dendrite_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
+        const auto target_excitatory_axon_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
+        const auto target_inhibitory_axon_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
+        const auto target_excitatory_dendrite_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
+        const auto target_inhibitory_dendrite_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
 
-        const auto number_vacant_excitatory_axons = utility::save_cast<RelearnTypes::counter_type>(i);
-        const auto number_vacant_inhibitory_axons = utility::save_cast<RelearnTypes::counter_type>(i + 1);
-        const auto number_vacant_excitatory_dendrites = utility::save_cast<RelearnTypes::counter_type>(i + 1) / 2;
-        const auto number_vacant_inhibitory_dendrites = utility::save_cast<RelearnTypes::counter_type>(i + 3) / 3;
+        const auto number_vacant_excitatory_axons = utility::safe_cast<RelearnTypes::counter_type>(i);
+        const auto number_vacant_inhibitory_axons = utility::safe_cast<RelearnTypes::counter_type>(i + 1);
+        const auto number_vacant_excitatory_dendrites = utility::safe_cast<RelearnTypes::counter_type>(i + 1) / 2;
+        const auto number_vacant_inhibitory_dendrites = utility::safe_cast<RelearnTypes::counter_type>(i + 3) / 3;
 
         nodes[i].set_cell_excitatory_axons_position(target_excitatory_axon_position);
         nodes[i].set_cell_inhibitory_axons_position(target_inhibitory_axon_position);
@@ -426,7 +430,7 @@ TEST_F(KernelTest, testCreateProbabilityIntervalEdgeCase) {
     const auto& [sum, attrs] = Kernel<FastMultipoleMethodCell>::create_probability_interval(kernel,
                                                                                             { mpiPP::MPIRank::root_rank(), neuron_id }, position, node_pointers, ElementType::Axon, SignalType::Excitatory);
 
-    auto total_attractiveness = 0.0;
+    auto total_attractiveness = RelearnTypes::attraction_type{ 0 };
     auto attractivenesses = std::vector<double>{};
 
     for (const auto i : ranges::views::indices(number_nodes)) {
@@ -438,8 +442,8 @@ TEST_F(KernelTest, testCreateProbabilityIntervalEdgeCase) {
 
         const auto opt_pos = nodes[i].get_cell().get_position_for(ElementType::Axon, SignalType::Excitatory);
         ASSERT_TRUE(opt_pos.has_value());
-        const auto distance = (position - opt_pos.value()).calculate_2_norm();
-        const auto attr = number_values / distance;
+        const auto distance = (position - opt_pos.value()).calculate_2_norm<RelearnTypes::attraction_type>();
+        const auto attr = static_cast<RelearnTypes::attraction_type>(number_values) / distance;
 
         attractivenesses.emplace_back(attr);
         total_attractiveness += attr;
@@ -463,7 +467,7 @@ TEST_F(KernelTest, testPickTargetEmpty2) {
     }
 
     const auto neuron_id = NeuronID{ 423 };
-    const auto position = RelearnTypes::position_type{ 13.2, 14.5, 0.2 };
+    const auto position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(0.2) };
 
     const auto kernel = GaussianDistributionKernel{};
 
@@ -484,7 +488,7 @@ TEST_F(KernelTest, testPickTargetException) {
     }
 
     const auto neuron_id = NeuronID{ 423 };
-    const auto position = RelearnTypes::position_type{ 13.2, 14.5, 0.2 };
+    const auto position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(0.2) };
 
     const auto number_nodes = NeuronID::value_type{ 17 };
 
@@ -495,15 +499,15 @@ TEST_F(KernelTest, testPickTargetException) {
         nodes[i].set_cell_neuron_id(NeuronID{ i });
         nodes[i].set_cell_size(SimulationFactory::get_minimum_position(), SimulationFactory::get_maximum_position());
 
-        const auto target_excitatory_axon_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
-        const auto target_inhibitory_axon_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
-        const auto target_excitatory_dendrite_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
-        const auto target_inhibitory_dendrite_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
+        const auto target_excitatory_axon_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
+        const auto target_inhibitory_axon_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
+        const auto target_excitatory_dendrite_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
+        const auto target_inhibitory_dendrite_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
 
-        const auto number_vacant_excitatory_axons = utility::save_cast<RelearnTypes::counter_type>(i);
-        const auto number_vacant_inhibitory_axons = utility::save_cast<RelearnTypes::counter_type>(i + 1);
-        const auto number_vacant_excitatory_dendrites = utility::save_cast<RelearnTypes::counter_type>(i + 1) / 2;
-        const auto number_vacant_inhibitory_dendrites = utility::save_cast<RelearnTypes::counter_type>(i + 3) / 3;
+        const auto number_vacant_excitatory_axons = utility::safe_cast<RelearnTypes::counter_type>(i);
+        const auto number_vacant_inhibitory_axons = utility::safe_cast<RelearnTypes::counter_type>(i + 1);
+        const auto number_vacant_excitatory_dendrites = utility::safe_cast<RelearnTypes::counter_type>(i + 1) / 2;
+        const auto number_vacant_inhibitory_dendrites = utility::safe_cast<RelearnTypes::counter_type>(i + 3) / 3;
 
         nodes[i].set_cell_excitatory_axons_position(target_excitatory_axon_position);
         nodes[i].set_cell_inhibitory_axons_position(target_inhibitory_axon_position);
@@ -555,7 +559,7 @@ TEST_F(KernelTest, testPickTargetRandom2) {
     }
 
     const auto neuron_id = NeuronID{ 423 };
-    const auto position = RelearnTypes::position_type{ 13.2, 14.5, 0.2 };
+    const auto position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(0.2) };
 
     const auto number_nodes = NeuronID::value_type{ 26 };
 
@@ -566,15 +570,15 @@ TEST_F(KernelTest, testPickTargetRandom2) {
         nodes[i].set_cell_neuron_id(NeuronID{ i });
         nodes[i].set_cell_size(SimulationFactory::get_minimum_position(), SimulationFactory::get_maximum_position());
 
-        const auto target_excitatory_axon_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
-        const auto target_inhibitory_axon_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
-        const auto target_excitatory_dendrite_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
-        const auto target_inhibitory_dendrite_position = RelearnTypes::position_type{ 13.2, 14.5, 1.2 };
+        const auto target_excitatory_axon_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
+        const auto target_inhibitory_axon_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
+        const auto target_excitatory_dendrite_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
+        const auto target_inhibitory_dendrite_position = RelearnTypes::position_type{ utility::as<space_type>(13.2), utility::as<space_type>(14.5), utility::as<space_type>(1.2) };
 
-        const auto number_vacant_excitatory_axons = utility::save_cast<RelearnTypes::counter_type>(i);
-        const auto number_vacant_inhibitory_axons = utility::save_cast<RelearnTypes::counter_type>(i + 1);
-        const auto number_vacant_excitatory_dendrites = utility::save_cast<RelearnTypes::counter_type>(i + 1) / 2;
-        const auto number_vacant_inhibitory_dendrites = utility::save_cast<RelearnTypes::counter_type>(i + 3) / 3;
+        const auto number_vacant_excitatory_axons = utility::safe_cast<RelearnTypes::counter_type>(i);
+        const auto number_vacant_inhibitory_axons = utility::safe_cast<RelearnTypes::counter_type>(i + 1);
+        const auto number_vacant_excitatory_dendrites = utility::safe_cast<RelearnTypes::counter_type>(i + 1) / 2;
+        const auto number_vacant_inhibitory_dendrites = utility::safe_cast<RelearnTypes::counter_type>(i + 3) / 3;
 
         nodes[i].set_cell_excitatory_axons_position(target_excitatory_axon_position);
         nodes[i].set_cell_inhibitory_axons_position(target_inhibitory_axon_position);

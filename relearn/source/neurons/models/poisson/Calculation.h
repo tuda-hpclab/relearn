@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -16,17 +16,17 @@
 
 namespace models::poisson {
 
-template <typename real_type = double>
+template <typename real_type = RelearnTypes::activity_type>
 [[nodiscard]] real_type iterate_x(const real_type current_x, const real_type input, const real_type x_0, const real_type tau_x_inverse) noexcept {
     return ((x_0 - current_x) * tau_x_inverse) + input;
 }
 
-template <typename real_type = double>
+template <typename real_type = RelearnTypes::activity_type>
 [[nodiscard]] bool is_spiking(const real_type current_x, const real_type threshold) noexcept {
     return current_x >= threshold;
 }
 
-template <typename real_type = double, typename integral_type = unsigned int>
+template <typename real_type = RelearnTypes::activity_type, typename integral_type = unsigned int>
 [[nodiscard]] std::tuple<real_type, integral_type, bool> iterate(const unsigned int h, const real_type current_x, const integral_type current_refrac,
                                                                  const real_type input, const real_type threshold, const Parameters<real_type, integral_type>& params) noexcept {
     const auto x_0 = params.get_x_0();

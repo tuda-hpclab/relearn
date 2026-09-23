@@ -3,21 +3,19 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2023-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-
 #include "neurons/enums/FiredStatus.h"
 #include "neurons/firing/FiredStatusCommunicator.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
 
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <memory>
 #include <span>
@@ -30,12 +28,14 @@
  */
 class FiredStatusApproximator : public FiredStatusCommunicator {
 public:
+    using fire_rate_type = RelearnTypes::fire_rate_type;
+
     /**
      * @brief Approximates the firing rate of distant neurons by a constant frequency
      * @param num_ranks The number of ranks
      */
-    explicit FiredStatusApproximator(const int num_ranks)
-        : FiredStatusCommunicator(num_ranks)
+    explicit FiredStatusApproximator(const mpiPP::MPIRank _my_rank, const int num_ranks)
+        : FiredStatusCommunicator(_my_rank, num_ranks)
         , firing_rate_cache(static_cast<std::size_t>(num_ranks)) {
         RelearnException::check(num_ranks > 0, "FiredStatusApproximator::FiredStatusApproximator: num_ranks is too small: {}", num_ranks);
     }
@@ -103,10 +103,12 @@ public:
      */
     void record_memory_footprint(const std::unique_ptr<utility::MemoryFootprint>& footprint) override;
 
+    void wait_for_exchange_to_finish() override { }
+
 private:
     std::vector<std::size_t> accumulated_fired{};
-    std::vector<double> latest_firing_rate{};
-    std::vector<std::unordered_map<NeuronID, double>> firing_rate_cache{};
+    std::vector<fire_rate_type> latest_firing_rate{};
+    std::vector<std::unordered_map<NeuronID, fire_rate_type>> firing_rate_cache{};
 
     step_type last_synced{ 0 };
 };

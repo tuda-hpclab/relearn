@@ -3,16 +3,15 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-
 #include "neurons/helper/ChoiceFunction.h"
+#include "types/BasicTypes.h"
 #include "util/NeuronID.h"
 
 #include <boost/functional/hash.hpp>
@@ -24,6 +23,17 @@
 #include <vector>
 
 /**
+ * One change of input activities: the input given by `input_index` is active for `neuron_ids`
+ * during [begin, end) (end is exclusive; use numeric_limits::max for endless).
+ */
+struct BackgroundActivityEntry {
+    RelearnTypes::step_type begin;
+    RelearnTypes::step_type end;
+    std::size_t input_index;
+    std::vector<NeuronID> neuron_ids;
+};
+
+/**
  * Class that fulfills the requirements of a choice function for the FlexibleActivityInput.
  * It saves the current active set of activity indices and extracts the steps in which the activity input must be switched.
  * This way, we check for changes only when required and avoid additional overhead.
@@ -32,14 +42,10 @@ class CachedChoiceFunction : public ChoiceFunction {
 public:
     /**
      * Constructor
-     * @param _background_activities This vector contains the changes of input activities as tuples of
-     *      (1) Begin of the input (included)
-     *      (2) end of the input (excluded; use numeric_limits::max for endless)
-     *      (3) index of the input in the input vector
-     *      (4) list of affected neuron ids
+     * @param _background_activities The changes of input activities, see BackgroundActivityEntry
      * @param number_neurons The number of neurons on this rank
      */
-    CachedChoiceFunction(std::vector<std::tuple<RelearnTypes::step_type, RelearnTypes::step_type, std::size_t, std::vector<NeuronID>>>&& _background_activities,
+    CachedChoiceFunction(std::vector<BackgroundActivityEntry>&& _background_activities,
                          RelearnTypes::number_neurons_type number_neurons);
 
     [[nodiscard]] const std::unordered_set<std::size_t>& get_inputs_for_neuron_id(RelearnTypes::step_type step, NeuronID neuron_id) override;
@@ -57,11 +63,11 @@ private:
 
     [[nodiscard]] std::size_t get_number_inputs() const;
 
-    std::vector<std::tuple<RelearnTypes::step_type, RelearnTypes::step_type, std::size_t, std::vector<NeuronID>>> background_activities{};
+    std::vector<BackgroundActivityEntry> background_activities;
     std::size_t cur_update_steps_index{ 0 };
-    std::vector<RelearnTypes::step_type> update_steps{};
-    std::vector<std::unordered_set<std::size_t>> cur_input_indices{};
-    std::vector<std::unordered_set<std::pair<NeuronID, NeuronID>, boost::hash<std::pair<NeuronID, NeuronID>>>> input_to_neuron_id_to_ranges{};
+    std::vector<RelearnTypes::step_type> update_steps;
+    std::vector<std::unordered_set<std::size_t>> cur_input_indices;
+    std::vector<std::unordered_set<std::pair<NeuronID, NeuronID>, boost::hash<std::pair<NeuronID, NeuronID>>>> input_to_neuron_id_to_ranges;
 
     RelearnTypes::number_neurons_type number_neurons{};
     std::size_t number_inputs{};

@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -9,9 +9,6 @@
  */
 
 #include "test_neurons.h"
-
-#include "Types.h"
-#include "Types3.h"
 
 #include "neurons/Neurons.h"
 #include "neurons/calcium/CalciumCalculator.h"
@@ -24,14 +21,11 @@
 #include "neurons/synaptic_elements/Dendrites.h"
 #include "neurons/synaptic_elements/SynapticElements.h"
 #include "structure/Partition.h"
+#include "types/BasicTypes.h"
+#include "types/CommunicationTypes.h"
+#include "types/SynapseTypes.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnException.h"
-
-#include "cpp-utility/data/vectorify.hpp"
-#include "cpp-utility/ranges/Functional.hpp"
-
-#include "mpi-wrapper/CommunicationMap.h"
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "adapter/mpi/MpiAdapter.h"
 #include "adapter/network_graph/NetworkGraphAdapter.h"
@@ -50,7 +44,16 @@
 #include "factory/synapses/synapses_factory.h"
 #include "factory/synaptic_elements/synaptic_elements_factory.h"
 
+#include <cpp-utility/Cast.hpp>
+#include <cpp-utility/data/vectorify.hpp>
+#include <cpp-utility/ranges/Functional.hpp>
+
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
+#include <mpi-wrapper/core/MPIRankRange.h>
+#include <mpi-wrapper/patterns/CommunicationMap.h>
 
 #include <range/v3/algorithm/all_of.hpp>
 #include <range/v3/algorithm/contains.hpp>
@@ -112,7 +115,7 @@ TEST_F(NeuronsTest, testSignalTypeCheck) {
     const auto num_synapses = RandomFactory::get_random_integer(10, 100, mt);
     const auto num_ranks = MPIRankFactory::get_random_number_ranks(mt);
     const auto network_graph = std::make_shared<NetworkGraph>(mpiPP::MPIRank::root_rank(), num_ranks);
-    network_graph->init(num_neurons);
+    network_graph->init(num_neurons, NetworkGPUType::MEMORY_POOL);
 
     const auto signal_types = ranges::views::generate_n([this]() { return NeuronTypesFactory::get_random_signal_type(mt); }, num_neurons)
                               | ranges::to_vector;
@@ -122,15 +125,15 @@ TEST_F(NeuronsTest, testSignalTypeCheck) {
         const auto target_neuron = NeuronIdFactory::get_random_neuron_id(num_neurons, source_neuron, mt);
         const auto target_rank = MPIRankFactory::get_random_mpi_rank(num_ranks, mt);
 
-        auto weight = RandomFactory::get_random_double(0.1, 20.0, mt);
+        auto weight = RandomFactory::get_random_double(utility::as<RelearnTypes::static_synapse_weight>(0.1), utility::as<RelearnTypes::static_synapse_weight>(20.0), mt);
         if (signal_types[source_neuron.get_neuron_id()] == SignalType::Inhibitory) {
             weight = -weight;
         }
 
         if (target_rank == mpiPP::MPIRank::root_rank()) {
-            network_graph->add_synapse(StaticLocalSynapse{ target_neuron, source_neuron, weight });
+            network_graph->add_synapse(StaticLocalSynapse{ target_neuron, source_neuron, utility::cast<RelearnTypes::static_synapse_weight>(weight) });
         } else {
-            network_graph->add_synapse(StaticDistantOutSynapse{ RankNeuronId(target_rank, target_neuron), source_neuron, weight });
+            network_graph->add_synapse(StaticDistantOutSynapse{ RankNeuronId(target_rank, target_neuron), source_neuron, utility::cast<RelearnTypes::static_synapse_weight>(weight) });
         }
     }
 
@@ -174,15 +177,15 @@ TEST_F(NeuronsTest, testStaticConnectionsChecker) {
     }
 
     const auto num_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 30;
-    const auto num_static_neurons = RandomFactory::get_random_integer(static_cast<NeuronID::value_type>(15), num_neurons - 10, mt);
+    const auto num_static_neurons = RandomFactory::get_random_integer(static_cast<RelearnTypes::number_neurons_type>(15), num_neurons - 10, mt);
 
     const auto static_neurons = NeuronIdFactory::get_random_neuron_ids(num_neurons, num_static_neurons, mt) | ranges::to_vector;
 
     auto calcium = std::make_unique<CalciumCalculator>();
     calcium->set_initial_calcium_calculator(
-        [](mpiPP::MPIRank /*mpi_rank*/, NeuronID::value_type /*neuron_id*/) { return 0.0; });
+        [](mpiPP::MPIRank /*mpi_rank*/, NeuronID::value_type /*neuron_id*/) { return RelearnTypes::calcium_type{ 0 }; });
     calcium->set_target_calcium_calculator(
-        [](mpiPP::MPIRank /*mpi_rank*/, NeuronID::value_type /*neuron_id*/) { return 0.0; });
+        [](mpiPP::MPIRank /*mpi_rank*/, NeuronID::value_type /*neuron_id*/) { return RelearnTypes::calcium_type{ 0 }; });
 
     auto axons = std::make_shared<Axons>();
     auto dendrites = std::make_shared<Dendrites>();
@@ -194,6 +197,9 @@ TEST_F(NeuronsTest, testStaticConnectionsChecker) {
     sdf->set_synaptic_elements(synaptic_elements);
 
     auto network_graph = std::make_shared<NetworkGraph>(mpiPP::MPIRank::root_rank());
+    // Neurons::init() requires the network graph to already be initialized -- that responsibility
+    // moved to the caller (see Simulation.cpp), it's no longer done inside Neurons::init() itself.
+    network_graph->init(num_neurons, NetworkGPUType::MEMORY_POOL);
 
     auto partition = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
     auto model = NeuronModelFactory::construct_poisson_model();
@@ -202,7 +208,7 @@ TEST_F(NeuronsTest, testStaticConnectionsChecker) {
     const auto& [min, max] = SimulationFactory::get_random_simulation_box_size(mt);
     const auto& neurons_to_place = NeuronsFactory::generate_random_neurons(min, max, num_neurons, mt);
 
-    auto positions = std::map<NeuronID::value_type, Vec3d>{};
+    auto positions = std::map<NeuronID::value_type, RelearnTypes::position_type>{};
     for (const auto& [position, id] : neurons_to_place) {
         positions[id.get_neuron_id()] = position;
     }
@@ -284,13 +290,13 @@ TEST_F(NeuronsTest, testDisableNeuronsWithoutMPI) {
     auto num_neurons = RelearnTypes::number_neurons_type{ 30 };
 
     auto partition = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
-    auto neurons = create_neurons_object(partition, mpiPP::MPIRank::root_rank(), 1);
+    auto neurons = create_neurons_object(partition, mpiPP::MPIRank::root_rank(), 1, num_neurons);
     auto network_graph = neurons->get_network_graph();
 
     const auto& [min, max] = SimulationFactory::get_random_simulation_box_size(mt);
     const auto& neurons_to_place = NeuronsFactory::generate_random_neurons(min, max, num_neurons, mt);
 
-    auto positions = std::map<NeuronID::value_type, Vec3d>{};
+    auto positions = std::map<NeuronID::value_type, RelearnTypes::position_type>{};
     for (const auto& [position, id] : neurons_to_place) {
         positions[id.get_neuron_id()] = position;
     }
@@ -383,14 +389,14 @@ TEST_F(NeuronsTest, testDisableMultipleNeuronsWithoutMPI) {
     const auto number_neurons = number_excitatory_neurons + number_inhibitory_neurons;
 
     auto partition = std::make_shared<Partition>(1, mpiPP::MPIRank::root_rank());
-    auto neurons = create_neurons_object(partition, mpiPP::MPIRank::root_rank(), 1);
+    auto neurons = create_neurons_object(partition, mpiPP::MPIRank::root_rank(), 1, number_neurons);
     auto network_graph_plastic = neurons->get_network_graph();
 
-    const auto simulation_box = BoundingBox{ Vec3d{ 0.0, 0.0, 0.0 }, Vec3d{ 1.0, 1.0, 1.0 } };
+    const auto simulation_box = RelearnTypes::bounding_box_type{ RelearnTypes::position_type{ 0.0, 0.0, 0.0 }, RelearnTypes::position_type{ 1.0, 1.0, 1.0 } };
     const auto& [min, max] = simulation_box;
     const auto& neurons_to_place = NeuronsFactory::generate_random_neurons(min, max, number_neurons, mt);
 
-    auto positions = std::map<NeuronID::value_type, Vec3d>{};
+    auto positions = std::map<NeuronID::value_type, RelearnTypes::position_type>{};
     for (const auto& [position, id] : neurons_to_place) {
         positions[id.get_neuron_id()] = position;
     }
@@ -472,7 +478,7 @@ TEST_F(NeuronsTest, testDisableMultipleNeuronsWithoutMPI) {
         ASSERT_EQ(den_inh_new[disable_id.get_neuron_id()], 0);
     }
 
-    for (const auto& neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto& neuron_id : NeuronIDRange::range(number_neurons)) {
         if (disabled_neurons.contains(neuron_id)) {
             continue;
         }
@@ -523,15 +529,15 @@ TEST_F(NeuronsTest, testDisableNeuronsWithRanks) {
     auto expected_distant_in_deletions_initiated = std::vector<std::size_t>{};
     expected_distant_in_deletions_initiated.resize(num_ranks_cast, 0);
 
-    for (const auto mpi_rank : mpiPP::MPIRank::range(num_ranks)) {
+    for (const auto mpi_rank : mpiPP::MPIRankRange::range(num_ranks)) {
         auto partition = std::make_shared<Partition>(1, mpiPP::MPIRank(0));
-        auto neurons = create_neurons_object(partition, mpi_rank, num_ranks);
+        auto neurons = create_neurons_object(partition, mpi_rank, num_ranks, num_neurons);
         auto network_graph_plastic = neurons->get_network_graph();
 
         const auto& [min, max] = SimulationFactory::get_random_simulation_box_size(mt);
         const auto& neurons_to_place = NeuronsFactory::generate_random_neurons(min, max, num_neurons, mt);
 
-        auto positions = std::map<NeuronID::value_type, Vec3d>{};
+        auto positions = std::map<NeuronID::value_type, RelearnTypes::position_type>{};
         for (const auto& [position, id] : neurons_to_place) {
             positions[id.get_neuron_id()] = position;
         }
@@ -684,7 +690,7 @@ TEST_F(NeuronsTest, testDisableNeuronsWithRanks) {
 
     const auto& ingoing_requests = MPIAdapter::exchange_requests(outgoing_requests);
 
-    for (const auto mpi_rank : mpiPP::MPIRank::range(num_ranks)) {
+    for (const auto mpi_rank : mpiPP::MPIRankRange::range(num_ranks)) {
         const auto rank = mpi_rank.get_rank_cast();
 
         const auto& synapse_deletion_Requests = ingoing_requests[rank];
@@ -714,7 +720,7 @@ TEST_F(NeuronsTest, testDisableNeuronsWithRanks) {
             ASSERT_EQ(den_inh[disable_id.get_neuron_id()], 0);
         }
 
-        for (const auto& neuron_id : NeuronID::range(num_neurons)) {
+        for (const auto& neuron_id : NeuronIDRange::range(num_neurons)) {
             if (disabled_neurons.contains(neuron_id)) {
                 continue;
             }
@@ -754,15 +760,15 @@ TEST_F(NeuronsTest, testDisableNeuronsWithRanksAndOnlyOneDisabledNeuron) {
     auto rank_to_neurons = std::vector<std::unique_ptr<Neurons>>{};
     auto network_graphs = std::vector<std::shared_ptr<NetworkGraph>>{};
 
-    for (const auto mpi_rank : mpiPP::MPIRank::range(num_ranks)) {
+    for (const auto mpi_rank : mpiPP::MPIRankRange::range(num_ranks)) {
         auto partition = std::make_shared<Partition>(1, mpiPP::MPIRank(0));
-        auto neurons = create_neurons_object(partition, mpi_rank, num_ranks);
+        auto neurons = create_neurons_object(partition, mpi_rank, num_ranks, num_neurons);
         auto network_graph_plastic = neurons->get_network_graph();
 
         const auto& [min, max] = SimulationFactory::get_random_simulation_box_size(mt);
         const auto& neurons_to_place = NeuronsFactory::generate_random_neurons(min, max, num_neurons, mt);
 
-        auto positions = std::map<NeuronID::value_type, Vec3d>{};
+        auto positions = std::map<NeuronID::value_type, RelearnTypes::position_type>{};
         for (const auto& [position, id] : neurons_to_place) {
             positions[id.get_neuron_id()] = position;
         }
@@ -892,7 +898,7 @@ TEST_F(NeuronsTest, testDisableNeuronsWithRanksAndOnlyOneDisabledNeuron) {
 
     const auto& ingoing_requests = MPIAdapter::exchange_requests(outgoing_requests);
 
-    for (const auto mpi_rank : mpiPP::MPIRank::range(num_ranks)) {
+    for (const auto mpi_rank : mpiPP::MPIRankRange::range(num_ranks)) {
         const auto rank = mpi_rank.get_rank_cast();
 
         auto& neurons = rank_to_neurons[rank];
@@ -903,7 +909,7 @@ TEST_F(NeuronsTest, testDisableNeuronsWithRanksAndOnlyOneDisabledNeuron) {
         const auto den_ex = neurons->get_synaptic_elements()->get_connected_elements(SynapticElementType::DendriteExcitatory);
         const auto den_inh = neurons->get_synaptic_elements()->get_connected_elements(SynapticElementType::DendriteInhibitory);
 
-        for (const auto neuron_id : NeuronID::range(num_neurons)) {
+        for (const auto neuron_id : NeuronIDRange::range(num_neurons)) {
             const auto id = neuron_id.get_neuron_id();
 
             const auto expected_axon_count = expected_axons[rank][id];
@@ -923,11 +929,11 @@ TEST_F(NeuronsTest, testDisableNeuronsWithRanksAndOnlyOneDisabledNeuron) {
     NetworkGraphAdapter::check_validity_of_network_graphs(network_graphs, signal_types, num_neurons);
 }
 
-std::unique_ptr<Neurons> NeuronsTest::create_neurons_object(std::shared_ptr<Partition>& partition, mpiPP::MPIRank rank, int number_ranks) {
+std::unique_ptr<Neurons> NeuronsTest::create_neurons_object(std::shared_ptr<Partition>& partition, mpiPP::MPIRank rank, int number_ranks, const RelearnTypes::number_neurons_type number_neurons) {
     auto model = NeuronModelFactory::construct_poisson_model();
     auto calcium = std::make_unique<CalciumCalculator>();
-    calcium->set_initial_calcium_calculator([](mpiPP::MPIRank /*mpi_rank*/, NeuronID::value_type /*neuron_id*/) { return 0.0; });
-    calcium->set_target_calcium_calculator([](mpiPP::MPIRank /*mpi_rank*/, NeuronID::value_type /*neuron_id*/) { return 0.0; });
+    calcium->set_initial_calcium_calculator([](mpiPP::MPIRank /*mpi_rank*/, NeuronID::value_type /*neuron_id*/) { return RelearnTypes::calcium_type{ 0 }; });
+    calcium->set_target_calcium_calculator([](mpiPP::MPIRank /*mpi_rank*/, NeuronID::value_type /*neuron_id*/) { return RelearnTypes::calcium_type{ 0 }; });
     auto network_graph = std::make_shared<NetworkGraph>(rank, number_ranks);
 
     auto axons = std::make_shared<Axons>();
@@ -938,6 +944,8 @@ std::unique_ptr<Neurons> NeuronsTest::create_neurons_object(std::shared_ptr<Part
 
     auto sdf = std::make_unique<RandomSynapseDeletionFinder>();
     sdf->set_synaptic_elements(synaptic_elements);
+
+    network_graph->init(number_neurons);
 
     return std::make_unique<Neurons>(partition, std::move(model), std::move(calcium), std::move(network_graph), std::move(synaptic_elements), std::move(sdf));
 }

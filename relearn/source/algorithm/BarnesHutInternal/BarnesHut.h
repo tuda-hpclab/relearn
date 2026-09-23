@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,8 +11,6 @@
  */
 
 #include "Config.h"
-#include "Types.h"
-#include "Types3.h"
 
 #include "algorithm/Algorithm.h"
 #include "algorithm/AlgorithmEnum.h"
@@ -22,6 +20,10 @@
 #include "algorithm/Internal/OctreeAlgorithm.h"
 #include "neurons/helper/SynapseCreationRequests.h"
 #include "structure/SpaceFillingCurve.h"
+#include "types/BasicTypes.h"
+#include "types/CommunicationTypes.h"
+#include "types/SpaceTypes.h"
+#include "types/SynapseTypes.h"
 #include "util/NeuronID.h"
 
 #include <memory>
@@ -34,12 +36,13 @@
  * In this instance, axons search for dendrites.
  * It is strongly tied to Octree, and might perform MPI communication via NodeCache::get_children()
  */
-class BarnesHut : public ForwardAlgorithm<SynapseCreationRequest, SynapseCreationResponse>, private OctreeAlgorithm<BarnesHutCell> {
+class BarnesHut : public ForwardCPUAlgorithm<SynapseCreationRequest, SynapseCreationResponse>, private OctreeAlgorithm<BarnesHutCell> {
 public:
     using AdditionalCellAttributes = BarnesHutCell;
     using position_type = RelearnTypes::position_type;
     using counter_type = RelearnTypes::counter_type;
     using number_neurons_type = RelearnTypes::number_neurons_type;
+    using acceptance_criterion_type = RelearnTypes::acceptance_criterion_type;
 
     /**
      * @brief Constructs a new instance with the given parameter.
@@ -50,14 +53,18 @@ public:
      * @exception Throws a RelearnException if theta <= 0.0 or if _space_filling_curve is nullptr
      */
     BarnesHut(const RelearnTypes::bounding_box_type& bounding_box, std::shared_ptr<SpaceFillingCurve> _space_filling_curve,
-              const double theta = Constants::bh_default_theta)
-        : ForwardAlgorithm()
-        , OctreeAlgorithm(bounding_box, std::move(_space_filling_curve))
+              const acceptance_criterion_type theta = Constants::bh_default_theta)
+        : OctreeAlgorithm(bounding_box, std::move(_space_filling_curve), true)
         , acceptance_criterion(theta) {
-        RelearnException::check(theta > 0.0, "BarnesHut::BarnesHut: acceptance_criterion was less than or equal to 0 ({})", theta);
+        RelearnException::check(theta > acceptance_criterion_type{ 0 }, "BarnesHut::BarnesHut: acceptance_criterion was less than or equal to 0 ({})", theta);
     }
 
-    virtual ~BarnesHut() = default;
+    ~BarnesHut() override = default;
+
+    BarnesHut(const BarnesHut&) = delete;
+    BarnesHut& operator=(const BarnesHut&) = delete;
+    BarnesHut(BarnesHut&&) = default;
+    BarnesHut& operator=(BarnesHut&&) = default;
 
     /**
      * @brief Sets the extra infos for the neurons. They hold the positions and update flags for the neurons.
@@ -65,7 +72,7 @@ public:
      * @exception throws a RelearnException if infos is empty
      */
     void set_neuron_extra_infos(std::shared_ptr<NeuronsExtraInfo> infos) override {
-        ForwardAlgorithm::set_neuron_extra_infos(infos);
+        ForwardCPUAlgorithm::set_neuron_extra_infos(infos);
         OctreeAlgorithm::set_neuron_extra_infos(infos);
     }
 
@@ -73,7 +80,7 @@ public:
      * @brief Returns the currently used acceptance criterion
      * @return The currently used acceptance criterion
      */
-    [[nodiscard]] double get_acceptance_criterion() const noexcept {
+    [[nodiscard]] acceptance_criterion_type get_acceptance_criterion() const noexcept {
         return acceptance_criterion;
     }
 
@@ -106,7 +113,7 @@ public:
     /**
      * @brief Returns the octree that is used by this algorithm
      */
-    [[nodiscard]] const std::unique_ptr<Octree<AdditionalCellAttributes>>& get_octree() {
+    [[nodiscard]] const std::shared_ptr<Octree<AdditionalCellAttributes>>& get_octree() {
         return OctreeAlgorithm::get_octree();
     }
 
@@ -120,9 +127,9 @@ public:
      * @exception Can throw a RelearnException
      */
     void prepare_update_connectivity(const std::span<const SignalType> signal_types,
-                                     const std::span<const unsigned int> vacant_axons,
-                                     const std::span<const unsigned int> vacant_excitatory_dendrites,
-                                     const std::span<const unsigned int> vacant_inhibitory_dendrites) override {
+                                     const std::span<const counter_type> vacant_axons,
+                                     const std::span<const counter_type> vacant_excitatory_dendrites,
+                                     const std::span<const counter_type> vacant_inhibitory_dendrites) override {
         OctreeAlgorithm::update_tree(signal_types, vacant_axons, vacant_excitatory_dendrites, vacant_inhibitory_dendrites);
     }
 
@@ -131,26 +138,27 @@ public:
      * @param footprint Where to store the current footprint
      */
     void record_memory_footprint(const std::unique_ptr<utility::MemoryFootprint>& footprint) override {
-        const auto my_footprint = sizeof(*this) - sizeof(ForwardAlgorithm<SynapseCreationRequest, SynapseCreationResponse>);
+        const auto my_footprint = sizeof(*this) - sizeof(ForwardCPUAlgorithm<SynapseCreationRequest, SynapseCreationResponse>);
         footprint->emplace("BarnesHut", my_footprint);
 
-        ForwardAlgorithm<SynapseCreationRequest, SynapseCreationResponse>::record_memory_footprint(footprint);
+        ForwardCPUAlgorithm<SynapseCreationRequest, SynapseCreationResponse>::record_memory_footprint(footprint);
     }
 
     /**
-    * @brief Returns a collection of proposed synapse creations for each neuron. Used when using multiple algorithms by CombinedAlgorithms::update_connectivity
-    * @param neuron_ids The neuron_ids that should find targets
-    * @exception Can throw a RelearnException (especially when this is called but the method is not implemented in the algorithm itself)
-    * @return a tuple containing: - a map wrapped in a variant, indicating for every MPI rank all requests that are made from this rank. Does not send those requests to the other MPI ranks. the map can be of type mpiPP::CommunicationMap<SynapseCreationRequest> or
-    *                               mpiPP::CommunicationMap<DistantNeuronRequest>
-    *                             - the request type of the map, returned as an element from an enum
-    *                             - the direction that the algorithm uses, i.e. forward (from axons to dendrites) or backward (from dendrites to axons)
-    */
+     * @brief Returns a collection of proposed synapse creations for each neuron. Used when using multiple algorithms by CombinedAlgorithms::update_connectivity
+     * @param neuron_ids The neuron_ids that should find targets
+     * @exception Can throw a RelearnException (especially when this is called but the method is not implemented in the algorithm itself)
+     * @return a tuple containing: - a map wrapped in a variant, indicating for every MPI rank all requests that are made from this rank. Does not send those requests to the other MPI ranks. the map can be of type mpiPP::CommunicationMap<SynapseCreationRequest> or
+     *                               mpiPP::CommunicationMap<DistantNeuronRequest>
+     *                             - the request type of the map, returned as an element from an enum
+     *                             - the direction that the algorithm uses, i.e. forward (from axons to dendrites) or backward (from dendrites to axons)
+     */
     [[nodiscard]] std::tuple<Algorithm::ResultType, RequestTypeEnum, DirectionEnum> find_target_neurons_for_combined_algorithms(const std::vector<NeuronID>& neuron_ids) override;
 
     [[nodiscard]] AlgorithmEnum get_algorithm_type() const override {
         return AlgorithmEnum::BarnesHut;
     }
+
 protected:
     /**
      * @brief Returns a collection of proposed synapse creations for each neuron with vacant axons
@@ -166,7 +174,7 @@ protected:
      * @exception Can throw a RelearnException
      * @return A pair of (1) The responses to each request and (2) another pair of (a) all local synapses and (b) all distant synapses to the local rank
      */
-    [[nodiscard]] std::pair<RelearnTypes::comm_map_creation<SynapseCreationResponse>, std::pair<PlasticLocalSynapses, PlasticDistantInSynapses>>
+    [[nodiscard]] ForwardProcessRequestsResult<SynapseCreationResponse>
     process_requests(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests) override;
 
     /**
@@ -180,5 +188,5 @@ protected:
                                                               const RelearnTypes::comm_map_creation<SynapseCreationResponse>& creation_responses) override;
 
 private:
-    double acceptance_criterion{ Constants::bh_default_theta };
+    acceptance_criterion_type acceptance_criterion{ Constants::bh_default_theta };
 };

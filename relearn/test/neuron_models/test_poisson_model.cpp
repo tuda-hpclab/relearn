@@ -1,23 +1,21 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
+#include "test_neuron_models.h"
+
 #include "neurons/enums/FiredStatus.h"
 #include "neurons/models/poisson/Parameters.h"
 #include "neurons/models/poisson/PoissonModel.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnException.h"
-
-#include "cpp-utility/MemoryFootprint.hpp"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "factory/activity_input/activity_input_factory.h"
 #include "factory/extra_info/extra_info_factory.h"
@@ -26,15 +24,18 @@
 #include "factory/neuron_id/neuron_id_factory.h"
 #include "factory/random/random_factory.h"
 
+#include <cpp-utility/MemoryFootprint.hpp>
+
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <cstddef>
 #include <iostream>
 #include <memory>
 #include <tuple>
 #include <vector>
-
-#include "test_neuron_models.h"
 
 TEST_F(PoissonModelTest, testDefaultParameters) {
     if (mpiPP::MPIInfo::get_number_ranks() != 1) {
@@ -45,7 +46,7 @@ TEST_F(PoissonModelTest, testDefaultParameters) {
         return;
     }
 
-    using param_type = models::poisson::Parameters<double, unsigned int>;
+    using param_type = models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>;
 
     const auto default_parameters = param_type{};
 
@@ -63,7 +64,7 @@ TEST_F(PoissonModelTest, testParameters) {
         return;
     }
 
-    const auto parameters = models::poisson::Parameters<double, unsigned int>{ 1.0, 2.0, 3U };
+    const auto parameters = models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>{ 1.0, 2.0, 3U };
 
     ASSERT_EQ(parameters.get_x_0(), 1.0);
     ASSERT_EQ(parameters.get_tau_x(), 2.0);
@@ -79,11 +80,11 @@ TEST_F(PoissonModelTest, testDefaultConstructorNoThrow) {
         return;
     }
 
-    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_map_communicator(1);
+    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_default_communicator(1);
     auto activity_input = ActivityInputFactory::construct_constant_activity(0.0);
 
     const auto h = models::PoissonModel::default_h;
-    const auto parameters = models::poisson::Parameters<double, unsigned int>{};
+    const auto parameters = models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>{};
 
     ASSERT_NO_THROW(std::ignore = models::PoissonModel(h, activity_input, fired_status_comm, parameters));
 }
@@ -97,15 +98,15 @@ TEST_F(PoissonModelTest, testGetter) {
         return;
     }
 
-    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_map_communicator(1);
+    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_default_communicator(1);
     auto activity_input = ActivityInputFactory::construct_constant_activity(0.0);
 
     const auto h = RandomFactory::get_random_integer<unsigned int>(models::PoissonModel::min_h, models::PoissonModel::max_h, this->mt);
-    const auto x0 = RandomFactory::get_random_double<double>(models::poisson::Parameters<double, unsigned int>::min_x_0, models::poisson::Parameters<double, unsigned int>::max_x_0, this->mt);
-    const auto tau_x = RandomFactory::get_random_double<double>(models::poisson::Parameters<double, unsigned int>::min_tau_x, models::poisson::Parameters<double, unsigned int>::max_tau_x, this->mt);
-    const auto refrac = RandomFactory::get_random_integer<unsigned int>(models::poisson::Parameters<double, unsigned int>::min_refractory_time, models::poisson::Parameters<double, unsigned int>::max_refractory_time, this->mt);
+    const auto x0 = RandomFactory::get_random_double(models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::min_x_0, models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::max_x_0, this->mt);
+    const auto tau_x = RandomFactory::get_random_double(models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::min_tau_x, models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::max_tau_x, this->mt);
+    const auto refrac = RandomFactory::get_random_integer<unsigned int>(models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::min_refractory_time, models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::max_refractory_time, this->mt);
 
-    const auto parameters = models::poisson::Parameters<double, unsigned int>{ x0, tau_x, refrac };
+    const auto parameters = models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>{ x0, tau_x, refrac };
     const auto model = models::PoissonModel(h, activity_input, fired_status_comm, parameters);
 
     ASSERT_EQ(model.get_h(), h);
@@ -124,11 +125,11 @@ TEST_F(PoissonModelTest, testConstructorThrow) {
         return;
     }
 
-    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_map_communicator(1);
+    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_default_communicator(1);
     auto activity_input = ActivityInputFactory::construct_constant_activity(0.0);
 
     const auto h = models::PoissonModel::default_h;
-    const auto parameters = models::poisson::Parameters<double, unsigned int>{};
+    const auto parameters = models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>{};
 
     auto fired_status_comm_empty = fired_status_comm;
     fired_status_comm_empty.reset();
@@ -141,6 +142,10 @@ TEST_F(PoissonModelTest, testConstructorThrow) {
     ASSERT_THROW_NO_PRINT(std::ignore = models::PoissonModel(h, activity_input_empty, fired_status_comm, parameters), RelearnException);
 }
 
+#ifndef RELEARN_CUDA_ENABLED
+// FireStatusCommunicatorGPUUncompressed::create_neurons() is unconditionally
+// CUDA_NOT_SUPPORTED (the GPU communicator only supports a single init(), not growing
+// afterwards), so this create_neurons-focused test only applies to CPU builds.
 TEST_F(PoissonModelTest, testInitAndCreate) {
     if (mpiPP::MPIInfo::get_number_ranks() != 1) {
         if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
@@ -150,15 +155,15 @@ TEST_F(PoissonModelTest, testInitAndCreate) {
         return;
     }
 
-    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_map_communicator(1);
+    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_default_communicator(1);
     auto activity_input = ActivityInputFactory::construct_constant_activity(0.0);
 
     const auto h = RandomFactory::get_random_integer<unsigned int>(models::PoissonModel::min_h, models::PoissonModel::max_h, this->mt);
-    const auto x0 = RandomFactory::get_random_double<double>(models::poisson::Parameters<double, unsigned int>::min_x_0, models::poisson::Parameters<double, unsigned int>::max_x_0, this->mt);
-    const auto tau_x = RandomFactory::get_random_double<double>(models::poisson::Parameters<double, unsigned int>::min_tau_x, models::poisson::Parameters<double, unsigned int>::max_tau_x, this->mt);
-    const auto refrac = RandomFactory::get_random_integer<unsigned int>(models::poisson::Parameters<double, unsigned int>::min_refractory_time, models::poisson::Parameters<double, unsigned int>::max_refractory_time, this->mt);
+    const auto x0 = RandomFactory::get_random_double(models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::min_x_0, models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::max_x_0, this->mt);
+    const auto tau_x = RandomFactory::get_random_double(models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::min_tau_x, models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::max_tau_x, this->mt);
+    const auto refrac = RandomFactory::get_random_integer<unsigned int>(models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::min_refractory_time, models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::max_refractory_time, this->mt);
 
-    const auto parameters = models::poisson::Parameters<double, unsigned int>{ x0, tau_x, refrac };
+    const auto parameters = models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>{ x0, tau_x, refrac };
     auto model = models::PoissonModel(h, activity_input, fired_status_comm, parameters);
 
     const auto number_neurons_init = NeuronIdFactory::get_random_number_neurons(this->mt);
@@ -215,6 +220,7 @@ TEST_F(PoissonModelTest, testInitAndCreate) {
     ASSERT_EQ(model.get_x().size(), number_neurons_init + number_neurons_create_1 + number_neurons_create_2);
     ASSERT_EQ(model.get_fired().size(), number_neurons_init + number_neurons_create_1 + number_neurons_create_2);
 }
+#endif // RELEARN_CUDA_ENABLED
 
 TEST_F(PoissonModelTest, testFootprintNoThrow) {
     if (mpiPP::MPIInfo::get_number_ranks() != 1) {
@@ -225,15 +231,15 @@ TEST_F(PoissonModelTest, testFootprintNoThrow) {
         return;
     }
 
-    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_map_communicator(1);
+    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_default_communicator(1);
     auto activity_input = ActivityInputFactory::construct_constant_activity(0.0);
 
     const auto h = RandomFactory::get_random_integer<unsigned int>(models::PoissonModel::min_h, models::PoissonModel::max_h, this->mt);
-    const auto x0 = RandomFactory::get_random_double<double>(models::poisson::Parameters<double, unsigned int>::min_x_0, models::poisson::Parameters<double, unsigned int>::max_x_0, this->mt);
-    const auto tau_x = RandomFactory::get_random_double<double>(models::poisson::Parameters<double, unsigned int>::min_tau_x, models::poisson::Parameters<double, unsigned int>::max_tau_x, this->mt);
-    const auto refrac = RandomFactory::get_random_integer<unsigned int>(models::poisson::Parameters<double, unsigned int>::min_refractory_time, models::poisson::Parameters<double, unsigned int>::max_refractory_time, this->mt);
+    const auto x0 = RandomFactory::get_random_double(models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::min_x_0, models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::max_x_0, this->mt);
+    const auto tau_x = RandomFactory::get_random_double(models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::min_tau_x, models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::max_tau_x, this->mt);
+    const auto refrac = RandomFactory::get_random_integer<unsigned int>(models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::min_refractory_time, models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::max_refractory_time, this->mt);
 
-    const auto parameters = models::poisson::Parameters<double, unsigned int>{ x0, tau_x, refrac };
+    const auto parameters = models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>{ x0, tau_x, refrac };
     auto model = models::PoissonModel(h, activity_input, fired_status_comm, parameters);
 
     const auto footprint = std::make_unique<utility::MemoryFootprint>(100);
@@ -252,15 +258,15 @@ TEST_F(PoissonModelTest, testUpdateConstantInput) {
 
     const auto constant_input = 0.5;
 
-    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_map_communicator(1);
+    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_default_communicator(1);
     auto activity_input = ActivityInputFactory::construct_constant_activity(constant_input);
 
     const auto h = RandomFactory::get_random_integer<unsigned int>(models::PoissonModel::min_h, models::PoissonModel::max_h, this->mt);
-    const auto x0 = RandomFactory::get_random_double<double>(models::poisson::Parameters<double, unsigned int>::min_x_0, models::poisson::Parameters<double, unsigned int>::max_x_0, this->mt);
-    const auto tau_x = RandomFactory::get_random_double<double>(models::poisson::Parameters<double, unsigned int>::min_tau_x, models::poisson::Parameters<double, unsigned int>::max_tau_x, this->mt);
-    const auto refrac = RandomFactory::get_random_integer<unsigned int>(models::poisson::Parameters<double, unsigned int>::min_refractory_time, models::poisson::Parameters<double, unsigned int>::max_refractory_time, this->mt);
+    const auto x0 = RandomFactory::get_random_double(models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::min_x_0, models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::max_x_0, this->mt);
+    const auto tau_x = RandomFactory::get_random_double(models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::min_tau_x, models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::max_tau_x, this->mt);
+    const auto refrac = RandomFactory::get_random_integer<unsigned int>(models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::min_refractory_time, models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::max_refractory_time, this->mt);
 
-    const auto parameters = models::poisson::Parameters<double, unsigned int>{ x0, tau_x, refrac };
+    const auto parameters = models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>{ x0, tau_x, refrac };
     auto model = models::PoissonModel(h, activity_input, fired_status_comm, parameters);
 
     const auto number_neurons_init = 41;
@@ -276,22 +282,22 @@ TEST_F(PoissonModelTest, testUpdateConstantInput) {
     model.update_electrical_activity(102);
 
     const auto input = model.get_input();
-    for (const auto neuron_id : NeuronID::range_id(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons_init)) {
         ASSERT_EQ(input[neuron_id], constant_input);
     }
 
     const auto fired_status = model.get_fired();
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         ASSERT_EQ(model.has_fired(neuron_id), fired_status[neuron_id.get_neuron_id()] == FiredStatus::Fired);
     }
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons_init)) {
         const auto status = fired_status[neuron_id];
         const auto refrac_neuron = model.get_refractory_time(NeuronID(neuron_id));
         if (status == FiredStatus::Inactive) {
             ASSERT_EQ(refrac_neuron, 0.0);
         } else {
-            ASSERT_EQ(refrac_neuron, static_cast<double>(refrac));
+            ASSERT_EQ(refrac_neuron, static_cast<RelearnTypes::activity_type>(refrac));
         }
     }
 
@@ -311,15 +317,15 @@ TEST_F(PoissonModelTest, testUpdateNormalInput) {
     const auto mean_input = 0.5;
     const auto stddev_input = 0.2;
 
-    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_map_communicator(1);
+    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_default_communicator(1);
     auto activity_input = ActivityInputFactory::construct_normal_activity(mean_input, stddev_input);
 
     const auto h = RandomFactory::get_random_integer<unsigned int>(models::PoissonModel::min_h, models::PoissonModel::max_h, this->mt);
-    const auto x0 = RandomFactory::get_random_double<double>(models::poisson::Parameters<double, unsigned int>::min_x_0, models::poisson::Parameters<double, unsigned int>::max_x_0, this->mt);
-    const auto tau_x = RandomFactory::get_random_double<double>(models::poisson::Parameters<double, unsigned int>::min_tau_x, models::poisson::Parameters<double, unsigned int>::max_tau_x, this->mt);
-    const auto refrac = RandomFactory::get_random_integer<unsigned int>(models::poisson::Parameters<double, unsigned int>::min_refractory_time, models::poisson::Parameters<double, unsigned int>::max_refractory_time, this->mt);
+    const auto x0 = RandomFactory::get_random_double(models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::min_x_0, models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::max_x_0, this->mt);
+    const auto tau_x = RandomFactory::get_random_double(models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::min_tau_x, models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::max_tau_x, this->mt);
+    const auto refrac = RandomFactory::get_random_integer<unsigned int>(models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::min_refractory_time, models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::max_refractory_time, this->mt);
 
-    const auto parameters = models::poisson::Parameters<double, unsigned int>{ x0, tau_x, refrac };
+    const auto parameters = models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>{ x0, tau_x, refrac };
     auto model = models::PoissonModel(h, activity_input, fired_status_comm, parameters);
 
     const auto number_neurons_init = 48;
@@ -336,22 +342,22 @@ TEST_F(PoissonModelTest, testUpdateNormalInput) {
 
     const auto input = model.get_input();
     const auto golden_input = activity_input->get_input();
-    for (const auto neuron_id : NeuronID::range_id(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons_init)) {
         ASSERT_EQ(input[neuron_id], golden_input[neuron_id]);
     }
 
     const auto fired_status = model.get_fired();
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         ASSERT_EQ(model.has_fired(neuron_id), fired_status[neuron_id.get_neuron_id()] == FiredStatus::Fired);
     }
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons_init)) {
         const auto status = fired_status[neuron_id];
         const auto refrac_neuron = model.get_refractory_time(NeuronID(neuron_id));
         if (status == FiredStatus::Inactive) {
             ASSERT_EQ(refrac_neuron, 0.0);
         } else {
-            ASSERT_EQ(refrac_neuron, static_cast<double>(refrac));
+            ASSERT_EQ(refrac_neuron, static_cast<RelearnTypes::activity_type>(refrac));
         }
     }
 
@@ -371,15 +377,15 @@ TEST_F(PoissonModelTest, testMultipleUpdates) {
     const auto mean_input = 0.5;
     const auto stddev_input = 0.2;
 
-    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_map_communicator(1);
+    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_default_communicator(1);
     auto activity_input = ActivityInputFactory::construct_normal_activity(mean_input, stddev_input);
 
     const auto h = RandomFactory::get_random_integer<unsigned int>(models::PoissonModel::min_h, models::PoissonModel::max_h, this->mt);
-    const auto x0 = RandomFactory::get_random_double<double>(models::poisson::Parameters<double, unsigned int>::min_x_0, models::poisson::Parameters<double, unsigned int>::max_x_0, this->mt);
-    const auto tau_x = RandomFactory::get_random_double<double>(models::poisson::Parameters<double, unsigned int>::min_tau_x, models::poisson::Parameters<double, unsigned int>::max_tau_x, this->mt);
-    const auto refrac = RandomFactory::get_random_integer<unsigned int>(models::poisson::Parameters<double, unsigned int>::min_refractory_time, models::poisson::Parameters<double, unsigned int>::max_refractory_time, this->mt);
+    const auto x0 = RandomFactory::get_random_double(models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::min_x_0, models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::max_x_0, this->mt);
+    const auto tau_x = RandomFactory::get_random_double(models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::min_tau_x, models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::max_tau_x, this->mt);
+    const auto refrac = RandomFactory::get_random_integer<unsigned int>(models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::min_refractory_time, models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>::max_refractory_time, this->mt);
 
-    const auto parameters = models::poisson::Parameters<double, unsigned int>{ x0, tau_x, refrac };
+    const auto parameters = models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>{ x0, tau_x, refrac };
     auto model = models::PoissonModel(h, activity_input, fired_status_comm, parameters);
 
     const auto number_neurons_init = 32;
@@ -398,7 +404,7 @@ TEST_F(PoissonModelTest, testMultipleUpdates) {
     for (auto cur_step = 102U; cur_step < 123U; cur_step++) {
         model.update_electrical_activity(cur_step);
 
-        for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+        for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
             const auto id = neuron_id.get_neuron_id();
 
             const auto fired = model.has_fired(neuron_id);
@@ -408,6 +414,10 @@ TEST_F(PoissonModelTest, testMultipleUpdates) {
 
                 if (last_recorded_spike == 0) {
                     // First spike, do not calculate time since last spike
+                    continue;
+                }
+
+                if (last_recorded_spike > cur_step) {
                     continue;
                 }
 
@@ -444,10 +454,10 @@ TEST_F(PoissonModelTest, testBenchmarkFunctionality) {
     auto activity_input = ActivityInputFactory::construct_constant_activity(0.2);
     auto activity_input_benchmark = ActivityInputFactory::construct_constant_activity(0.2);
 
-    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_map_communicator(1);
-    auto fired_status_comm_benchmark = FiredStatusCommunicatorFactory::construct_map_communicator(1);
+    auto fired_status_comm = FiredStatusCommunicatorFactory::construct_default_communicator(1);
+    auto fired_status_comm_benchmark = FiredStatusCommunicatorFactory::construct_default_communicator(1);
 
-    const auto parameters = models::poisson::Parameters<double, unsigned int>{};
+    const auto parameters = models::poisson::Parameters<RelearnTypes::activity_type, unsigned int>{};
 
     auto model = models::PoissonModel(10, activity_input, fired_status_comm, parameters);
     auto model_benchmark = models::PoissonModel(10, activity_input_benchmark, fired_status_comm_benchmark, parameters);
@@ -478,7 +488,7 @@ TEST_F(PoissonModelTest, testBenchmarkFunctionality) {
     const auto input = model.get_input();
     const auto input_benchmark = model.get_input();
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons_init)) {
         ASSERT_EQ(input[neuron_id], input_benchmark[neuron_id]);
     }
 }

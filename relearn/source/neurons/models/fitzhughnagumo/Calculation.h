@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -16,22 +16,22 @@
 
 namespace models::fitzhughnagumo {
 
-template <typename real_type = double>
+template <typename real_type = RelearnTypes::activity_type>
 [[nodiscard]] real_type iterate_v(const real_type current_v, const real_type current_w, const real_type input) noexcept {
     return current_v - (current_v * current_v * current_v / 3.0) - current_w + input;
 }
 
-template <typename real_type = double>
+template <typename real_type = RelearnTypes::activity_type>
 [[nodiscard]] real_type iterate_w(const real_type current_v, const real_type current_w, const real_type a, const real_type b, const real_type phi) noexcept {
     return phi * (current_v + a - b * current_w);
 }
 
-template <typename real_type = double>
+template <typename real_type = RelearnTypes::activity_type>
 [[nodiscard]] bool is_spiking(const real_type current_v, const real_type /*current_w*/, const real_type V_spike) noexcept {
     return current_v >= V_spike;
 }
 
-template <typename real_type = double>
+template <typename real_type = RelearnTypes::activity_type>
 [[nodiscard]] std::tuple<real_type, real_type, bool> iterate(const unsigned int h, const real_type current_v, const real_type current_w,
                                                              const real_type input, const Parameters<real_type>& params) noexcept {
 

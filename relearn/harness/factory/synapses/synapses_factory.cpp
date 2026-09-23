@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -10,14 +10,11 @@
 
 #include "synapses_factory.h"
 
-#include "Types.h"
-
 #include "neurons/helper/RankNeuronId.h"
+#include "types/BasicTypes.h"
+#include "types/SynapseTypes.h"
 #include "util/NeuronID.h"
-
-#include "cpp-utility/ranges/Functional.hpp"
-
-#include "mpi-wrapper/MPIRank.h"
+#include "util/NeuronIDRange.h"
 
 #include "adapter/network_graph/NetworkGraphAdapter.h"
 
@@ -25,6 +22,10 @@
 #include "factory/neuron_id/neuron_id_factory.h"
 #include "factory/random/random_factory.h"
 #include "factory/synapses/synapses_factory.h"
+
+#include <cpp-utility/ranges/Functional.hpp>
+
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/filter.hpp>
@@ -41,7 +42,7 @@
 #include <utility>
 #include <vector>
 
-NeuronID::value_type SynapsesFactory::get_random_number_synapses(std::mt19937& mt) {
+RelearnTypes::number_synapse_type SynapsesFactory::get_random_number_synapses(std::mt19937& mt) {
     return RandomFactory::get_random_integer<NeuronID::value_type>(1, upper_bound_num_synapses, mt);
 }
 
@@ -65,7 +66,7 @@ RelearnTypes::static_synapse_weight SynapsesFactory::get_random_static_synapse_w
     return weight;
 }
 
-std::vector<std::tuple<NeuronID, NeuronID, RelearnTypes::plastic_synapse_weight>> SynapsesFactory::get_random_plastic_synapses(size_t number_neurons, size_t number_synapses, std::mt19937& mt) {
+std::vector<std::tuple<NeuronID, NeuronID, RelearnTypes::plastic_synapse_weight>> SynapsesFactory::get_random_plastic_synapses(RelearnTypes::number_neurons_type number_neurons, RelearnTypes::number_synapse_type number_synapses, std::mt19937& mt) {
     auto synapses = std::vector<std::tuple<NeuronID, NeuronID, RelearnTypes::plastic_synapse_weight>>(number_synapses);
 
     for (auto i = 0ULL; i < number_synapses; i++) {
@@ -79,12 +80,12 @@ std::vector<std::tuple<NeuronID, NeuronID, RelearnTypes::plastic_synapse_weight>
     return synapses;
 }
 
-std::vector<PlasticLocalSynapse> SynapsesFactory::generate_all_to_all(NeuronID::value_type number_neurons, std::mt19937& mt) {
+std::vector<PlasticLocalSynapse> SynapsesFactory::generate_all_to_all(RelearnTypes::number_neurons_type number_neurons, std::mt19937& mt) {
     auto synapses = std::vector<PlasticLocalSynapse>{};
     synapses.reserve(number_neurons * number_neurons);
 
-    for (const auto& source_id : NeuronID::range(number_neurons)) {
-        for (const auto& target_id : NeuronID::range(number_neurons)) {
+    for (const auto& source_id : NeuronIDRange::range(number_neurons)) {
+        for (const auto& target_id : NeuronIDRange::range(number_neurons)) {
             if (source_id.get_neuron_id() == target_id.get_neuron_id()) {
                 continue;
             }
@@ -97,12 +98,12 @@ std::vector<PlasticLocalSynapse> SynapsesFactory::generate_all_to_all(NeuronID::
     return synapses;
 }
 
-std::vector<PlasticLocalSynapse> SynapsesFactory::generate_derangements(NeuronID::value_type number_neurons, NeuronID::value_type number_derangements, std::mt19937& mt) {
+std::vector<PlasticLocalSynapse> SynapsesFactory::generate_derangements(RelearnTypes::number_neurons_type number_neurons, NeuronID::value_type number_derangements, std::mt19937& mt) {
     auto synapses = std::vector<PlasticLocalSynapse>{};
     synapses.reserve(number_neurons * number_derangements);
 
     for (auto i = 0ULL; i < number_derangements; i++) {
-        const auto& source_ids = NeuronID::range(number_neurons);
+        const auto& source_ids = NeuronIDRange::range(number_neurons);
         const auto& target_ids = RandomFactory::get_random_derangement(number_neurons, mt);
 
         for (auto j = 0ULL; j < number_neurons; j++) {
@@ -114,16 +115,24 @@ std::vector<PlasticLocalSynapse> SynapsesFactory::generate_derangements(NeuronID
     return synapses;
 }
 
-std::vector<PlasticLocalSynapse> SynapsesFactory::generate_plastic_local_synapses(NeuronID::value_type number_neurons, NeuronID::value_type number_synapses, std::mt19937& mt) {
+std::vector<PlasticLocalSynapse> SynapsesFactory::generate_plastic_local_synapses(RelearnTypes::number_neurons_type number_neurons, RelearnTypes::number_synapse_type number_synapses, std::mt19937& mt) {
     auto synapse_map = std::map<std::pair<NeuronID, NeuronID>, RelearnTypes::plastic_synapse_weight>{};
-    auto added_synapses = NeuronID::value_type{ 0 };
-    while (added_synapses < number_synapses) {
+    // Bounded by number_synapses draws, not by number_synapses *successful* (non-self-loop) ones:
+    // with number_neurons == 1 every draw is a self-loop, so retrying without counting the
+    // attempt (as this used to) would loop forever. Skipping self-loops here instead just yields
+    // fewer than number_synapses entries in that case, which callers already have to tolerate
+    // since colliding (target, source) draws also merge in synapse_map below.
+    for (auto i = NeuronID::value_type{ 0 }; i < number_synapses; i++) {
         const auto source = NeuronIdFactory::get_random_neuron_id(number_neurons, mt);
         const auto target = NeuronIdFactory::get_random_neuron_id(number_neurons, mt);
+        if (source == target) {
+            // Local synapses must not be self-loops (autapses); skip this draw rather than
+            // generating data that add_synapse() now rejects.
+            continue;
+        }
         const auto weight = SynapsesFactory::get_random_plastic_synapse_weight(mt);
 
         synapse_map[{ target, source }] += weight;
-        added_synapses++;
     }
 
     auto synapses = std::vector<PlasticLocalSynapse>{};
@@ -141,16 +150,24 @@ std::vector<PlasticLocalSynapse> SynapsesFactory::generate_plastic_local_synapse
     return synapses;
 }
 
-std::vector<StaticLocalSynapse> SynapsesFactory::generate_static_local_synapses(NeuronID::value_type number_neurons, NeuronID::value_type number_synapses, std::mt19937& mt) {
+std::vector<StaticLocalSynapse> SynapsesFactory::generate_static_local_synapses(RelearnTypes::number_neurons_type number_neurons, RelearnTypes::number_synapse_type number_synapses, std::mt19937& mt) {
     auto synapse_map = std::map<std::pair<NeuronID, NeuronID>, RelearnTypes::static_synapse_weight>{};
-    auto added_synapses = NeuronID::value_type{ 0 };
-    while (added_synapses < number_synapses) {
+    // Bounded by number_synapses draws, not by number_synapses *successful* (non-self-loop) ones:
+    // with number_neurons == 1 every draw is a self-loop, so retrying without counting the
+    // attempt (as this used to) would loop forever. Skipping self-loops here instead just yields
+    // fewer than number_synapses entries in that case, which callers already have to tolerate
+    // since colliding (target, source) draws also merge in synapse_map below.
+    for (auto i = NeuronID::value_type{ 0 }; i < number_synapses; i++) {
         const auto source = NeuronIdFactory::get_random_neuron_id(number_neurons, mt);
         const auto target = NeuronIdFactory::get_random_neuron_id(number_neurons, mt);
+        if (source == target) {
+            // Local synapses must not be self-loops (autapses); skip this draw rather than
+            // generating data that add_synapse() now rejects.
+            continue;
+        }
         const auto weight = SynapsesFactory::get_random_static_synapse_weight(mt);
 
         synapse_map[{ target, source }] += weight;
-        added_synapses++;
     }
 
     auto synapses = std::vector<StaticLocalSynapse>{};
@@ -161,14 +178,14 @@ std::vector<StaticLocalSynapse> SynapsesFactory::generate_static_local_synapses(
         if (weight != 0) {
             synapses.emplace_back(target, source, weight);
         } else {
-            synapses.emplace_back(target, source, 1);
+            synapses.emplace_back(target, source, RelearnTypes::static_synapse_weight{ 1 });
         }
     }
 
     return synapses;
 }
 
-std::vector<PlasticDistantInSynapse> SynapsesFactory::generate_plastic_distant_in_synapses(NeuronID::value_type number_neurons, NeuronID::value_type number_synapses, int number_ranks, NeuronID::value_type number_foreign_neurons, std::mt19937& mt) {
+std::vector<PlasticDistantInSynapse> SynapsesFactory::generate_plastic_distant_in_synapses(RelearnTypes::number_neurons_type number_neurons, RelearnTypes::number_synapse_type number_synapses, int number_ranks, RelearnTypes::number_neurons_type number_foreign_neurons, std::mt19937& mt) {
     auto synapse_map = std::map<std::pair<NeuronID, RankNeuronId>, RelearnTypes::plastic_synapse_weight>{};
     auto added_synapses = NeuronID::value_type{ 0 };
     while (added_synapses < number_synapses) {
@@ -198,7 +215,7 @@ std::vector<PlasticDistantInSynapse> SynapsesFactory::generate_plastic_distant_i
     return synapses;
 }
 
-std::vector<StaticDistantInSynapse> SynapsesFactory::generate_static_distant_in_synapses(NeuronID::value_type number_neurons, NeuronID::value_type number_synapses, int number_ranks, NeuronID::value_type number_foreign_neurons, std::mt19937& mt) {
+std::vector<StaticDistantInSynapse> SynapsesFactory::generate_static_distant_in_synapses(RelearnTypes::number_neurons_type number_neurons, RelearnTypes::number_synapse_type number_synapses, int number_ranks, RelearnTypes::number_neurons_type number_foreign_neurons, std::mt19937& mt) {
     auto synapse_map = std::map<std::pair<NeuronID, RankNeuronId>, RelearnTypes::static_synapse_weight>{};
     auto added_synapses = NeuronID::value_type{ 0 };
     while (added_synapses < number_synapses) {
@@ -221,14 +238,14 @@ std::vector<StaticDistantInSynapse> SynapsesFactory::generate_static_distant_in_
         if (weight != 0) {
             synapses.emplace_back(target, source, weight);
         } else {
-            synapses.emplace_back(target, source, 1);
+            synapses.emplace_back(target, source, RelearnTypes::static_synapse_weight{ 1 });
         }
     }
 
     return synapses;
 }
 
-std::vector<PlasticDistantOutSynapse> SynapsesFactory::generate_plastic_distant_out_synapses(NeuronID::value_type number_neurons, NeuronID::value_type number_synapses, int number_ranks, NeuronID::value_type number_foreign_neurons, std::mt19937& mt) {
+std::vector<PlasticDistantOutSynapse> SynapsesFactory::generate_plastic_distant_out_synapses(RelearnTypes::number_neurons_type number_neurons, RelearnTypes::number_synapse_type number_synapses, int number_ranks, RelearnTypes::number_neurons_type number_foreign_neurons, std::mt19937& mt) {
     auto synapse_map = std::map<std::pair<RankNeuronId, NeuronID>, RelearnTypes::plastic_synapse_weight>{};
     auto added_synapses = NeuronID::value_type{ 0 };
     while (added_synapses < number_synapses) {
@@ -259,7 +276,7 @@ std::vector<PlasticDistantOutSynapse> SynapsesFactory::generate_plastic_distant_
     return synapses;
 }
 
-std::vector<StaticDistantOutSynapse> SynapsesFactory::generate_static_distant_out_synapses(NeuronID::value_type number_neurons, NeuronID::value_type number_synapses, int number_ranks, NeuronID::value_type number_foreign_neurons, std::mt19937& mt) {
+std::vector<StaticDistantOutSynapse> SynapsesFactory::generate_static_distant_out_synapses(RelearnTypes::number_neurons_type number_neurons, RelearnTypes::number_synapse_type number_synapses, int number_ranks, RelearnTypes::number_neurons_type number_foreign_neurons, std::mt19937& mt) {
     auto synapse_map = std::map<std::pair<RankNeuronId, NeuronID>, RelearnTypes::static_synapse_weight>{};
     auto added_synapses = NeuronID::value_type{ 0 };
     while (added_synapses < number_synapses) {
@@ -283,15 +300,15 @@ std::vector<StaticDistantOutSynapse> SynapsesFactory::generate_static_distant_ou
         if (weight != 0) {
             synapses.emplace_back(target, source, weight);
         } else {
-            synapses.emplace_back(target, source, 1);
+            synapses.emplace_back(target, source, RelearnTypes::static_synapse_weight{ 1 });
         }
     }
 
     return synapses;
 }
 
-std::vector<PlasticDistantInSynapse> SynapsesFactory::generate_plastic_distant_in_synapses(NeuronID::value_type number_neurons, NeuronID::value_type number_synapses, std::vector<NeuronID::value_type> number_foreign_neurons, mpiPP::MPIRank my_rank, std::mt19937& mt) {
-    const auto number_ranks = number_foreign_neurons.size();
+std::vector<PlasticDistantInSynapse> SynapsesFactory::generate_plastic_distant_in_synapses(RelearnTypes::number_neurons_type number_neurons, RelearnTypes::number_synapse_type number_synapses, std::vector<NeuronID::value_type> number_foreign_neurons, mpiPP::MPIRank my_rank, std::mt19937& mt) {
+    const auto number_ranks = static_cast<int>(number_foreign_neurons.size());
 
     auto synapse_map = std::map<std::pair<NeuronID, RankNeuronId>, RelearnTypes::plastic_synapse_weight>{};
     auto added_synapses = NeuronID::value_type{ 0 };
@@ -322,8 +339,8 @@ std::vector<PlasticDistantInSynapse> SynapsesFactory::generate_plastic_distant_i
     return synapses;
 }
 
-std::vector<StaticDistantInSynapse> SynapsesFactory::generate_static_distant_in_synapses(NeuronID::value_type number_neurons, NeuronID::value_type number_synapses, std::vector<NeuronID::value_type> number_foreign_neurons, mpiPP::MPIRank my_rank, std::mt19937& mt) {
-    const auto number_ranks = number_foreign_neurons.size();
+std::vector<StaticDistantInSynapse> SynapsesFactory::generate_static_distant_in_synapses(RelearnTypes::number_neurons_type number_neurons, RelearnTypes::number_synapse_type number_synapses, std::vector<NeuronID::value_type> number_foreign_neurons, mpiPP::MPIRank my_rank, std::mt19937& mt) {
+    const auto number_ranks = static_cast<int>(number_foreign_neurons.size());
 
     auto synapse_map = std::map<std::pair<NeuronID, RankNeuronId>, RelearnTypes::static_synapse_weight>{};
     auto added_synapses = NeuronID::value_type{ 0 };
@@ -347,15 +364,15 @@ std::vector<StaticDistantInSynapse> SynapsesFactory::generate_static_distant_in_
         if (weight != 0) {
             synapses.emplace_back(target, source, weight);
         } else {
-            synapses.emplace_back(target, source, 1);
+            synapses.emplace_back(target, source, RelearnTypes::static_synapse_weight{ 1 });
         }
     }
 
     return synapses;
 }
 
-std::vector<PlasticDistantOutSynapse> SynapsesFactory::generate_plastic_distant_out_synapses(NeuronID::value_type number_neurons, NeuronID::value_type number_synapses, std::vector<NeuronID::value_type> number_foreign_neurons, mpiPP::MPIRank my_rank, std::mt19937& mt) {
-    const auto number_ranks = number_foreign_neurons.size();
+std::vector<PlasticDistantOutSynapse> SynapsesFactory::generate_plastic_distant_out_synapses(RelearnTypes::number_neurons_type number_neurons, RelearnTypes::number_synapse_type number_synapses, std::vector<NeuronID::value_type> number_foreign_neurons, mpiPP::MPIRank my_rank, std::mt19937& mt) {
+    const auto number_ranks = static_cast<int>(number_foreign_neurons.size());
 
     auto synapse_map = std::map<std::pair<RankNeuronId, NeuronID>, RelearnTypes::plastic_synapse_weight>{};
     auto added_synapses = NeuronID::value_type{ 0 };
@@ -387,8 +404,8 @@ std::vector<PlasticDistantOutSynapse> SynapsesFactory::generate_plastic_distant_
     return synapses;
 }
 
-std::vector<StaticDistantOutSynapse> SynapsesFactory::generate_static_distant_out_synapses(NeuronID::value_type number_neurons, NeuronID::value_type number_synapses, std::vector<NeuronID::value_type> number_foreign_neurons, mpiPP::MPIRank my_rank, std::mt19937& mt) {
-    const auto number_ranks = number_foreign_neurons.size();
+std::vector<StaticDistantOutSynapse> SynapsesFactory::generate_static_distant_out_synapses(RelearnTypes::number_neurons_type number_neurons, RelearnTypes::number_synapse_type number_synapses, std::vector<NeuronID::value_type> number_foreign_neurons, mpiPP::MPIRank my_rank, std::mt19937& mt) {
+    const auto number_ranks = static_cast<int>(number_foreign_neurons.size());
 
     auto synapse_map = std::map<std::pair<RankNeuronId, NeuronID>, RelearnTypes::static_synapse_weight>{};
     auto added_synapses = NeuronID::value_type{ 0 };
@@ -413,20 +430,25 @@ std::vector<StaticDistantOutSynapse> SynapsesFactory::generate_static_distant_ou
         if (weight != 0) {
             synapses.emplace_back(target, source, weight);
         } else {
-            synapses.emplace_back(target, source, 1);
+            synapses.emplace_back(target, source, RelearnTypes::static_synapse_weight{ 1 });
         }
     }
 
     return synapses;
 }
 
-std::vector<PlasticLocalSynapse> SynapsesFactory::generate_local_synapses(NeuronID::value_type number_neurons, std::mt19937& mt) {
+std::vector<PlasticLocalSynapse> SynapsesFactory::generate_local_synapses(RelearnTypes::number_neurons_type number_neurons, std::mt19937& mt) {
     const auto number_synapses = get_random_number_synapses(mt);
 
     auto synapse_map = std::map<std::pair<NeuronID, NeuronID>, RelearnTypes::plastic_synapse_weight>{};
     for (auto i = 0ULL; i < number_synapses; i++) {
         const auto source = NeuronIdFactory::get_random_neuron_id(number_neurons, mt);
         const auto target = NeuronIdFactory::get_random_neuron_id(number_neurons, mt);
+        if (source == target) {
+            // Local synapses must not be self-loops (autapses); skip this draw rather than
+            // generating data that add_synapse() now rejects.
+            continue;
+        }
         const auto weight = get_random_plastic_synapse_weight(mt);
 
         synapse_map[{ target, source }] += weight;
@@ -438,8 +460,15 @@ std::vector<PlasticLocalSynapse> SynapsesFactory::generate_local_synapses(Neuron
            | ranges::to_vector;
 }
 
-PlasticLocalSynapses SynapsesFactory::generate_local_synapses(NeuronID::value_type number_neurons, NeuronID::value_type number_synapses_per_neuron) {
+PlasticLocalSynapses SynapsesFactory::generate_local_synapses(RelearnTypes::number_neurons_type number_neurons, NeuronID::value_type number_synapses_per_neuron) {
     auto synapses = std::vector<PlasticLocalSynapse>{};
+
+    // With fewer than 2 neurons there is no non-self-loop target for any synapse, so the redraw
+    // loop below could never terminate -- there is nothing valid to generate either way.
+    if (number_neurons < 2) {
+        return synapses;
+    }
+
     synapses.reserve(number_neurons * number_synapses_per_neuron);
 
     auto mt = std::mt19937{};
@@ -448,6 +477,11 @@ PlasticLocalSynapses SynapsesFactory::generate_local_synapses(NeuronID::value_ty
     for (auto neuron_id = 0ULL; neuron_id < number_neurons; neuron_id++) {
         for (auto synapse_id = 0ULL; synapse_id < number_synapses_per_neuron; synapse_id++) {
             auto random_id = uid(mt);
+            // Local synapses must not be self-loops (autapses); redraw rather than generating
+            // data that add_synapse() now rejects.
+            while (random_id == neuron_id) {
+                random_id = uid(mt);
+            }
 
             const auto source_id = NeuronID{ neuron_id };
             const auto target_id = NeuronID{ random_id };
@@ -461,7 +495,7 @@ PlasticLocalSynapses SynapsesFactory::generate_local_synapses(NeuronID::value_ty
     return synapses;
 }
 
-PlasticDistantInSynapses SynapsesFactory::generate_distant_in_synapses(NeuronID::value_type number_neurons, NeuronID::value_type number_synapses_per_neuron) {
+PlasticDistantInSynapses SynapsesFactory::generate_distant_in_synapses(RelearnTypes::number_neurons_type number_neurons, NeuronID::value_type number_synapses_per_neuron) {
     auto synapses = std::vector<PlasticDistantInSynapse>{};
     synapses.reserve(number_neurons * number_synapses_per_neuron);
 
@@ -488,7 +522,7 @@ PlasticDistantInSynapses SynapsesFactory::generate_distant_in_synapses(NeuronID:
     return synapses;
 }
 
-PlasticDistantOutSynapses SynapsesFactory::generate_distant_out_synapses(NeuronID::value_type number_neurons, NeuronID::value_type number_synapses_per_neuron) {
+PlasticDistantOutSynapses SynapsesFactory::generate_distant_out_synapses(RelearnTypes::number_neurons_type number_neurons, NeuronID::value_type number_synapses_per_neuron) {
     auto synapses = std::vector<PlasticDistantOutSynapse>{};
     synapses.reserve(number_neurons * number_synapses_per_neuron);
 

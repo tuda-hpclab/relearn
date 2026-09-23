@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2020-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,13 +11,22 @@
  */
 
 #include "Config.h"
+
+#include "util/OMPHelper.h"
 #include "util/RelearnException.h"
 #include "util/shuffle/shuffle.h"
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#pragma GCC diagnostic ignored "-Wold-style-cast"
+#pragma GCC diagnostic ignored "-Wdouble-promotion"
 #include <boost/container_hash/hash.hpp>
 #include <boost/random/normal_distribution.hpp>
 #include <boost/random/uniform_int_distribution.hpp>
 #include <boost/random/uniform_real_distribution.hpp>
+#pragma GCC diagnostic pop
+
 #include <range/v3/algorithm/generate.hpp>
 #include <range/v3/iterator/concepts.hpp>
 #include <range/v3/range_fwd.hpp>
@@ -25,15 +34,10 @@
 
 #include <algorithm>
 #include <array>
+#include <concepts>
 #include <random>
 #include <type_traits>
 #include <vector>
-
-#ifdef _OPENMP
-#include <omp.h>
-#else
-inline int omp_get_thread_num() { return 0; }
-#endif
 
 template <typename T>
 using uniform_int_distribution = boost::random::uniform_int_distribution<T>;
@@ -49,18 +53,8 @@ using lincong = std::minstd_rand;
 /**
  * This enum allows a type safe differentiation between the types that require access to random numbers.
  */
-enum class RandomHolderKey : unsigned char {
-    Algorithm = 0,
-    Partition = 1,
-    Subdomain = 2,
-    PoissonModel = 3,
-    SynapseDeletionFinder = 4,
-    SynapticElements = 5,
-    NeuronsExtraInformation = 6,
-    Connector = 7,
-    BackgroundActivity = 8,
-    FiringStatusApproximator = 9,
-};
+
+#include "RandomHolderKey.h"
 
 constexpr std::size_t NUMBER_RANDOM_HOLDER_KEYS = 10;
 
@@ -121,77 +115,89 @@ public:
     }
 
     /**
-     * @brief Generates a random double (normally distributed in with specified mean and standard deviation).
+     * @brief Generates a random floating point value (normally distributed in with specified mean and standard deviation).
      *      Uses the RNG that is associated with the key.
      * @param key The type whose RNG shall be used
      * @param mean The mean of the normal distribution
      * @param stddev The standard deviation of the normal distribution
+     * @tparam floating_point_type The floating point type the value is drawn in and returned as
      * @exception Throws a RelearnException if stddev <= 0.0
-     * @return A normally distributed double with specified mean and standard deviation
+     * @return A normally distributed value with specified mean and standard deviation
      */
-    static double get_random_normal_double(const RandomHolderKey key, const double mean, const double stddev) {
-        RelearnException::check(0.0 <= stddev, "RandomHolder::get_random_normal_double: Random number with invalid standard deviation {} for key {}", stddev, static_cast<int>(key));
+    template <std::floating_point floating_point_type>
+    static floating_point_type get_random_normal_double(const RandomHolderKey key, const floating_point_type mean, const floating_point_type stddev) {
+        RelearnException::check(floating_point_type{ 0 } <= stddev, "RandomHolder::get_random_normal_double: Random number with invalid standard deviation {} for key {}", stddev, static_cast<int>(key));
 
-        auto nd = normal_distribution<double>(mean, stddev);
+        auto nd = normal_distribution<floating_point_type>(mean, stddev);
         auto& generator = get_generator(key);
-        return nd(generator);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#pragma GCC diagnostic ignored "-Wdouble-promotion"
+        const auto value = nd(generator);
+#pragma GCC diagnostic pop
+        return value;
     }
 
     /**
-     * @brief Generates a random double (uniformly distributed in [lower_inclusive, upper_exclusive)).
+     * @brief Generates a random floating point value (uniformly distributed in [lower_inclusive, upper_exclusive)).
      *      Uses the RNG that is associated with the key.
      * @param key The type whose RNG shall be used
-     * @param lower_inclusive The lower inclusive bound for the random double
-     * @param upper_exclusive The upper exclusive bound for the random double, not inf
+     * @param lower_inclusive The lower inclusive bound for the random value
+     * @param upper_exclusive The upper exclusive bound for the random value, not inf
+     * @tparam floating_point_type The floating point type the value is drawn in and returned as
      * @exception Throws a RelearnException if lower_inclusive >= upper_exclusive or if upper_exclusive is inf
-     * @return A uniformly distributed double in [lower_inclusive, upper_exclusive)
+     * @return A uniformly distributed value in [lower_inclusive, upper_exclusive)
      */
-    static double get_random_uniform_double(const RandomHolderKey key, const double lower_inclusive, const double upper_exclusive) {
+    template <std::floating_point floating_point_type>
+    static floating_point_type get_random_uniform_double(const RandomHolderKey key, const floating_point_type lower_inclusive, const floating_point_type upper_exclusive) {
         RelearnException::check(lower_inclusive < upper_exclusive,
                                 "RandomHolder::get_random_uniform_double: Random number from invalid interval [{}, {}) for key {}", lower_inclusive, upper_exclusive, static_cast<unsigned int>(key));
-        RelearnException::check(upper_exclusive <= std::numeric_limits<double>::max(), "RandomHolder::get_random_uniform_double: upper_exclusive was inf");
+        RelearnException::check(upper_exclusive <= std::numeric_limits<floating_point_type>::max(), "RandomHolder::get_random_uniform_double: upper_exclusive was inf");
 
-        const auto dist = uniform_real_distribution<double>(lower_inclusive, upper_exclusive);
+        const auto dist = uniform_real_distribution<floating_point_type>(lower_inclusive, upper_exclusive);
         auto& generator = get_generator(key);
         return dist(generator);
     }
 
     /**
-     * @brief Fills all values in [begin, end) with uniformly distributed doubles from [lower_inclusive, upper_exclusive).
+     * @brief Fills all values in [begin, end) with uniformly distributed values from [lower_inclusive, upper_exclusive).
      *      Uses the RNG that is associated with the key. There should be a natural number n st. begin + n = end.
      * @param key The type whose RNG shall be used
      * @param begin The iterator that marks the inclusive begin
      * @param end the iterator that marks the exclusive end
-     * @param lower_inclusive The lower inclusive bound for the random doubles
-     * @param upper_exclusive The upper exclusive bound for the random doubles
+     * @param lower_inclusive The lower inclusive bound for the random values
+     * @param upper_exclusive The upper exclusive bound for the random values
      * @tparam IteratorType The iterator type that is used to iterate the elements.
+     * @tparam floating_point_type The floating point type the values are drawn in
      * @exception Throws a RelearnException if lower_inclusive >= upper_exclusive.
      */
-    template <typename IteratorType>
-        requires ranges::output_iterator<IteratorType, double>
-    static void fill(const RandomHolderKey key, const IteratorType begin, const IteratorType end, const double lower_inclusive, const double upper_exclusive) {
+    template <typename IteratorType, std::floating_point floating_point_type>
+        requires ranges::output_iterator<IteratorType, floating_point_type>
+    static void fill(const RandomHolderKey key, const IteratorType begin, const IteratorType end, const floating_point_type lower_inclusive, const floating_point_type upper_exclusive) {
         RelearnException::check(lower_inclusive < upper_exclusive, "RandomHolder::fill: Random number from invalid interval [{}, {}) for key {}", lower_inclusive, upper_exclusive, static_cast<unsigned int>(key));
 
-        auto urd = uniform_real_distribution<double>(lower_inclusive, upper_exclusive);
+        auto urd = uniform_real_distribution<floating_point_type>(lower_inclusive, upper_exclusive);
         auto& generator = get_generator(key);
 
         ranges::generate(ranges::subrange{ begin, end }, [&generator, &urd]() { return urd(generator); });
     }
 
     /**
-     * @brief Fills all values in range with uniformly distributed doubles from [lower_inclusive, upper_exclusive).
+     * @brief Fills all values in range with uniformly distributed values from [lower_inclusive, upper_exclusive).
      *      Uses the RNG that is associated with the key. There should be a natural number n st. begin + n = end.
      * @param key The type whose RNG shall be used
      * @param range The range to fill
-     * @param lower_inclusive The lower inclusive bound for the random doubles
-     * @param upper_exclusive The upper exclusive bound for the random doubles
+     * @param lower_inclusive The lower inclusive bound for the random values
+     * @param upper_exclusive The upper exclusive bound for the random values
      * @tparam RangeType The range type that is used
+     * @tparam floating_point_type The floating point type the values are drawn in
      * @exception Throws a RelearnException if lower_inclusive >= upper_exclusive.
      */
-    template <typename RangeType>
-        requires ranges::output_range<RangeType, double>
+    template <typename RangeType, std::floating_point floating_point_type>
+        requires ranges::output_range<RangeType, floating_point_type>
     // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
-    static void fill(const RandomHolderKey key, RangeType&& range, const double lower_inclusive, const double upper_exclusive) {
+    static void fill(const RandomHolderKey key, RangeType&& range, const floating_point_type lower_inclusive, const floating_point_type upper_exclusive) {
         fill(key, ranges::begin(range), ranges::end(range), lower_inclusive, upper_exclusive);
     }
 
@@ -259,7 +265,7 @@ public:
         RandomHolder::seed(RandomHolderKey::Partition, seed);
         RandomHolder::seed(RandomHolderKey::Subdomain, seed);
         RandomHolder::seed(RandomHolderKey::PoissonModel, seed);
-        RandomHolder::seed(RandomHolderKey::SynapseDeletionFinder, seed);
+        RandomHolder::seed(RandomHolderKey::SynapseDeletion, seed);
         RandomHolder::seed(RandomHolderKey::SynapticElements, seed);
         RandomHolder::seed(RandomHolderKey::NeuronsExtraInformation, seed);
         RandomHolder::seed(RandomHolderKey::Connector, seed);

@@ -91,7 +91,7 @@ target_sources(
 
 set_target_properties(relearn_harness PROPERTIES ENABLE_EXPORTS 1)
 set_target_properties(relearn_harness PROPERTIES CXX_STANDARD 20)
-target_include_directories(relearn_harness PRIVATE "${CMAKE_SOURCE_DIR}/source")
+target_include_directories(relearn_harness PRIVATE "${PROJECT_SOURCE_DIR}/source" "${PROJECT_SOURCE_DIR}/source/cuda")
 target_include_directories(relearn_harness PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
 target_link_libraries(relearn_harness PUBLIC project_options project_libraries)

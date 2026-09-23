@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -32,8 +32,8 @@ public:
      * @tparam T The type of the value, must support std::to_string(T)
      */
     template <typename T>
-    void insert(description_type description, T value) {
-        if constexpr (std::is_constructible_v<std::string, T>) {
+    void insert(description_type description, T value) {         // NOLINT(performance-unnecessary-value-param) - description is unconditionally moved into the dictionary key below
+        if constexpr (std::is_constructible_v<std::string, T>) { // NOLINT(bugprone-branch-clone) - branches call different functions (std::string ctor vs std::to_string); checker false positive on if constexpr
             dictionary[std::move(description)] = std::string(std::move(value));
         } else {
             dictionary[std::move(description)] = std::to_string(value);
@@ -56,7 +56,7 @@ public:
      * Return the underlying key-value map of the essentials
      * @return The key-value map
      */
-    [[nodiscard]] const std::map<description_type , value_type >& as_map() const {
+    [[nodiscard]] const std::map<description_type, value_type>& as_map() const {
         return dictionary;
     }
 

@@ -1,18 +1,19 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
 #include "main.h"
 
 #include "neurons/synaptic_elements/Axons.h"
 #include "neurons/synaptic_elements/MultiPositionAxons.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
 #include "util/Vec3.h"
 
 #include "adapter/extra_info/ExtraInfoAdapter.h"
@@ -36,7 +37,7 @@ std::vector<RelearnTypes::position_type> get_positions(const std::size_t number_
     return result;
 }
 
-std::vector<std::vector<RelearnTypes::position_type>> get_axon_positions(const std::size_t number_neurons, const std::size_t number_axon_positions) {
+std::vector<std::vector<RelearnTypes::position_type>> get_axon_positions(const RelearnTypes::number_neurons_type number_neurons, const std::size_t number_axon_positions) {
     auto result = std::vector<std::vector<RelearnTypes::position_type>>{};
     result.reserve(number_neurons);
 
@@ -47,7 +48,7 @@ std::vector<std::vector<RelearnTypes::position_type>> get_axon_positions(const s
     return result;
 }
 
-std::vector<std::vector<RelearnTypes::position_type>> get_axon_positions(const std::size_t number_neurons) {
+std::vector<std::vector<RelearnTypes::position_type>> get_axon_positions(const RelearnTypes::number_neurons_type number_neurons) {
     auto result = std::vector<std::vector<RelearnTypes::position_type>>{};
     result.reserve(number_neurons);
 
@@ -83,7 +84,7 @@ void BM_Axon_GetBoutonPosition(benchmark::State& state) {
 
         state.PauseTiming();
 
-        auto sum = ranges::accumulate(holder, Vec3d{});
+        auto sum = ranges::accumulate(holder, RelearnTypes::position_type{});
 
         benchmark::DoNotOptimize(sum);
         state.ResumeTiming();
@@ -115,7 +116,7 @@ void BM_Axon_GetBoutonPosition_MultiPosition_1(benchmark::State& state) {
 
         state.PauseTiming();
 
-        auto sum = ranges::accumulate(holder, Vec3d{});
+        auto sum = ranges::accumulate(holder, RelearnTypes::position_type{});
 
         benchmark::DoNotOptimize(sum);
         state.ResumeTiming();
@@ -147,7 +148,7 @@ void BM_Axon_GetBoutonPosition_MultiPosition_5(benchmark::State& state) {
 
         state.PauseTiming();
 
-        auto sum = ranges::accumulate(holder, Vec3d{});
+        auto sum = ranges::accumulate(holder, RelearnTypes::position_type{});
 
         benchmark::DoNotOptimize(sum);
         state.ResumeTiming();
@@ -179,7 +180,7 @@ void BM_Axon_GetBoutonPosition_MultiPosition_15(benchmark::State& state) {
 
         state.PauseTiming();
 
-        auto sum = ranges::accumulate(holder, Vec3d{});
+        auto sum = ranges::accumulate(holder, RelearnTypes::position_type{});
 
         benchmark::DoNotOptimize(sum);
         state.ResumeTiming();
@@ -211,7 +212,7 @@ void BM_Axon_GetBoutonPosition_MultiPosition_X(benchmark::State& state) {
 
         state.PauseTiming();
 
-        auto sum = ranges::accumulate(holder, Vec3d{});
+        auto sum = ranges::accumulate(holder, RelearnTypes::position_type{});
 
         benchmark::DoNotOptimize(sum);
         state.ResumeTiming();

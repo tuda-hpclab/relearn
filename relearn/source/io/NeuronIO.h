@@ -3,22 +3,23 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-
 #include "neurons/enums/SynapticElementType.h"
 #include "sim/LoadedNeuron.h"
 #include "sim/file/AdditionalPositionInformation.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
+#include "types/SynapseTypes.h"
 #include "util/NeuronFilePaths.h"
 #include "util/NeuronID.h"
 
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <cstddef>
 #include <filesystem>
@@ -41,6 +42,7 @@ class NeuronIO {
 public:
     using number_neurons_type = RelearnTypes::number_neurons_type;
     using position_type = RelearnTypes::position_type;
+    using space_type = RelearnTypes::space_type;
 
     using PlasticInSynapses = std::tuple<PlasticLocalSynapses, PlasticDistantInSynapses>;
     using PlasticOutSynapses = std::tuple<PlasticLocalSynapses, PlasticDistantOutSynapses>;
@@ -219,7 +221,7 @@ public:
      */
     static void write_neuron_positions_and_signals_componentwise(std::span<const NeuronID> ids, std::span<const position_type> positions,
                                                                  std::span<const SignalType> signal_types, std::stringstream& sstream,
-                                                                 std::size_t total_number_neurons, RelearnTypes::bounding_box_type simulation_box, std::vector<RelearnTypes::bounding_box_type> local_subdomain_boundaries);
+                                                                 number_neurons_type total_number_neurons, RelearnTypes::bounding_box_type simulation_box, std::vector<RelearnTypes::bounding_box_type> local_subdomain_boundaries);
 
     /**
      * @brief Writes all positions and signal types of the neurons to the file. The IDs must start at 0 and be ascending. All vectors must have the same length.
@@ -235,7 +237,7 @@ public:
      */
     static void write_neuron_positions_and_signals_componentwise(std::span<const NeuronID> ids, std::span<const position_type> positions,
                                                                  std::span<const SignalType> signal_types, const std::filesystem::path& file_path,
-                                                                 std::size_t total_number_neurons, RelearnTypes::bounding_box_type simulation_box, std::vector<RelearnTypes::bounding_box_type> local_subdomain_boundaries);
+                                                                 number_neurons_type total_number_neurons, RelearnTypes::bounding_box_type simulation_box, std::vector<RelearnTypes::bounding_box_type> local_subdomain_boundaries);
 
     /**
      * @brief Writes all positions and signal types of the neurons to the file. The IDs must start at 0 and be ascending. All vectors must have the same length.
@@ -264,7 +266,7 @@ public:
      */
     static void write_neurons_componentwise(std::span<const NeuronID> ids, std::span<const position_type> positions,
                                             const std::shared_ptr<LocalGroupTranslator>& local_group_translator, std::span<const SignalType> signal_types,
-                                            const NeuronFilePaths& paths, std::size_t total_number_neurons, RelearnTypes::bounding_box_type simulation_box,
+                                            const NeuronFilePaths& paths, number_neurons_type total_number_neurons, RelearnTypes::bounding_box_type simulation_box,
                                             std::vector<RelearnTypes::bounding_box_type> local_subdomain_boundaries);
 
     /**
@@ -303,7 +305,7 @@ public:
      *      (5) or a target id is not from [0, number_local_neurons)
      * @return All in-synapses as a tuple: { { (1) Static synapses: (1.1) The local ones and (1.2) the distant ones }, { (2) Plastic synapses: (2.1) The local ones and (2.2) the distant ones } }
      */
-    static InSynapses read_in_synapses(const std::filesystem::path& file_path, number_neurons_type number_local_neurons, mpiPP::MPIRank my_rank, std::size_t number_mpi_ranks);
+    static InSynapses read_in_synapses(const std::filesystem::path& file_path, number_neurons_type number_local_neurons, mpiPP::MPIRank my_rank, int number_mpi_ranks);
 
     /**
      * @brief Writes all in-synapses to the specified file
@@ -336,7 +338,7 @@ public:
                                   const std::vector<std::vector<std::pair<RankNeuronId, RelearnTypes::static_synapse_weight>>>& distant_in_edges_static,
                                   const std::vector<std::vector<std::pair<NeuronID, RelearnTypes::plastic_synapse_weight>>>& local_in_edges_plastic,
                                   const std::vector<std::vector<std::pair<RankNeuronId, RelearnTypes::plastic_synapse_weight>>>& distant_in_edges_plastic,
-                                  mpiPP::MPIRank my_rank, std::size_t mpi_ranks, RelearnTypes::number_neurons_type number_local_neurons, RelearnTypes::number_neurons_type number_total_neurons, std::stringstream& sstream, std::size_t step);
+                                  mpiPP::MPIRank my_rank, int mpi_ranks, RelearnTypes::number_neurons_type number_local_neurons, RelearnTypes::number_neurons_type number_total_neurons, std::stringstream& sstream, RelearnTypes::step_type step);
 
     /**
      * @brief Reads all out-synapses from a file and returns those.
@@ -353,7 +355,7 @@ public:
      *      (5) or a source id is not from [0, number_local_neurons)
      * @return All out-synapses as a tuple: { { (1) Static synapses: (1.1) The local ones and (1.2) the distant ones }, { (2) Plastic synapses: (2.1) The local ones and (2.2) the distant ones } }
      */
-    static OutSynapses read_out_synapses(const std::filesystem::path& file_path, number_neurons_type number_local_neurons, mpiPP::MPIRank my_rank, std::size_t number_mpi_ranks);
+    static OutSynapses read_out_synapses(const std::filesystem::path& file_path, number_neurons_type number_local_neurons, mpiPP::MPIRank my_rank, int number_mpi_ranks);
 
     /**
      * @brief Writes all out-synapses to the specified file
@@ -387,5 +389,5 @@ public:
                                    const std::vector<std::vector<std::pair<RankNeuronId, RelearnTypes::static_synapse_weight>>>& distant_out_edges_static,
                                    const std::vector<std::vector<std::pair<NeuronID, RelearnTypes::plastic_synapse_weight>>>& local_out_edges_plastic,
                                    const std::vector<std::vector<std::pair<RankNeuronId, RelearnTypes::plastic_synapse_weight>>>& distant_out_edges_plastic,
-                                   mpiPP::MPIRank my_rank, std::size_t mpi_ranks, RelearnTypes::number_neurons_type number_local_neurons, RelearnTypes::number_neurons_type number_total_neurons, std::stringstream& sstream, std::size_t step);
+                                   mpiPP::MPIRank my_rank, int mpi_ranks, RelearnTypes::number_neurons_type number_local_neurons, RelearnTypes::number_neurons_type number_total_neurons, std::stringstream& sstream, RelearnTypes::step_type step);
 };

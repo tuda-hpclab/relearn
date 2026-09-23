@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -16,6 +16,7 @@
 #include "sim/random/RandomSynapseLoader.h"
 #include "structure/Partition.h"
 #include "util/Random.h"
+#include "util/RandomHolderKey.h"
 #include "util/RelearnException.h"
 
 #include <range/v3/action/insert.hpp>
@@ -26,7 +27,7 @@
 #include <vector>
 
 SubdomainFromNeuronPerRank::SubdomainFromNeuronPerRank(const SubdomainFromNeuronPerRank::number_neurons_type _number_neurons_per_rank,
-                                                       const double fraction_excitatory_neurons, const double um_per_neuron, std::shared_ptr<Partition> _partition)
+                                                       const percentage_type fraction_excitatory_neurons, const space_type um_per_neuron, std::shared_ptr<Partition> _partition)
     : BoxBasedRandomSubdomainAssignment(_partition, fraction_excitatory_neurons, um_per_neuron)
     , number_neurons_per_rank(_number_neurons_per_rank) {
 
@@ -38,7 +39,7 @@ SubdomainFromNeuronPerRank::SubdomainFromNeuronPerRank(const SubdomainFromNeuron
 
     RandomHolder::seed(RandomHolderKey::Subdomain, my_rank);
 
-    const auto number_neurons = number_ranks * _number_neurons_per_rank;
+    const auto number_neurons = static_cast<number_neurons_type>(number_ranks) * _number_neurons_per_rank;
     const auto preliminary_number_neurons_per_subdomain = _number_neurons_per_rank / number_local_subdomains;
     const auto additional_neuron = (_number_neurons_per_rank % number_local_subdomains == 0) ? 0U : 1U;
 
@@ -49,9 +50,9 @@ SubdomainFromNeuronPerRank::SubdomainFromNeuronPerRank(const SubdomainFromNeuron
     const auto number_boxes_per_subdomain_one_dimension = static_cast<number_neurons_type>(ceil(pow(static_cast<double>(number_neurons_per_subdomain), 1. / 3)));
     const auto number_boxes_one_dimension = _partition->get_number_subdomains_per_dimension() * number_boxes_per_subdomain_one_dimension;
 
-    const auto simulation_box_length_ = static_cast<double>(number_boxes_one_dimension) * um_per_neuron;
+    const auto simulation_box_length_ = static_cast<space_type>(number_boxes_one_dimension) * um_per_neuron;
 
-    _partition->set_simulation_box_size({ { 0, 0, 0 }, box_size_type(simulation_box_length_) });
+    _partition->set_simulation_box_size({ { 0, 0, 0 }, position_type(simulation_box_length_) });
 
     set_number_local_neurons(_number_neurons_per_rank);
     set_requested_number_neurons(number_neurons);
@@ -98,6 +99,6 @@ void SubdomainFromNeuronPerRank::fill_all_subdomains() {
 
     set_number_placed_neurons(currently_placed_neurons);
 
-    const auto fraction_excitatory_neurons = static_cast<double>(currently_placed_excitatory_neurons) / static_cast<double>(currently_placed_neurons);
+    const auto fraction_excitatory_neurons = static_cast<percentage_type>(currently_placed_excitatory_neurons) / static_cast<percentage_type>(currently_placed_neurons);
     set_ratio_placed_excitatory_neurons(fraction_excitatory_neurons);
 }

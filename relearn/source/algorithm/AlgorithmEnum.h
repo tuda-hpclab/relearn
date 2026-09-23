@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -19,12 +19,16 @@
  * This enum is used to differentiate between the algorithms which can be used for creating synapses
  */
 enum class AlgorithmEnum : std::uint8_t {
-    Naive,
-    BarnesHut,
-    BarnesHutInverted,
-    BarnesHutLocationAware,
-    FastMultipoleMethod,
-    CombinedAlgorithms,
+    Naive = 0,
+    NaiveCuda = 6,
+    BarnesHut = 1,
+    BarnesHutInverted = 2,
+    BarnesHutLocationAware = 3,
+    BarnesHutLocationAwareModified = 4,
+    BarnesHutRestricted = 5,
+    BarnesHutCuda = 7,
+    FastMultipoleMethod = 8,
+    CombinedAlgorithms = 9,
 };
 
 /**
@@ -36,7 +40,9 @@ enum class AlgorithmEnum : std::uint8_t {
     return algorithm_enum == AlgorithmEnum::BarnesHut
            || algorithm_enum == AlgorithmEnum::BarnesHutInverted
            || algorithm_enum == AlgorithmEnum::BarnesHutLocationAware
-        ;
+           || algorithm_enum == AlgorithmEnum::BarnesHutLocationAwareModified
+           || algorithm_enum == AlgorithmEnum::BarnesHutRestricted
+           || algorithm_enum == AlgorithmEnum::BarnesHutCuda;
 }
 
 /**
@@ -57,12 +63,20 @@ enum class AlgorithmEnum : std::uint8_t {
     switch (algorithm_enum) {
     case AlgorithmEnum::Naive:
         return "Naive";
+    case AlgorithmEnum::NaiveCuda:
+        return "NaiveCuda";
     case AlgorithmEnum::BarnesHut:
         return "BarnesHut";
     case AlgorithmEnum::BarnesHutInverted:
         return "BarnesHutInverted";
     case AlgorithmEnum::BarnesHutLocationAware:
         return "BarnesHutLocationAware";
+    case AlgorithmEnum::BarnesHutLocationAwareModified:
+        return "BarnesHutLocationAwareModified";
+    case AlgorithmEnum::BarnesHutRestricted:
+        return "BarnesHutRestricted";
+    case AlgorithmEnum::BarnesHutCuda:
+        return "BarnesHutCuda";
     case AlgorithmEnum::FastMultipoleMethod:
         return "FastMultipoleMethod";
     case AlgorithmEnum::CombinedAlgorithms:

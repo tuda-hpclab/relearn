@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -23,12 +23,8 @@
 #include "neurons/enums/UpdateStatus.h"
 #include "structure/Morton.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/Vec3.h"
-
-#include "cpp-utility/ranges/Functional.hpp"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "adapter/neurons/NeuronTypesAdapter.h"
 #include "adapter/synaptic_elements/SynapticElementsAdapter.h"
@@ -40,7 +36,12 @@
 #include "factory/simulation/simulation_factory.h"
 #include "factory/synaptic_elements/synaptic_elements_factory.h"
 
+#include <cpp-utility/ranges/Functional.hpp>
+
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/filter.hpp>
@@ -62,7 +63,7 @@ TEST_F(BarnesHutTest, testBarnesHutGetterSetter) {
     }
 
     const auto& [min, max] = SimulationFactory::get_random_simulation_box_size(mt);
-    const auto level = std::uint8_t{ 0 };
+    const auto level = RelearnTypes::level_type{ 0 };
     const auto morton = std::make_shared<Morton>(level);
 
     ASSERT_NO_THROW(BarnesHut algorithm(RelearnTypes::bounding_box_type{ min, max }, morton););
@@ -70,7 +71,7 @@ TEST_F(BarnesHutTest, testBarnesHutGetterSetter) {
     auto algorithm = BarnesHut(RelearnTypes::bounding_box_type{ min, max }, morton);
     ASSERT_EQ(algorithm.get_acceptance_criterion(), Constants::bh_default_theta);
 
-    const auto random_acceptance_criterion = RandomFactory::get_random_double<double>(0.0, Constants::bh_max_theta, mt);
+    const auto random_acceptance_criterion = RandomFactory::get_random_double(RelearnTypes::acceptance_criterion_type{ 0 }, Constants::bh_max_theta, mt);
     auto algorithm_2 = BarnesHut(RelearnTypes::bounding_box_type{ min, max }, morton, random_acceptance_criterion);
     ASSERT_EQ(algorithm_2.get_acceptance_criterion(), random_acceptance_criterion);
 }
@@ -90,7 +91,7 @@ TEST_F(BarnesHutTest, testUpdateFunctor) {
 
     const auto& [min, max] = SimulationFactory::get_random_simulation_box_size(mt);
 
-    const auto level = std::uint8_t{ 0 };
+    const auto level = RelearnTypes::level_type{ 0 };
     const auto morton = std::make_shared<Morton>(level);
 
     const auto signal_types = SynapticElementsFactory::get_signal_types(number_excitatory_neurons, number_inhibitory_neurons, mt);
@@ -99,7 +100,7 @@ TEST_F(BarnesHutTest, testUpdateFunctor) {
 
     const auto& neurons_to_place = NeuronsFactory::generate_random_neurons(min, max, number_neurons, mt);
 
-    auto positions = std::map<NeuronID::value_type, Vec3d>{};
+    auto positions = std::map<NeuronID::value_type, RelearnTypes::position_type>{};
     for (const auto& [position, id] : neurons_to_place) {
         positions[id.get_neuron_id()] = position;
     }
@@ -116,7 +117,7 @@ TEST_F(BarnesHutTest, testUpdateFunctor) {
 
     const auto update_status = NeuronTypesFactory::get_update_status(number_neurons, mt);
 
-    const auto disabled_neurons = NeuronID::range(number_neurons)
+    const auto disabled_neurons = NeuronIDRange::range(number_neurons)
                                   | ranges::views::filter(utility::equal_to(UpdateStatus::Disabled), utility::lookup(update_status, &NeuronID::get_neuron_id))
                                   | ranges::to_vector;
 
@@ -165,8 +166,8 @@ TEST_F(BarnesHutTest, testUpdateFunctor) {
             auto total_number_excitatory_dendrites = 0U;
             auto total_number_inhibitory_dendrites = 0U;
 
-            auto excitatory_dendrites_position = Vec3d{ 0, 0, 0 };
-            auto inhibitory_dendrites_position = Vec3d{ 0, 0, 0 };
+            auto excitatory_dendrites_position = RelearnTypes::position_type{ 0, 0, 0 };
+            auto inhibitory_dendrites_position = RelearnTypes::position_type{ 0, 0, 0 };
 
             for (auto* child : node->get_children()) {
                 if (child == nullptr) {
@@ -186,7 +187,7 @@ TEST_F(BarnesHutTest, testUpdateFunctor) {
                     ASSERT_TRUE(opt.has_value());
                     const auto& position = opt.value();
 
-                    excitatory_dendrites_position += (position * number_excitatory_dendrites);
+                    excitatory_dendrites_position += (position * static_cast<RelearnTypes::space_type>(number_excitatory_dendrites));
                 }
 
                 if (number_inhibitory_dendrites != 0) {
@@ -194,7 +195,7 @@ TEST_F(BarnesHutTest, testUpdateFunctor) {
                     ASSERT_TRUE(opt.has_value());
                     const auto& position = opt.value();
 
-                    inhibitory_dendrites_position += (position * number_inhibitory_dendrites);
+                    inhibitory_dendrites_position += (position * static_cast<RelearnTypes::space_type>(number_inhibitory_dendrites));
                 }
 
                 stack.push(child);
@@ -210,7 +211,7 @@ TEST_F(BarnesHutTest, testUpdateFunctor) {
                 ASSERT_TRUE(opt.has_value());
                 const auto& position = opt.value();
 
-                const auto& diff = (excitatory_dendrites_position / total_number_excitatory_dendrites) - position;
+                const auto& diff = (excitatory_dendrites_position / static_cast<RelearnTypes::space_type>(total_number_excitatory_dendrites)) - position;
                 const auto& norm = diff.calculate_2_norm();
 
                 ASSERT_NEAR(norm, 0.0, eps);
@@ -223,7 +224,7 @@ TEST_F(BarnesHutTest, testUpdateFunctor) {
                 ASSERT_TRUE(opt.has_value());
                 const auto& position = opt.value();
 
-                const auto& diff = (inhibitory_dendrites_position / total_number_inhibitory_dendrites) - position;
+                const auto& diff = (inhibitory_dendrites_position / static_cast<RelearnTypes::space_type>(total_number_inhibitory_dendrites)) - position;
                 const auto& norm = diff.calculate_2_norm();
 
                 ASSERT_NEAR(norm, 0.0, eps);

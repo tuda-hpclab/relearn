@@ -3,21 +3,25 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2025-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
+#include "Config.h"
 
 #include "algorithm/Kernel/KernelType.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
 
 class KernelBase {
 public:
+    using attraction_type = RelearnTypes::attraction_type;
     using counter_type = RelearnTypes::counter_type;
     using position_type = RelearnTypes::position_type;
+    using space_type = RelearnTypes::space_type;
 
     KernelBase() = default;
     virtual ~KernelBase() = default;
@@ -33,7 +37,7 @@ public:
      * @param distance The distance between the source and target neuron
      * @return The probability for a connection, >= 0.0; not normalized to [0, 1]
      */
-    [[nodiscard]] virtual double get_probability(double distance) const = 0;
+    [[nodiscard]] virtual attraction_type get_probability(space_type distance) const = 0;
 
     /**
      * @brief Calculates the probability for a connection based on the positions of the source and target neuron
@@ -42,23 +46,23 @@ public:
      * @param number_free_target_elements The number of free target elements
      * @return The probability for a connection, >= 0.0; not normalized to [0, 1]
      */
-    [[nodiscard]] double get_probability(const position_type& source_position, const position_type& target_position, const counter_type number_free_target_elements = 1) const {
+    [[nodiscard]] attraction_type get_probability(const position_type& source_position, const position_type& target_position, const counter_type number_free_target_elements = 1) const {
         // Note: This function is here to avoid code duplication in the derived classes
         const auto position_diff = target_position - source_position;
-        const auto distance = position_diff.calculate_2_norm();
-        return get_probability(distance) * static_cast<double>(number_free_target_elements);
+        const auto distance = position_diff.calculate_2_norm<space_type>();
+        return get_probability(distance) * static_cast<attraction_type>(number_free_target_elements);
     }
 
     [[nodiscard]] virtual KernelType get_kernel_type() const = 0;
 
     /**
      * @brief Checks whether this kernel is approximately equal to the other one. This is not transitive! It accounts for
-     *        small deviations in parameters of type double by using Constants::eps
+     *        small deviations in the parameters by using Constants::eps
      * @param other The other kernel
-     * @param epsilon The epsilon used to compare the double parameters
+     * @param epsilon The epsilon used to compare the parameters
      * @return Whether this kernel is approximately equal to the other one
      */
-    [[nodiscard]] virtual bool is_approximately_equal(const KernelBase& other, double epsilon = Constants::eps) const = 0;
+    [[nodiscard]] virtual bool is_approximately_equal(const KernelBase& other, attraction_type epsilon = static_cast<attraction_type>(Constants::eps)) const = 0;
 
     virtual std::string to_humanreadable_string() const = 0;
 };

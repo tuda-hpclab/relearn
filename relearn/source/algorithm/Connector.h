@@ -3,22 +3,50 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-#include "Types3.h"
-
 #include "neurons/helper/SynapseCreationRequests.h"
+#include "neurons/synaptic_elements/SynapticElements.h"
+#include "types/CommunicationTypes.h"
+#include "types/SynapseTypes.h"
 
 #include <memory>
 #include <utility>
 
-class SynapticElements;
+class NetworkGraph;
+
+/** All local synapses plus all distant-in synapses created by processing one batch of creation requests. */
+struct LocalAndDistantInSynapses {
+    PlasticLocalSynapses local_synapses;
+    PlasticDistantInSynapses distant_in_synapses;
+};
+
+/** All local synapses plus all distant-out synapses created by processing one batch of creation requests. */
+struct LocalAndDistantOutSynapses {
+    PlasticLocalSynapses local_synapses;
+    PlasticDistantOutSynapses distant_out_synapses;
+};
+
+/** Result of ForwardConnector::process_requests() / ForwardAlgorithm::process_requests(): the responses to each request, how many synapses were created, and the created synapses themselves. */
+template <typename ResponseType>
+struct ForwardProcessRequestsResult {
+    RelearnTypes::comm_map_creation<ResponseType> responses{};
+    std::uint64_t number_created_synapses{};
+    LocalAndDistantInSynapses synapses;
+};
+
+/** Result of BackwardConnector::process_requests() / BackwardAlgorithm::process_requests(): the responses to each request, how many synapses were created, and the created synapses themselves. */
+template <typename ResponseType>
+struct BackwardProcessRequestsResult {
+    RelearnTypes::comm_map_creation<ResponseType> responses{};
+    std::uint64_t number_created_synapses{};
+    LocalAndDistantOutSynapses synapses;
+};
 
 /**
  * This class commits SynapseCreationRequests and SynapseCreationResponses to the synaptic elements.
@@ -34,7 +62,7 @@ public:
      * @exception Throws a RelearnException if (a) One of the pointers is empty, (b) They have different sizes, (c) One target has an id larger than the number of elements in the pointers
      * @return A pair of (1) The responses to each request and (2) another pair of (a) all local synapses and (b) all distant synapses to the local rank
      */
-    [[nodiscard]] static std::pair<RelearnTypes::comm_map_creation<SynapseCreationResponse>, std::pair<PlasticLocalSynapses, PlasticDistantInSynapses>>
+    [[nodiscard]] static ForwardProcessRequestsResult<SynapseCreationResponse>
     process_requests(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests,
                      const std::shared_ptr<SynapticElements>& synaptic_elements);
 
@@ -67,7 +95,7 @@ public:
      * @exception Throws a RelearnException if (a) The pointer is empty, (b) One target has an id larger than the number of elements in the pointers, (c) The signal type of a request does not match that of the axon
      * @return A pair of (1) The responses to each request and (2) another pair of (a) all local synapses and (b) all distant synapses from the local rank
      */
-    [[nodiscard]] static std::pair<RelearnTypes::comm_map_creation<SynapseCreationResponse>, std::pair<PlasticLocalSynapses, PlasticDistantOutSynapses>>
+    [[nodiscard]] static BackwardProcessRequestsResult<SynapseCreationResponse>
     process_requests(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests, const std::shared_ptr<SynapticElements>& synaptic_elements);
 
     /**

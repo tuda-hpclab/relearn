@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -10,28 +10,37 @@
 
 #include "CachedChoiceFunction.h"
 
-#include "util/VectorUtil.h"
+#include "util/NeuronIDRange.h"
+#include "util/RelearnException.h"
 
-#include <range/v3/algorithm/max_element.hpp>
+#include <boost/functional/hash.hpp>
+
+#include <cpp-utility/data/group.hpp>
+
 #include <range/v3/range/conversion.hpp>
+#include <range/v3/view/transform.hpp>
 
+#include <algorithm>
+#include <cstddef>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
-CachedChoiceFunction::CachedChoiceFunction(std::vector<std::tuple<RelearnTypes::step_type, RelearnTypes::step_type, size_t, std::vector<NeuronID>>>&& _background_activities, const RelearnTypes::number_neurons_type _number_neurons)
+CachedChoiceFunction::CachedChoiceFunction(std::vector<BackgroundActivityEntry>&& _background_activities, const RelearnTypes::number_neurons_type _number_neurons)
     : background_activities(std::move(_background_activities))
     , number_neurons(_number_neurons) {
     cur_input_indices.resize(number_neurons);
 
     // Extract begin and end of the inputs to store the steps in which we have to update
-    update_steps = background_activities | ranges::views::transform([](const auto& p) { return std::get<0>(p); }) | ranges::to_vector;
-    const auto ends = background_activities | ranges::views::transform([](const auto& p) { return std::get<1>(p); }) | ranges::to_vector;
+    update_steps = background_activities | ranges::views::transform([](const auto& p) { return p.begin; }) | ranges::to_vector;
+    const auto ends = background_activities | ranges::views::transform([](const auto& p) { return p.end; }) | ranges::to_vector;
     update_steps.insert(update_steps.end(), ends.begin(), ends.end());
     std::sort(update_steps.begin(), update_steps.end());
 
     const auto last_us = std::unique(update_steps.begin(), update_steps.end());
     update_steps.erase(last_us, update_steps.end());
 
-    const auto all_indices = background_activities | ranges::views::transform([](const auto& p) { return std::get<2>(p); }) | ranges::to_vector;
+    const auto all_indices = background_activities | ranges::views::transform([](const auto& p) { return p.input_index; }) | ranges::to_vector;
     const auto largest_input_index_it = std::max_element(all_indices.begin(), all_indices.end());
     if (largest_input_index_it != all_indices.end()) {
         number_inputs = *(largest_input_index_it) + 1U;
@@ -49,7 +58,7 @@ CachedChoiceFunction::CachedChoiceFunction(std::vector<std::tuple<RelearnTypes::
                 }
             }
         }
-        for (const auto& neuron_id : NeuronID::range_id(number_neurons)) {
+        for (const auto& neuron_id : NeuronIDRange::range_id(number_neurons)) {
             auto& indices_vector = indices[neuron_id];
             if (!indices_vector.empty()) {
                 std::sort(indices_vector.begin(), indices_vector.end());
@@ -108,7 +117,7 @@ void CachedChoiceFunction::update(RelearnTypes::step_type step) {
 
     for (auto input_index = 0U; input_index < input_to_neuron_ids.size(); input_index++) {
         input_to_neuron_id_to_ranges[input_index] = std::unordered_set<std::pair<NeuronID, NeuronID>, boost::hash<std::pair<NeuronID, NeuronID>>>{};
-        const auto& neuron_id_ranges = VectorUtil::splitConsecutiveOrEqual<NeuronID>(input_to_neuron_ids[input_index], [](const auto& predecessor, const auto& successor) { return predecessor.get_neuron_id() + 1 == successor.get_neuron_id() || predecessor == successor; });
+        const auto& neuron_id_ranges = utility::group_consecutive_elements<NeuronID>(input_to_neuron_ids[input_index], [](const auto& predecessor, const auto& successor) { return predecessor.get_neuron_id() + 1 == successor.get_neuron_id() || predecessor == successor; });
 
         for (const auto& consecutive_neuron_ids : neuron_id_ranges) {
             input_to_neuron_id_to_ranges[input_index].emplace(consecutive_neuron_ids[0], consecutive_neuron_ids[consecutive_neuron_ids.size() - 1]);

@@ -3,19 +3,23 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
+#include "types/BasicTypes.h"
+
+#include <cpp-utility/Cast.hpp>
+
 namespace models::aeif {
 /**
  * This class contains the parameters for the AEIF model.
- * @tparam real_type The type of the parameters, default is double
+ * @tparam real_type The type of the parameters, i.e., of the membrane potential and the recovery variables
  */
-template <typename real_type = double>
+template <typename real_type = RelearnTypes::activity_type>
 class Parameters {
 public:
     /**
@@ -127,35 +131,35 @@ public:
         return V_spike;
     }
 
-    static constexpr real_type default_C{ 281.0 };
-    static constexpr real_type default_g_L{ 30.0 };
-    static constexpr real_type default_E_L{ -70.6 };
-    static constexpr real_type default_V_T{ -50.4 };
-    static constexpr real_type default_d_T{ 2.0 };
-    static constexpr real_type default_tau_w{ 144.0 };
-    static constexpr real_type default_a{ 4.0 };
-    static constexpr real_type default_b{ 0.0805 };
-    static constexpr real_type default_V_spike{ 20.0 };
+    static constexpr real_type default_C{ utility::as<real_type>(281.0) };
+    static constexpr real_type default_g_L{ utility::as<real_type>(30.0) };
+    static constexpr real_type default_E_L{ utility::as<real_type>(-70.6) };
+    static constexpr real_type default_V_T{ utility::as<real_type>(-50.4) };
+    static constexpr real_type default_d_T{ utility::as<real_type>(2.0) };
+    static constexpr real_type default_tau_w{ utility::as<real_type>(144.0) };
+    static constexpr real_type default_a{ utility::as<real_type>(4.0) };
+    static constexpr real_type default_b{ utility::as<real_type>(0.0805) };
+    static constexpr real_type default_V_spike{ utility::as<real_type>(20.0) };
 
-    static constexpr real_type min_C{ 100.0 };
-    static constexpr real_type min_g_L{ 0.0 };
-    static constexpr real_type min_E_L{ -150.0 };
-    static constexpr real_type min_V_T{ -150.0 };
-    static constexpr real_type min_d_T{ 0.0 };
-    static constexpr real_type min_tau_w{ 100.0 };
-    static constexpr real_type min_a{ 0.0 };
-    static constexpr real_type min_b{ 0.0 };
-    static constexpr real_type min_V_spike{ 0.0 };
+    static constexpr real_type min_C{ utility::as<real_type>(100.0) };
+    static constexpr real_type min_g_L{ utility::as<real_type>(0.0) };
+    static constexpr real_type min_E_L{ utility::as<real_type>(-150.0) };
+    static constexpr real_type min_V_T{ utility::as<real_type>(-150.0) };
+    static constexpr real_type min_d_T{ utility::as<real_type>(0.0) };
+    static constexpr real_type min_tau_w{ utility::as<real_type>(100.0) };
+    static constexpr real_type min_a{ utility::as<real_type>(0.0) };
+    static constexpr real_type min_b{ utility::as<real_type>(0.0) };
+    static constexpr real_type min_V_spike{ utility::as<real_type>(0.0) };
 
-    static constexpr real_type max_C{ 500.0 };
-    static constexpr real_type max_g_L{ 100.0 };
-    static constexpr real_type max_E_L{ -20.0 };
-    static constexpr real_type max_V_T{ 0.0 };
-    static constexpr real_type max_d_T{ 10.0 };
-    static constexpr real_type max_tau_w{ 200.0 };
-    static constexpr real_type max_a{ 10.0 };
-    static constexpr real_type max_b{ 0.3 };
-    static constexpr real_type max_V_spike{ 70.0 };
+    static constexpr real_type max_C{ utility::as<real_type>(500.0) };
+    static constexpr real_type max_g_L{ utility::as<real_type>(100.0) };
+    static constexpr real_type max_E_L{ utility::as<real_type>(-20.0) };
+    static constexpr real_type max_V_T{ utility::as<real_type>(0.0) };
+    static constexpr real_type max_d_T{ utility::as<real_type>(10.0) };
+    static constexpr real_type max_tau_w{ utility::as<real_type>(200.0) };
+    static constexpr real_type max_a{ utility::as<real_type>(10.0) };
+    static constexpr real_type max_b{ utility::as<real_type>(0.3) };
+    static constexpr real_type max_V_spike{ utility::as<real_type>(70.0) };
 
 private:
     real_type C{ default_C };             // membrane capacitance

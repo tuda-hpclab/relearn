@@ -3,16 +3,12 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2025-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
-
-#include "Types.h"
-#include "Types2.h"
-#include "Types3.h"
 
 #include "algorithm/Algorithm.h"
 #include "algorithm/AlgorithmEnum.h"
@@ -29,10 +25,15 @@
 #include "neurons/helper/SynapseCreationRequests.h"
 #include "neurons/synaptic_elements/SynapticElements.h"
 #include "structure/SpaceFillingCurve.h"
+#include "types/AlgorithmTypes.h"
+#include "types/BasicTypes.h"
+#include "types/CommunicationTypes.h"
+#include "types/SpaceTypes.h"
+#include "types/SynapseTypes.h"
 #include "util/Timers.h"
 
-#include "mpi-wrapper/CommunicationMap.h"
-#include "mpi-wrapper/MPIAdvancedCommunicationPatterns.h"
+#include <mpi-wrapper/patterns/CommunicationMap.h>
+#include <mpi-wrapper/patterns/MPIAdvancedCommunicationPatterns.h>
 
 #include <functional>
 #include <memory>
@@ -42,12 +43,14 @@
 
 /**
  * @brief This is the algorithm that is chosen when multiple algorithms should be used. It is used to initialize the used algorithms
- *      properly and invoke the methods used to find target neurons in each algorithm. It manages different types of requests (forward/backward, 
+ *      properly and invoke the methods used to find target neurons in each algorithm. It manages different types of requests (forward/backward,
  *      SynapseCreationRequest/DistantNeuronRequest). Supported algorithms are: naive, barnes-hut, barnes-hut-inverted, barnes-hut-location-aware
  */
 class CombinedAlgorithms : public Algorithm {
 public:
     using number_neurons_type = RelearnTypes::number_neurons_type;
+    using counter_type = RelearnTypes::counter_type;
+    using acceptance_criterion_type = RelearnTypes::acceptance_criterion_type;
 
     /**
      * @brief Constructs a new CombinedAlgorithms object
@@ -57,12 +60,12 @@ public:
      * @param indices_and_neurons The vector indicating which neurons use which algorithms, where the indices refer to the algorithm_configs vector
      * @param theta The acceptance criterion to use in barnes-hut type algorithms, where none is given in the config itself
      */
-    CombinedAlgorithms(const RelearnTypes::bounding_box_type& bounding_box, std::shared_ptr<SpaceFillingCurve> _space_filling_curve,
-              RelearnTypes::AlgorithmConfigs&& algorithm_configs, 
-              const RelearnTypes::AlgorithmIndexWithNeuronsType& indices_and_neurons, const double theta = Constants::bh_default_theta)
-        : Algorithm() 
-        , _algorithm_configs{std::move(algorithm_configs)}
-        , _indices_and_neurons{indices_and_neurons} {
+    CombinedAlgorithms(const RelearnTypes::bounding_box_type& bounding_box, const std::shared_ptr<SpaceFillingCurve>& _space_filling_curve,
+                       RelearnTypes::AlgorithmConfigs&& algorithm_configs, // NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved) - moved into _algorithm_configs below; checker doesn't recognize the move
+                       const RelearnTypes::AlgorithmIndexWithNeuronsType& indices_and_neurons, const acceptance_criterion_type theta = Constants::bh_default_theta)
+        : Algorithm()
+        , _algorithm_configs{ std::move(algorithm_configs) }
+        , _indices_and_neurons{ indices_and_neurons } {
         initialize_algorithms(bounding_box, _space_filling_curve, theta);
     }
 
@@ -76,9 +79,9 @@ public:
      * @exception Can throw a RelearnException
      */
     void prepare_update_connectivity(const std::span<const SignalType> signal_types,
-        const std::span<const unsigned int> vacant_axons,
-        const std::span<const unsigned int> vacant_excitatory_dendrites,
-        const std::span<const unsigned int> vacant_inhibitory_dendrites) override {
+                                     const std::span<const counter_type> vacant_axons,
+                                     const std::span<const counter_type> vacant_excitatory_dendrites,
+                                     const std::span<const counter_type> vacant_inhibitory_dendrites) override {
         for (const auto& alg_ptr : algorithm_ptrs) {
             alg_ptr->prepare_update_connectivity(signal_types, vacant_axons, vacant_excitatory_dendrites, vacant_inhibitory_dendrites);
         }
@@ -91,7 +94,7 @@ public:
      * @exception Can throw a RelearnException
      * @return A tuple with the created synapses that must be committed to the network graph
      */
-    [[nodiscard]] std::tuple<PlasticLocalSynapses, PlasticDistantInSynapses, PlasticDistantOutSynapses> update_connectivity(const number_neurons_type number_neurons) override;
+    [[nodiscard]] ConnectivityUpdateResult update_connectivity(const number_neurons_type number_neurons) override;
 
     /**
      * @brief Records the memory footprint of the current object
@@ -130,17 +133,17 @@ public:
     }
 
     /**
-    * @brief Returns the vector of algorithm pointers.
-    * @return The vector of algorithm pointers
-    */
+     * @brief Returns the vector of algorithm pointers.
+     * @return The vector of algorithm pointers
+     */
     [[nodiscard]] std::vector<std::shared_ptr<Algorithm>> get_algorithm_pointers() const {
         return algorithm_ptrs;
     }
 
     /**
-    * @brief Returns the algorithm_configs by moving them, so the vector is empty afterwards.
-    * @return The algorithm_configs of the combined algorithms
-    */
+     * @brief Returns the algorithm_configs by moving them, so the vector is empty afterwards.
+     * @return The algorithm_configs of the combined algorithms
+     */
     [[nodiscard]] RelearnTypes::AlgorithmConfigs transfer_algorithm_configs() {
         return std::move(_algorithm_configs);
     }
@@ -150,14 +153,14 @@ public:
     }
 
 protected:
-     /**
+    /**
      * @brief Processes all incoming requests that go from axons to dendrites from the MPI ranks locally, and prepares the responses
      * @param creation_requests The requests from axons to dendrites from all MPI ranks
      * @exception Can throw a RelearnException
      * @return A pair of (1) The responses to each request and (2) another pair of (a) all local synapses and (b) all distant synapses to the local rank
      */
-    [[nodiscard]] std::pair<RelearnTypes::comm_map_creation<SynapseCreationResponse>, std::pair<PlasticLocalSynapses, PlasticDistantInSynapses>>
-        process_requests_forward(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests);
+    [[nodiscard]] ForwardProcessRequestsResult<SynapseCreationResponse>
+    process_requests_forward(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests);
 
     /**
      * @brief Processes all incoming responses that correspond to requests that go from axons to dendrites from the MPI ranks locally
@@ -167,7 +170,7 @@ protected:
      * @return All synapses from this MPI rank to other MPI ranks
      */
     [[nodiscard]] PlasticDistantOutSynapses process_responses_forward(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests,
-        const RelearnTypes::comm_map_creation<SynapseCreationResponse>& creation_responses);
+                                                                      const RelearnTypes::comm_map_creation<SynapseCreationResponse>& creation_responses);
 
     /**
      * @brief Processes all incoming requests that go from dendrites to axons from the MPI ranks locally, and prepares the responses
@@ -175,8 +178,8 @@ protected:
      * @exception Can throw a RelearnException
      * @return A pair of (1) The responses to each request and (2) another pair of (a) all local synapses and (b) all distant synapses to the local rank
      */
-    [[nodiscard]] std::pair<RelearnTypes::comm_map_creation<SynapseCreationResponse>, std::pair<PlasticLocalSynapses, PlasticDistantOutSynapses>>
-        process_requests_backward(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests);
+    [[nodiscard]] BackwardProcessRequestsResult<SynapseCreationResponse>
+    process_requests_backward(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests);
 
     /**
      * @brief Processes all incoming responses that correspond to requests that go from dendrites to axons from the MPI ranks locally
@@ -186,15 +189,15 @@ protected:
      * @return All synapses from this MPI rank to other MPI ranks
      */
     [[nodiscard]] PlasticDistantInSynapses process_responses_backward(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests,
-        const RelearnTypes::comm_map_creation<SynapseCreationResponse>& creation_responses);
+                                                                      const RelearnTypes::comm_map_creation<SynapseCreationResponse>& creation_responses);
 
     /**
-    * @brief Initializes the vector of algorithm pointers so that the algorithms are constructed and reachable
-    * @param bounding_box The bounding box that the algorithms use
-    * @param _space_filling_curve The space filling curve
-    * @param theta The acceptance criterion for barnes-hut algorithms
-    */
-    void initialize_algorithms(const RelearnTypes::bounding_box_type& bounding_box, std::shared_ptr<SpaceFillingCurve> _space_filling_curve, const double theta) {
+     * @brief Initializes the vector of algorithm pointers so that the algorithms are constructed and reachable
+     * @param bounding_box The bounding box that the algorithms use
+     * @param _space_filling_curve The space filling curve
+     * @param theta The acceptance criterion for barnes-hut algorithms
+     */
+    void initialize_algorithms(const RelearnTypes::bounding_box_type& bounding_box, const std::shared_ptr<SpaceFillingCurve>& _space_filling_curve, const acceptance_criterion_type theta) {
         for (auto& algorithm_config : _algorithm_configs) {
             const auto algorithm = algorithm_config.get_algorithm_type();
             const auto opt_theta = algorithm_config.get_theta();

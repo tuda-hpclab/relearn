@@ -5,34 +5,65 @@ BreakConstructorInitializers: BeforeComma
 ColumnLimit: 0
 Cpp11BracedListStyle: false
 IncludeBlocks: Regroup
+SortIncludes: CaseSensitive
+# One block per library, in alphabetical order of the directory the library is
+# included from. scripts/format-check/includes.sh checks the same order and
+# derives it from the directory alone; clang-format cannot do that, so every
+# library is listed here by hand and a new one has to be added below, in the
+# alphabetical spot its directory belongs to.
+#
+# The regexes below spell out their character classes. clang-format matches them
+# with llvm::Regex, which does not know the \w of PCRE: a category that uses \w
+# matches nothing at all, every include ends up in the same group, and the whole
+# grouping silently does nothing.
 IncludeCategories:
-  # Local headers in ""
-  - Regex: '"[a-zA-Z0-9.a-zA-Z0-9]+"'
+  # The headers of this project without a directory, in ""
+  - Regex: '^"[-A-Za-z0-9_.]+"$'
     Priority: 1
-  # Local headers in "" with /
-  - Regex: '"cpp-utility\/[-\w\/\.-_]+"'
+  # The adapters and the factories of the test harness, in "". Both are matched
+  # before the headers of this project, whose regex would swallow them.
+  - Regex: '^"adapter/'
     Priority: 3
-  # Local headers in "" with /
-  - Regex: '"mpi-wrapper\/[-\w\/\.-_]+"'
+  - Regex: '^"factory/'
     Priority: 4
-  # Local headers in "" with /
-  - Regex: '"adapter\/[-\w\/\.-_]+"'
-    Priority: 5
-  # Local headers in "" with /
-  - Regex: '"factory\/[\w\/\.-_]+"'
-    Priority: 6
-  # Local headers in "" with /
-  - Regex: '"[-\w\/\.-_]+\/[-\w\/\.-_]+"'
+  # The headers of this project with a directory, in ""
+  - Regex: '^"[-A-Za-z0-9_./]+"$'
     Priority: 2
-  # Specific external headers in <> to put first
-  - Regex: '<gtest.*>'
+  # One block per library, in <>, in alphabetical order of its directory
+  - Regex: '^<benchmark/'
+    Priority: 5
+  - Regex: '^<boost/'
+    Priority: 6
+  - Regex: '^<CLI/'
     Priority: 7
-  # External headers in <> with extension or /
-  - Regex: '<[-\w\/-_]+[\.\/][-\w\/-_]+>'
+  - Regex: '^<cpp-utility/'
     Priority: 8
-  # Standard headers in <>
-  - Regex: '<[-\w\/-_]+>'
+  - Regex: '^<ctpg/'
     Priority: 9
+  - Regex: '^<fmt/'
+    Priority: 10
+  - Regex: '^<gmock/'
+    Priority: 11
+  - Regex: '^<gtest/'
+    Priority: 12
+  - Regex: '^<mpi-wrapper/'
+    Priority: 13
+  - Regex: '^<range/'
+    Priority: 14
+  - Regex: '^<spdlog/'
+    Priority: 15
+  - Regex: '^<thrust/'
+    Priority: 16
+  # A library that is not listed above. The check sorts it alphabetically among
+  # the blocks above instead, so add it there rather than leaving it here.
+  - Regex: '^<[-A-Za-z0-9_.]+/'
+    Priority: 17
+  # The third party headers in <> that carry no directory, e.g. <omp.h>
+  - Regex: '^<[-A-Za-z0-9_]+[.][-A-Za-z0-9_.]+>$'
+    Priority: 18
+  # The standard headers in <>
+  - Regex: '^<[-A-Za-z0-9_]+>$'
+    Priority: 19
 IndentWidth: 4
 Language: Cpp
 PointerAlignment: Left

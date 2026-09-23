@@ -1,7 +1,7 @@
 ﻿/*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -12,9 +12,12 @@
 
 #include "neurons/helper/NeuronMonitor.h"
 
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
+#include <cpp-utility/Cast.hpp>
 
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
+
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <unordered_set>
@@ -35,10 +38,10 @@ TEST_F(NeuronMonitorTest, testRegisterParameter) {
 
     nm.set_output_path("./", true);
 
-    ASSERT_NO_THROW(nm.register_paramter("test1", [](RelearnTypes::number_neurons_type) { return 0.0F; }));
-    ASSERT_NO_THROW(nm.register_paramter("test2", [](RelearnTypes::number_neurons_type) { return 0; }));
-    ASSERT_NO_THROW(nm.register_paramter("test3", [](RelearnTypes::number_neurons_type) { return 0U; }));
-    ASSERT_NO_THROW(nm.register_paramter("test4", [](RelearnTypes::number_neurons_type) { return false; }));
+    ASSERT_NO_THROW(nm.register_paramter("test1", [](RelearnTypes::number_neurons_type) { return 0.0F; }, []() { }, []() { }));
+    ASSERT_NO_THROW(nm.register_paramter("test2", [](RelearnTypes::number_neurons_type) { return 0; }, []() { }, []() { }));
+    ASSERT_NO_THROW(nm.register_paramter("test3", [](RelearnTypes::number_neurons_type) { return 0U; }, []() { }, []() { }));
+    ASSERT_NO_THROW(nm.register_paramter("test4", [](RelearnTypes::number_neurons_type) { return false; }, []() { }, []() { }));
 }
 
 TEST_F(NeuronMonitorTest, testRegisterNeuron) {
@@ -77,11 +80,9 @@ TEST_F(NeuronMonitorTest, testCallbacks) {
     auto test3_calls = std::unordered_set<RelearnTypes::number_neurons_type>{};
     auto test4_calls = std::unordered_set<RelearnTypes::number_neurons_type>{};
 
-    nm.register_paramter("test1",
-                         [&test1_calls](RelearnTypes::number_neurons_type neuron_id) {
+    nm.register_paramter("test1", [&test1_calls](RelearnTypes::number_neurons_type neuron_id) {
                              test1_calls.emplace(neuron_id);
-                             return 0.0F;
-                         });
+                             return 0.0F; }, []() { }, []() { });
 
     nm.record_data(100);
 
@@ -90,11 +91,9 @@ TEST_F(NeuronMonitorTest, testCallbacks) {
     ASSERT_TRUE(test3_calls.empty());
     ASSERT_TRUE(test4_calls.empty());
 
-    nm.register_paramter("test2",
-                         [&test2_calls](RelearnTypes::number_neurons_type neuron_id) {
+    nm.register_paramter("test2", [&test2_calls](RelearnTypes::number_neurons_type neuron_id) {
                              test2_calls.emplace(neuron_id);
-                             return 0;
-                         });
+                             return 0; }, []() { }, []() { });
 
     nm.record_data(101);
 
@@ -119,17 +118,13 @@ TEST_F(NeuronMonitorTest, testCallbacks) {
     test1_calls.clear();
     test2_calls.clear();
 
-    nm.register_paramter("test3",
-                         [&test3_calls](RelearnTypes::number_neurons_type neuron_id) {
+    nm.register_paramter("test3", [&test3_calls](RelearnTypes::number_neurons_type neuron_id) {
                              test3_calls.emplace(neuron_id);
-                             return 0U;
-                         });
+                             return 0U; }, []() { }, []() { });
 
-    nm.register_paramter("test4",
-                         [&test4_calls](RelearnTypes::number_neurons_type neuron_id) {
+    nm.register_paramter("test4", [&test4_calls](RelearnTypes::number_neurons_type neuron_id) {
                              test4_calls.emplace(neuron_id);
-                             return false;
-                         });
+                             return false; }, []() { }, []() { });
 
     nm.register_neuron(30);
     nm.register_neuron(32);
@@ -170,10 +165,10 @@ TEST_F(NeuronMonitorTest, testFlushOutput) {
 
     nm.set_output_path("./t1", true);
 
-    nm.register_paramter("test1", [](RelearnTypes::number_neurons_type neuron_id) { return static_cast<float>(neuron_id) + 0.024f; });
-    nm.register_paramter("test2", [](RelearnTypes::number_neurons_type neuron_id) { return -static_cast<int>(neuron_id); });
-    nm.register_paramter("test3", [](RelearnTypes::number_neurons_type neuron_id) { return static_cast<unsigned int>(neuron_id); });
-    nm.register_paramter("test4", [](RelearnTypes::number_neurons_type /*neuron_id*/) { return false; });
+    nm.register_paramter("test1", [](RelearnTypes::number_neurons_type neuron_id) { return static_cast<float>(neuron_id) + 0.024F; }, []() { }, []() { });
+    nm.register_paramter("test2", [](RelearnTypes::number_neurons_type neuron_id) { return -static_cast<int>(neuron_id); }, []() { }, []() { });
+    nm.register_paramter("test3", [](RelearnTypes::number_neurons_type neuron_id) { return static_cast<unsigned int>(neuron_id); }, []() { }, []() { });
+    nm.register_paramter("test4", [](RelearnTypes::number_neurons_type /*neuron_id*/) { return false; }, []() { }, []() { });
 
     nm.register_neuron(25);
     nm.register_neuron(30);
@@ -272,10 +267,10 @@ TEST_F(NeuronMonitorTest, testMultipleFlushOutput) {
 
     nm.set_output_path("./t2", true);
 
-    nm.register_paramter("test1", [](RelearnTypes::number_neurons_type neuron_id) { return static_cast<float>(neuron_id) + 0.024f; });
-    nm.register_paramter("test2", [](RelearnTypes::number_neurons_type neuron_id) { return -static_cast<int>(neuron_id); });
-    nm.register_paramter("test3", [](RelearnTypes::number_neurons_type neuron_id) { return static_cast<unsigned int>(neuron_id); });
-    nm.register_paramter("test4", [](RelearnTypes::number_neurons_type /*neuron_id*/) { return false; });
+    nm.register_paramter("test1", [](RelearnTypes::number_neurons_type neuron_id) { return static_cast<float>(neuron_id) + 0.024F; }, []() { }, []() { });
+    nm.register_paramter("test2", [](RelearnTypes::number_neurons_type neuron_id) { return -static_cast<int>(neuron_id); }, []() { }, []() { });
+    nm.register_paramter("test3", [](RelearnTypes::number_neurons_type neuron_id) { return static_cast<unsigned int>(neuron_id); }, []() { }, []() { });
+    nm.register_paramter("test4", [](RelearnTypes::number_neurons_type /*neuron_id*/) { return false; }, []() { }, []() { });
 
     nm.register_neuron(25);
     nm.register_neuron(30);

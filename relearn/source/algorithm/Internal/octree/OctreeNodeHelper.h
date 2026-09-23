@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2023-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -15,7 +15,7 @@
 #include "algorithm/Internal/octree/OctreeNode.h"
 #include "util/RelearnException.h"
 
-#include "cpp-utility/data-structure/Stack.hpp"
+#include <cpp-utility/data-structure/Stack.hpp>
 
 #include <optional>
 #include <utility>
@@ -26,7 +26,8 @@ class OctreeNodeUpdater {
 private:
     using position_type = typename Cell<AdditionalCellAttributes>::position_type;
     using counter_type = typename Cell<AdditionalCellAttributes>::counter_type;
-    using box_size_type = typename Cell<AdditionalCellAttributes>::box_size_type;
+    using space_type = typename Cell<AdditionalCellAttributes>::space_type;
+    using level_type = RelearnTypes::level_type;
 
     constexpr static bool has_excitatory_dendrite = AdditionalCellAttributes::has_excitatory_dendrite;
     constexpr static bool has_inhibitory_dendrite = AdditionalCellAttributes::has_inhibitory_dendrite;
@@ -41,6 +42,10 @@ public:
      */
     static void update_node(OctreeNode<AdditionalCellAttributes>* node) {
         RelearnException::check(node != nullptr, "OctreeNodeUpdater::update_node: node was nullptr");
+
+        RelearnException::check(node->get_mpi_rank().is_initialized(),
+                                "OctreeNodeUpdater::update_node: node has no MPI rank.\nMy rank is {} and the level of the node is {}",
+                                mpiPP::MPIInfo::get_my_rank_str(), node->get_level());
 
         if constexpr (has_excitatory_dendrite) {
             auto my_position = position_type{ 0.0, 0.0, 0.0 };
@@ -70,7 +75,7 @@ public:
 
                     RelearnException::check(is_in_box, "OctreeNodeUpdater::update_node: The excitatory dendrites of the child are not in its cell");
 
-                    const auto& scaled_position = child_position * static_cast<double>(child_free_elements);
+                    const auto& scaled_position = child_position * static_cast<space_type>(child_free_elements);
                     my_position += scaled_position;
                 }
             }
@@ -87,7 +92,7 @@ public:
                 const auto& [child_cell_xyz_min, child_cell_xyz_max] = node->get_cell().get_size();
 
                 // This clipping exists because of potential rounding errors
-                auto scaled_position = my_position / my_free_elements;
+                auto scaled_position = my_position / static_cast<space_type>(my_free_elements);
                 scaled_position.clip_to_box(child_cell_xyz_min, child_cell_xyz_max);
 
                 node->set_cell_excitatory_dendrites_position(std::optional<position_type>{ scaled_position });
@@ -122,7 +127,7 @@ public:
 
                     RelearnException::check(is_in_box, "OctreeNodeUpdater::update_node: The inhibitory dendrites of the child are not in its cell");
 
-                    const auto& scaled_position = child_position * static_cast<double>(child_free_elements);
+                    const auto& scaled_position = child_position * static_cast<space_type>(child_free_elements);
                     my_position += scaled_position;
                 }
             }
@@ -139,7 +144,7 @@ public:
                 const auto& [child_cell_xyz_min, child_cell_xyz_max] = node->get_cell().get_size();
 
                 // This clipping exists because of potential rounding errors
-                auto scaled_position = my_position / my_free_elements;
+                auto scaled_position = my_position / static_cast<space_type>(my_free_elements);
                 scaled_position.clip_to_box(child_cell_xyz_min, child_cell_xyz_max);
 
                 node->set_cell_inhibitory_dendrites_position(std::optional<position_type>{ scaled_position });
@@ -174,7 +179,7 @@ public:
 
                     RelearnException::check(is_in_box, "OctreeNodeUpdater::update_node: The excitatory axons of the child are not in its cell");
 
-                    const auto& scaled_position = child_position * static_cast<double>(child_free_elements);
+                    const auto& scaled_position = child_position * static_cast<space_type>(child_free_elements);
                     my_position += scaled_position;
                 }
             }
@@ -191,7 +196,7 @@ public:
                 const auto& [child_cell_xyz_min, child_cell_xyz_max] = node->get_cell().get_size();
 
                 // This clipping exists because of potential rounding errors
-                auto scaled_position = my_position / my_free_elements;
+                auto scaled_position = my_position / static_cast<space_type>(my_free_elements);
                 scaled_position.clip_to_box(child_cell_xyz_min, child_cell_xyz_max);
 
                 node->set_cell_excitatory_axons_position(std::optional<position_type>{ scaled_position });
@@ -226,7 +231,7 @@ public:
 
                     RelearnException::check(is_in_box, "OctreeNodeUpdater::update_node: The inhibitory axons of the child are not in its cell");
 
-                    const auto& scaled_position = child_position * static_cast<double>(child_free_elements);
+                    const auto& scaled_position = child_position * static_cast<space_type>(child_free_elements);
                     my_position += scaled_position;
                 }
             }
@@ -243,7 +248,7 @@ public:
                 const auto& [child_cell_xyz_min, child_cell_xyz_max] = node->get_cell().get_size();
 
                 // This clipping exists because of potential rounding errors
-                auto scaled_position = my_position / my_free_elements;
+                auto scaled_position = my_position / static_cast<space_type>(my_free_elements);
                 scaled_position.clip_to_box(child_cell_xyz_min, child_cell_xyz_max);
 
                 node->set_cell_inhibitory_axons_position(std::optional<position_type>{ scaled_position });
@@ -258,7 +263,7 @@ public:
      * @param max_depth The depth where the updates shall stop
      * @exception Throws a RelearnException if tree is nullptr or if max_depth is smaller than the depth of local_tree_root
      */
-    static void update_tree(OctreeNode<AdditionalCellAttributes>* tree, const std::uint16_t max_depth = std::numeric_limits<std::uint16_t>::max()) {
+    static void update_tree(OctreeNode<AdditionalCellAttributes>* tree, const level_type max_depth = std::numeric_limits<level_type>::max()) {
         struct StackElement {
         private:
             OctreeNode<AdditionalCellAttributes>* ptr{ nullptr };
@@ -355,7 +360,7 @@ class OctreeNodeExtractor {
 public:
     using position_type = typename Cell<AdditionalCellAttributes>::position_type;
     using counter_type = typename Cell<AdditionalCellAttributes>::counter_type;
-    using box_size_type = typename Cell<AdditionalCellAttributes>::box_size_type;
+    using space_type = typename Cell<AdditionalCellAttributes>::space_type;
 
 private:
     constexpr static bool has_excitatory_dendrite = AdditionalCellAttributes::has_excitatory_dendrite;
@@ -376,6 +381,7 @@ public:
     [[nodiscard]] static std::vector<std::pair<position_type, counter_type>> get_all_positions_for(OctreeNode<AdditionalCellAttributes>* node, const NodeCache<AdditionalCellAttributes>& cache,
                                                                                                    const ElementType element_type, const SignalType signal_type) {
         RelearnException::check(node != nullptr, "OctreeNodeExtractor::get_all_positions_for: node is nullptr");
+        RelearnException::check(node->get_mpi_rank().is_initialized(), "OctreeNodeExtractor::get_all_positions_for: node had uninitialized MPI rank.");
 
         if (element_type == ElementType::Axon && signal_type == SignalType::Excitatory) {
             RelearnException::check(has_excitatory_axon, "OctreeNodeExtractor::get_all_positions_for: Requested excitatory axon, but there are none based on the AdditionalCellAttributes");
@@ -402,15 +408,16 @@ public:
             if (current_node->is_leaf()) {
                 // Get number and position, depending on which types were chosen.
                 const auto& cell = current_node->get_cell();
-                const auto& opt_position = cell.get_position_for(element_type, signal_type);
-                RelearnException::check(opt_position.has_value(), "OctreeNodeExtractor::get_all_positions_for: opt_position has no value.");
-
                 const auto number_elements = cell.get_number_elements_for(element_type, signal_type);
                 if (number_elements != 0) {
+                    const auto& opt_position = cell.get_position_for(element_type, signal_type);
+                    RelearnException::check(opt_position.has_value(), "OctreeNodeExtractor::get_all_positions_for: opt_position has no value.");
                     result.emplace_back(opt_position.value(), number_elements);
                 }
                 continue;
             }
+
+            RelearnException::check(current_node->get_mpi_rank().is_initialized(), "OctreeNodeExtractor::get_all_positions_for: current_node had uninitialized MPI rank.");
 
             const auto& children = cache.get_children(current_node);
             for (auto* child : children) {
@@ -423,6 +430,9 @@ public:
                 }
 
                 // push children to stack that have relevant elements
+                RelearnException::check(child->get_mpi_rank().is_initialized(),
+                                        "OctreeNodeExtractor::get_all_positions_for: child had uninitialized MPI rank.\nMy rank is {}, the rank of the node is {}, the level is {}",
+                                        mpiPP::MPIInfo::get_my_rank_str(), current_node->get_mpi_rank().get_rank(), current_node->get_level());
                 stack.emplace_back(child);
             }
         }

@@ -3,23 +3,24 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-
 #include "algorithm/Internal/octree/Octree.h"
 #include "algorithm/Internal/octree/OctreeNode.h"
 #include "neurons/NeuronsExtraInfo.h"
 #include "structure/SpaceFillingCurve.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnException.h"
 #include "util/Timers.h"
 
-#include "cpp-utility/MemoryFootprint.hpp"
+#include <cpp-utility/MemoryFootprint.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -29,6 +30,7 @@ template <typename AdditionalCellAttributes>
 class OctreeAlgorithm {
 public:
     using number_neurons_type = RelearnTypes::number_neurons_type;
+    using counter_type = RelearnTypes::counter_type;
 
     /**
      * @brief Constructs a new octree algorithm
@@ -36,8 +38,8 @@ public:
      * @param _space_filling_curve The space-filling curve to use, not nullptr
      * @exception Throws a RelearnException if _space_filling_curve is nullptr
      */
-    OctreeAlgorithm(const RelearnTypes::bounding_box_type& bounding_box, std::shared_ptr<SpaceFillingCurve> _space_filling_curve)
-        : octree(std::make_unique<Octree<AdditionalCellAttributes>>(bounding_box, std::move(_space_filling_curve))) { }
+    OctreeAlgorithm(const RelearnTypes::bounding_box_type& bounding_box, std::shared_ptr<SpaceFillingCurve> _space_filling_curve, const bool rma_required)
+        : octree(std::make_unique<Octree<AdditionalCellAttributes>>(bounding_box, std::move(_space_filling_curve), rma_required)) { }
 
     /**
      * @brief Sets the extra infos for the neurons. They hold the positions and update flags for the neurons.
@@ -54,7 +56,7 @@ public:
      * @param number_neurons The number of local neurons to store in this class
      */
     void init(const number_neurons_type number_neurons) {
-        for (const auto neuron_id : NeuronID::range(number_neurons)) {
+        for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
             const auto pos = octree_internal_extra_infos->get_position(neuron_id);
             octree->insert(pos, neuron_id);
         }
@@ -72,7 +74,7 @@ public:
         const auto current_size = local_number_neurons;
         const auto new_size = current_size + creation_count;
 
-        for (const auto neuron_id : NeuronID::range(current_size, new_size)) {
+        for (const auto neuron_id : NeuronIDRange::range(current_size, new_size)) {
             const auto pos = octree_internal_extra_infos->get_position(neuron_id);
             octree->insert(pos, neuron_id);
         }
@@ -96,9 +98,9 @@ public:
      * @exception Can throw a RelearnException
      */
     void update_tree(const std::span<const SignalType> signal_types,
-                     const std::span<const unsigned int> vacant_axons,
-                     const std::span<const unsigned int> vacant_excitatory_dendrites,
-                     const std::span<const unsigned int> vacant_inhibitory_dendrites) {
+                     const std::span<const counter_type> vacant_axons,
+                     const std::span<const counter_type> vacant_excitatory_dendrites,
+                     const std::span<const counter_type> vacant_inhibitory_dendrites) {
 
         // Update my leaf nodes
         Timers::start(TimerRegion::UPDATE_LEAF_NODES);
@@ -113,7 +115,7 @@ public:
      * @brief Returns the stored octree
      * @return The octree
      */
-    [[nodiscard]] const std::unique_ptr<Octree<AdditionalCellAttributes>>& get_octree() const noexcept {
+    [[nodiscard]] const std::shared_ptr<Octree<AdditionalCellAttributes>>& get_octree() const noexcept {
         return octree;
     }
 
@@ -129,7 +131,7 @@ public:
      * @brief Returns the level of branch nodes of the stored octree
      * @return The level of branch nodes
      */
-    [[nodiscard]] std::uint16_t get_level_of_branch_nodes() const noexcept {
+    [[nodiscard]] RelearnTypes::level_type get_level_of_branch_nodes() const noexcept {
         return octree->get_level_of_branch_nodes();
     }
 
@@ -150,9 +152,9 @@ private:
      * @exception Throws a RelearnException if the number of flags is different than the number of leaf nodes, or if there is an internal error
      */
     void update_leaf_nodes(const std::span<const SignalType> signal_types,
-                           const std::span<const unsigned int> vacant_axons,
-                           const std::span<const unsigned int> vacant_excitatory_dendrites,
-                           const std::span<const unsigned int> vacant_inhibitory_dendrites) {
+                           const std::span<const counter_type> vacant_axons,
+                           const std::span<const counter_type> vacant_excitatory_dendrites,
+                           const std::span<const counter_type> vacant_inhibitory_dendrites) {
 
         const auto& leaf_nodes = octree->get_leaf_nodes();
         const auto num_leaf_nodes = leaf_nodes.size();
@@ -172,7 +174,7 @@ private:
 
         RelearnException::check(all_same_size, "OctreeAlgorithm::update_leaf_nodes: The vectors were of different sizes");
 
-        for (const auto& neuron_id : NeuronID::range(num_leaf_nodes)) {
+        for (const auto& neuron_id : NeuronIDRange::range(num_leaf_nodes)) {
             const auto local_neuron_id = neuron_id.get_neuron_id();
 
             auto* node = leaf_nodes[local_neuron_id];
@@ -235,8 +237,8 @@ private:
         }
     }
 
-    std::unique_ptr<Octree<AdditionalCellAttributes>> octree{};
-    std::shared_ptr<NeuronsExtraInfo> octree_internal_extra_infos{};
+    std::shared_ptr<Octree<AdditionalCellAttributes>> octree{};
+    std::shared_ptr<NeuronsExtraInfo> octree_internal_extra_infos;
 
     number_neurons_type local_number_neurons{};
 };

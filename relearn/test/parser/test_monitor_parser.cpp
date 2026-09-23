@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,16 +11,14 @@
 #include "test_monitor_parser.h"
 
 #include "Config.h"
-#include "Types.h"
 
 #include "io/parser/MonitorParser.h"
 #include "neurons/LocalGroupTranslator.h"
 #include "neurons/helper/RankNeuronId.h"
+#include "types/BasicTypes.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/shuffle/shuffle.h"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "adapter/helper/RankNeuronIdAdapter.h"
 
@@ -30,6 +28,10 @@
 #include "factory/random/random_factory.h"
 
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
+#include <mpi-wrapper/core/MPIRankRange.h>
 
 #include <range/v3/algorithm/contains.hpp>
 #include <range/v3/range/conversion.hpp>
@@ -72,12 +74,12 @@ TEST_F(MonitorParserTest, testParseIds) {
             my_number_neurons = number_neurons;
         }
 
-        return NeuronID::range(number_neurons)
+        return NeuronIDRange::range(number_neurons)
                | ranges::views::transform([rank](const NeuronID& neuron_id) -> RankNeuronId { return { rank, neuron_id }; });
     };
 
     const auto rank_neuron_ids = ranges::views::zip(
-                                     mpiPP::MPIRank::range(number_ranks),
+                                     mpiPP::MPIRankRange::range(number_ranks),
                                      ranges::views::generate(random_number_neurons))
                                  | ranges::views::for_each(create_rank_neuron_ids)
                                  | ranges::to_vector
@@ -107,7 +109,7 @@ TEST_F(MonitorParserTest, testParseIds) {
 
     ASSERT_EQ(parsed_ids.size(), my_number_neurons);
 
-    for (const auto neuron_id : NeuronID::range_id(my_number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(my_number_neurons)) {
         ASSERT_EQ(parsed_ids[neuron_id], NeuronID(neuron_id));
     }
 }
@@ -134,7 +136,7 @@ TEST_F(MonitorParserTest, testParseGroups) {
     const auto num_neurons_in_groups = translator->get_number_neurons_in_group(1) + translator->get_number_neurons_in_group(2);
     ASSERT_TRUE(parsed_ids.size() <= num_neurons_in_groups); // parsed_ids has no duplicates but since neurons can be in multiple groups num_neurons_in_groups could count some neurons multiple times
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         const auto iter = std::ranges::find(parsed_ids, NeuronID{ neuron_id });
 
         ASSERT_TRUE((!ranges::contains(group_ids[neuron_id], 1) && !ranges::contains(group_ids[neuron_id], 2) && iter == parsed_ids.end()) || ((ranges::contains(group_ids[neuron_id], 1) || ranges::contains(group_ids[neuron_id], 2)) && iter != parsed_ids.end()));
@@ -163,7 +165,7 @@ TEST_F(MonitorParserTest, testParseGroups2) {
     const auto num_neurons_in_groups = translator->get_number_neurons_in_group(1) + translator->get_number_neurons_in_group(2);
     ASSERT_TRUE(parsed_ids.size() <= num_neurons_in_groups); // parsed_ids has no duplicates but since neurons can be in multiple groups num_neurons_in_groups could count some neurons multiple times
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         const auto iter = std::ranges::find(parsed_ids, NeuronID{ neuron_id });
 
         ASSERT_TRUE((!ranges::contains(group_ids[neuron_id], 1) && !ranges::contains(group_ids[neuron_id], 2) && iter == parsed_ids.end()) || ((ranges::contains(group_ids[neuron_id], 1) || ranges::contains(group_ids[neuron_id], 2)) && iter != parsed_ids.end()));
@@ -193,7 +195,7 @@ TEST_F(MonitorParserTest, testParseDefaultGroup) {
 
     ASSERT_EQ(parsed_ids.size(), num_neurons_in_default);
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         const auto iter = std::ranges::find(parsed_ids, NeuronID{ neuron_id });
 
         ASSERT_TRUE(ranges::contains(group_ids[neuron_id], Constants::default_group_id) && iter != parsed_ids.end());
@@ -256,7 +258,7 @@ TEST_F(MonitorParserTest, testParseGroupsRegex) {
 
     ASSERT_TRUE(parsed_ids.size() <= regex_neurons); // because regex_neurons counts single neurons multiple times if they are in multiple groups
 
-    for (const auto neuron_id : NeuronID::range_id(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons)) {
         const auto iter = std::ranges::find(parsed_ids, NeuronID{ neuron_id });
 
         auto has_regex_group = false;

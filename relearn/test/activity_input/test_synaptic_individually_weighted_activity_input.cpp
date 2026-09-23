@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -9,6 +9,7 @@
  */
 
 #include "RelearnTest.hpp"
+#include "test_activity_input.h"
 
 #include "neurons/enums/FiredStatus.h"
 #include "neurons/firing/FiredStatusCommunicationMap.h"
@@ -16,10 +17,8 @@
 #include "neurons/helper/Synapse.h"
 #include "neurons/input/SynapticIndividuallyWeightedActivityInput.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnException.h"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "factory/extra_info/extra_info_factory.h"
 #include "factory/fired_status_communicator/fired_status_communicator_factory.h"
@@ -29,15 +28,21 @@
 #include "factory/random/random_factory.h"
 #include "factory/synapses/synapses_factory.h"
 
+#include <cpp-utility/Cast.hpp>
+
 #include <gtest/gtest.h>
 
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
+
+#include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <memory>
 #include <tuple>
 #include <vector>
 
-#include "test_activity_input.h"
-
+#ifndef RELEARN_CUDA_ENABLED
 TEST_F(SynapticIndividuallyWeightedActivityInputTest, testConstructorThrow) {
     if (mpiPP::MPIInfo::get_number_ranks() != 1) {
         if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
@@ -47,7 +52,7 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testConstructorThrow) {
         return;
     }
 
-    ASSERT_THROW_NO_PRINT(std::ignore = SynapticIndividuallyWeightedActivityInput({}), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = SynapticIndividuallyWeightedActivityInput(1, {}), RelearnException);
 }
 
 TEST_F(SynapticIndividuallyWeightedActivityInputTest, testConstructorNoThrow) {
@@ -61,7 +66,7 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testConstructorNoThrow) {
 
     auto fired_status_comm = FiredStatusCommunicatorFactory::construct_map_communicator(1);
 
-    ASSERT_NO_THROW(std::ignore = SynapticIndividuallyWeightedActivityInput(fired_status_comm));
+    ASSERT_NO_THROW(std::ignore = SynapticIndividuallyWeightedActivityInput(1, fired_status_comm));
 }
 
 TEST_F(SynapticIndividuallyWeightedActivityInputTest, testInitAndCreate) {
@@ -79,7 +84,7 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testInitAndCreate) {
 
     auto fired_status_comm = FiredStatusCommunicatorFactory::construct_map_communicator(1);
 
-    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(fired_status_comm);
+    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(1, fired_status_comm);
 
     ASSERT_THROW_NO_PRINT(synaptic_activity_input.init(0), RelearnException);
     ASSERT_THROW_NO_PRINT(synaptic_activity_input.create_neurons(number_neurons_create_1), RelearnException);
@@ -146,7 +151,7 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testFootprintNoThrow) {
     fired_status_comm->init(number_neurons_init);
     fired_status_comm->set_network_graph(network_graph);
 
-    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(fired_status_comm);
+    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(1, fired_status_comm);
     synaptic_activity_input.set_network_graph(network_graph);
     synaptic_activity_input.set_extra_infos(neurons_extra_info);
 
@@ -184,7 +189,7 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testSetExtraInfoThrow) {
     fired_status_comm->set_network_graph(network_graph);
     fired_status_comm->set_fired_status_recorder(fired_status_recorder);
 
-    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(fired_status_comm);
+    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(1, fired_status_comm);
 
     synaptic_activity_input.init(number_neurons_init + 1);
     synaptic_activity_input.set_network_graph(network_graph);
@@ -224,7 +229,7 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testUpdateInputEmptyNetwor
     fired_status_comm->set_network_graph(network_graph);
     fired_status_comm->set_fired_status_recorder(fired_status_recorder);
 
-    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(fired_status_comm);
+    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(1, fired_status_comm);
 
     synaptic_activity_input.init(number_neurons_init);
     synaptic_activity_input.set_network_graph(network_graph);
@@ -235,7 +240,7 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testUpdateInputEmptyNetwor
 
     synaptic_activity_input.update_input(102);
     const auto actual_input = synaptic_activity_input.get_input();
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         ASSERT_EQ(synaptic_activity_input.get_input(neuron_id), 0.0);
         ASSERT_EQ(actual_input[neuron_id.get_neuron_id()], 0.0);
     }
@@ -264,7 +269,7 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testUpdateInputFullNetwork
     fired_status_comm->set_network_graph(network_graph);
     fired_status_comm->set_fired_status_recorder(fired_status_recorder);
 
-    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(fired_status_comm);
+    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(1, fired_status_comm);
 
     synaptic_activity_input.init(number_neurons_init);
     synaptic_activity_input.set_network_graph(network_graph);
@@ -276,8 +281,8 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testUpdateInputFullNetwork
     // create weight map
     SynapticIndividuallyWeightedActivityInput::weight_map_type weight_map{};
 
-    auto expected_input = std::vector<double>(number_neurons_init, 0.0);
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    auto expected_input = std::vector<RelearnTypes::activity_type>(number_neurons_init, 0.0);
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         const auto& [plastic_edges, _] = network_graph->get_local_in_edges(neuron_id.get_neuron_id());
         fired_status_recorder->set_fired(neuron_id, FiredStatus::Fired);
         for (const auto& [source_neuron_id, synapse_strength] : plastic_edges) {
@@ -287,12 +292,12 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testUpdateInputFullNetwork
             const auto is_inhibitory = synapse_strength < 0;
             const auto synapse_strength_abs = std::abs(synapse_strength);
             for (auto i = 0; i < synapse_strength_abs; i++) {
-                auto random_weight = RandomFactory::get_random_double<SynapticIndividuallyWeightedActivityInput::weight_type>(0.1, 10.0, this->mt);
+                auto random_weight = RandomFactory::get_random_double<SynapticIndividuallyWeightedActivityInput::weight_type>(utility::as<SynapticIndividuallyWeightedActivityInput::weight_type>(0.1), utility::as<SynapticIndividuallyWeightedActivityInput::weight_type>(10.0), this->mt);
                 if (is_inhibitory) {
                     random_weight = -random_weight;
                 }
                 weight_map[pair].push_back(random_weight);
-                expected_input[neuron_id.get_neuron_id()] += random_weight;
+                expected_input[neuron_id.get_neuron_id()] += utility::cast<double>(random_weight);
             }
         }
     }
@@ -301,11 +306,11 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testUpdateInputFullNetwork
 
     synaptic_activity_input.update_input(102);
     const auto actual_input = synaptic_activity_input.get_input();
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         const auto expected_value = expected_input[neuron_id.get_neuron_id()];
 
-        ASSERT_NEAR(synaptic_activity_input.get_input(neuron_id), expected_value, Constants::eps);
-        ASSERT_NEAR(actual_input[neuron_id.get_neuron_id()], expected_value, Constants::eps);
+        ASSERT_NEAR(synaptic_activity_input.get_input(neuron_id), expected_value, tolerance_for<RelearnTypes::activity_type>(utility::cast<double>(expected_value)));
+        ASSERT_NEAR(actual_input[neuron_id.get_neuron_id()], expected_value, tolerance_for<RelearnTypes::activity_type>(utility::cast<double>(expected_value)));
     }
 }
 
@@ -332,7 +337,7 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testUpdateInputPartialNetw
     fired_status_comm->set_network_graph(network_graph);
     fired_status_comm->set_fired_status_recorder(fired_status_recorder);
 
-    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(fired_status_comm);
+    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(1, fired_status_comm);
 
     synaptic_activity_input.init(number_neurons_init);
     synaptic_activity_input.set_network_graph(network_graph);
@@ -344,8 +349,8 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testUpdateInputPartialNetw
     // create weight map
     SynapticIndividuallyWeightedActivityInput::weight_map_type weight_map{};
 
-    auto expected_input = std::vector<double>(number_neurons_init, 0.0);
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    auto expected_input = std::vector<RelearnTypes::activity_type>(number_neurons_init, 0.0);
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         const auto& [plastic_edges, _] = network_graph->get_local_in_edges(neuron_id.get_neuron_id());
         fired_status_recorder->set_fired(neuron_id, FiredStatus::Fired);
         for (const auto& [source_neuron_id, synapse_strength] : plastic_edges) {
@@ -355,12 +360,12 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testUpdateInputPartialNetw
             const auto is_inhibitory = synapse_strength < 0;
             const auto synapse_strength_abs = std::abs(synapse_strength);
             for (auto i = 0; i < synapse_strength_abs; i++) {
-                auto random_weight = RandomFactory::get_random_double<SynapticIndividuallyWeightedActivityInput::weight_type>(0.1, 10.0, this->mt);
+                auto random_weight = RandomFactory::get_random_double<SynapticIndividuallyWeightedActivityInput::weight_type>(utility::as<SynapticIndividuallyWeightedActivityInput::weight_type>(0.1), utility::as<SynapticIndividuallyWeightedActivityInput::weight_type>(10.0), this->mt);
                 if (is_inhibitory) {
                     random_weight = -random_weight;
                 }
                 weight_map[pair].push_back(random_weight);
-                expected_input[neuron_id.get_neuron_id()] += random_weight;
+                expected_input[neuron_id.get_neuron_id()] += utility::cast<double>(random_weight);
             }
         }
     }
@@ -369,11 +374,11 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testUpdateInputPartialNetw
 
     synaptic_activity_input.update_input(102);
     const auto actual_input = synaptic_activity_input.get_input();
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         const auto expected_value = expected_input[neuron_id.get_neuron_id()];
 
-        ASSERT_NEAR(synaptic_activity_input.get_input(neuron_id), expected_value, Constants::eps);
-        ASSERT_NEAR(actual_input[neuron_id.get_neuron_id()], expected_value, Constants::eps);
+        ASSERT_NEAR(synaptic_activity_input.get_input(neuron_id), expected_value, tolerance_for<RelearnTypes::activity_type>(utility::cast<double>(expected_value)));
+        ASSERT_NEAR(actual_input[neuron_id.get_neuron_id()], expected_value, tolerance_for<RelearnTypes::activity_type>(utility::cast<double>(expected_value)));
     }
 }
 
@@ -400,14 +405,14 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testUpdateInputSomeFired) 
     fired_status_comm->set_network_graph(network_graph);
     fired_status_comm->set_fired_status_recorder(fired_status_recorder);
 
-    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(fired_status_comm);
+    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(1, fired_status_comm);
 
     synaptic_activity_input.init(number_neurons_init);
     synaptic_activity_input.set_network_graph(network_graph);
     synaptic_activity_input.set_extra_infos(neurons_extra_info);
 
     auto fired_status = std::vector<FiredStatus>(number_neurons_init, FiredStatus::Inactive);
-    for (const auto neuron_id : NeuronID::range_id(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons_init)) {
         const auto fired = RandomFactory::get_random_bool(this->mt);
         if (fired) {
             fired_status[neuron_id] = FiredStatus::Fired;
@@ -421,8 +426,8 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testUpdateInputSomeFired) 
     // create weight map
     SynapticIndividuallyWeightedActivityInput::weight_map_type weight_map{};
 
-    auto expected_input = std::vector<double>(number_neurons_init, 0.0);
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    auto expected_input = std::vector<RelearnTypes::activity_type>(number_neurons_init, 0.0);
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         const auto& [plastic_edges, _] = network_graph->get_local_in_edges(neuron_id.get_neuron_id());
         for (const auto& [source_neuron_id, synapse_strength] : plastic_edges) {
             auto source_neuron_id_with_rank = RankNeuronId{ rank, source_neuron_id };
@@ -431,13 +436,13 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testUpdateInputSomeFired) 
             const auto is_inhibitory = synapse_strength < 0;
             const auto synapse_strength_abs = std::abs(synapse_strength);
             for (auto i = 0; i < synapse_strength_abs; i++) {
-                auto random_weight = RandomFactory::get_random_double<SynapticIndividuallyWeightedActivityInput::weight_type>(0.1, 10.0, this->mt);
+                auto random_weight = RandomFactory::get_random_double<SynapticIndividuallyWeightedActivityInput::weight_type>(utility::as<SynapticIndividuallyWeightedActivityInput::weight_type>(0.1), utility::as<SynapticIndividuallyWeightedActivityInput::weight_type>(10.0), this->mt);
                 if (is_inhibitory) {
                     random_weight = -random_weight;
                 }
                 weight_map[pair].push_back(random_weight);
                 if (fired_status[source_neuron_id.get_neuron_id()] == FiredStatus::Fired) {
-                    expected_input[neuron_id.get_neuron_id()] += random_weight;
+                    expected_input[neuron_id.get_neuron_id()] += utility::cast<double>(random_weight);
                 }
             }
         }
@@ -447,11 +452,11 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testUpdateInputSomeFired) 
 
     synaptic_activity_input.update_input(102);
     const auto actual_input = synaptic_activity_input.get_input();
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         const auto expected_value = expected_input[neuron_id.get_neuron_id()];
 
-        ASSERT_NEAR(synaptic_activity_input.get_input(neuron_id), expected_value, Constants::eps);
-        ASSERT_NEAR(actual_input[neuron_id.get_neuron_id()], expected_value, Constants::eps);
+        ASSERT_NEAR(synaptic_activity_input.get_input(neuron_id), expected_value, tolerance_for<RelearnTypes::activity_type>(utility::cast<double>(expected_value)));
+        ASSERT_NEAR(actual_input[neuron_id.get_neuron_id()], expected_value, tolerance_for<RelearnTypes::activity_type>(utility::cast<double>(expected_value)));
     }
 }
 
@@ -477,7 +482,7 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testUpdateInputWrongNumber
     fired_status_comm->set_network_graph(network_graph);
     fired_status_comm->set_fired_status_recorder(fired_status_recorder);
 
-    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(fired_status_comm);
+    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(1, fired_status_comm);
 
     synaptic_activity_input.init(number_neurons_init);
     synaptic_activity_input.set_network_graph(network_graph);
@@ -487,7 +492,7 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testUpdateInputWrongNumber
 
     SynapticIndividuallyWeightedActivityInput::weight_map_type weight_map{};
 
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         const auto& [plastic_edges, _] = network_graph->get_local_in_edges(neuron_id.get_neuron_id());
         fired_status_recorder->set_fired(neuron_id, FiredStatus::Fired);
         for (const auto& [source_neuron_id, synapse_strength] : plastic_edges) {
@@ -498,7 +503,7 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testUpdateInputWrongNumber
             const auto synapse_strength_abs = std::abs(synapse_strength);
             const auto number_weights = RandomFactory::get_random_integer(1, 10, synapse_strength_abs, this->mt);
             for (auto i = 0; i < number_weights; i++) {
-                auto random_weight = RandomFactory::get_random_double<SynapticIndividuallyWeightedActivityInput::weight_type>(0.1, 10.0, this->mt);
+                auto random_weight = RandomFactory::get_random_double<SynapticIndividuallyWeightedActivityInput::weight_type>(utility::as<SynapticIndividuallyWeightedActivityInput::weight_type>(0.1), utility::as<SynapticIndividuallyWeightedActivityInput::weight_type>(10.0), this->mt);
                 if (is_inhibitory) {
                     random_weight = -random_weight;
                 }
@@ -547,14 +552,14 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testDistantInput) {
     auto fired_status_recorder = std::make_shared<FiredStatusRecorder>();
     fired_status_recorder->init(number_neurons_init);
 
-    auto fired_status_comm = FiredStatusCommunicationMap(number_ranks);
+    auto fired_status_comm = FiredStatusCommunicationMap(mpiPP::MPIRank::root_rank(), number_ranks);
     fired_status_comm.init(number_neurons_init);
     fired_status_comm.set_network_graph(network_graph);
     fired_status_comm.set_fired_status_recorder(fired_status_recorder);
     fired_status_comm.set_incoming_ids(distant_neurons_that_fired);
     auto fired_status_comm_ptr = std::make_shared<FiredStatusCommunicationMap>(fired_status_comm);
 
-    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(fired_status_comm_ptr);
+    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(1, fired_status_comm_ptr);
 
     synaptic_activity_input.init(number_neurons_init);
     synaptic_activity_input.set_network_graph(network_graph);
@@ -563,8 +568,8 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testDistantInput) {
     // create weight map
     SynapticIndividuallyWeightedActivityInput::weight_map_type weight_map{};
 
-    auto expected_input = std::vector<double>(number_neurons_init, 0.0);
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    auto expected_input = std::vector<RelearnTypes::activity_type>(number_neurons_init, 0.0);
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         const auto& [plastic_edges_distant, _] = network_graph->get_distant_in_edges(neuron_id.get_neuron_id());
         for (const auto& [key, synapse_strength] : plastic_edges_distant) {
             auto pair = std::make_pair(neuron_id.get_neuron_id(), key);
@@ -572,12 +577,12 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testDistantInput) {
             const auto is_inhibitory = synapse_strength < 0;
             const auto synapse_strength_abs = std::abs(synapse_strength);
             for (auto i = 0; i < synapse_strength_abs; i++) {
-                auto random_weight = RandomFactory::get_random_double<SynapticIndividuallyWeightedActivityInput::weight_type>(0.1, 10.0, this->mt);
+                auto random_weight = RandomFactory::get_random_double<SynapticIndividuallyWeightedActivityInput::weight_type>(utility::as<SynapticIndividuallyWeightedActivityInput::weight_type>(0.1), utility::as<SynapticIndividuallyWeightedActivityInput::weight_type>(10.0), this->mt);
                 if (is_inhibitory) {
                     random_weight = -random_weight;
                 }
                 weight_map[pair].push_back(random_weight);
-                expected_input[neuron_id.get_neuron_id()] += random_weight;
+                expected_input[neuron_id.get_neuron_id()] += utility::cast<double>(random_weight);
             }
         }
     }
@@ -586,11 +591,11 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testDistantInput) {
 
     synaptic_activity_input.update_input(102);
     const auto actual_input = synaptic_activity_input.get_input();
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         const auto expected_value = expected_input[neuron_id.get_neuron_id()];
 
-        ASSERT_NEAR(synaptic_activity_input.get_input(neuron_id), expected_value, Constants::eps);
-        ASSERT_NEAR(actual_input[neuron_id.get_neuron_id()], expected_value, Constants::eps);
+        ASSERT_NEAR(synaptic_activity_input.get_input(neuron_id), expected_value, tolerance_for<RelearnTypes::activity_type>(utility::cast<double>(expected_value)));
+        ASSERT_NEAR(actual_input[neuron_id.get_neuron_id()], expected_value, tolerance_for<RelearnTypes::activity_type>(utility::cast<double>(expected_value)));
     }
 }
 
@@ -640,7 +645,7 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testLocalAndDistantInputsP
     auto fired_status_recorder = std::make_shared<FiredStatusRecorder>();
     fired_status_recorder->init(number_neurons_init);
 
-    auto fired_status_comm = FiredStatusCommunicationMap(number_ranks);
+    auto fired_status_comm = FiredStatusCommunicationMap(mpiPP::MPIRank::root_rank(), number_ranks);
     fired_status_comm.init(number_neurons_init);
     fired_status_comm.set_network_graph(network_graph);
     fired_status_comm.set_fired_status_recorder(fired_status_recorder);
@@ -648,7 +653,7 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testLocalAndDistantInputsP
     auto fired_status_comm_ptr = std::make_shared<FiredStatusCommunicationMap>(fired_status_comm);
 
     auto fired_status = std::vector<FiredStatus>(number_neurons_init, FiredStatus::Inactive);
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         const auto fired = RandomFactory::get_random_bool(this->mt);
         if (fired) {
             fired_status_recorder->set_fired(neuron_id, FiredStatus::Fired);
@@ -656,7 +661,7 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testLocalAndDistantInputsP
         }
     }
 
-    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(fired_status_comm_ptr);
+    auto synaptic_activity_input = SynapticIndividuallyWeightedActivityInput(1, fired_status_comm_ptr);
 
     synaptic_activity_input.init(number_neurons_init);
     synaptic_activity_input.set_network_graph(network_graph);
@@ -668,8 +673,8 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testLocalAndDistantInputsP
     // create weight map
     SynapticIndividuallyWeightedActivityInput::weight_map_type weight_map{};
 
-    auto expected_input = std::vector<double>(number_neurons_init, 0.0);
-    for (const auto neuron_id : NeuronID::range_id(number_neurons_init)) {
+    auto expected_input = std::vector<RelearnTypes::activity_type>(number_neurons_init, 0.0);
+    for (const auto neuron_id : NeuronIDRange::range_id(number_neurons_init)) {
         const auto& [plastic_edges_local, _1] = network_graph->get_local_in_edges(neuron_id);
         const auto& [plastic_edges_distant, _2] = network_graph->get_distant_in_edges(neuron_id);
         for (const auto& [source, synapse_strength] : plastic_edges_local) {
@@ -679,13 +684,13 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testLocalAndDistantInputsP
             const auto is_inhibitory = synapse_strength < 0;
             const auto synapse_strength_abs = std::abs(synapse_strength);
             for (auto i = 0; i < synapse_strength_abs; i++) {
-                auto random_weight = RandomFactory::get_random_double<SynapticIndividuallyWeightedActivityInput::weight_type>(0.1, 10.0, this->mt);
+                auto random_weight = RandomFactory::get_random_double<SynapticIndividuallyWeightedActivityInput::weight_type>(utility::as<SynapticIndividuallyWeightedActivityInput::weight_type>(0.1), utility::as<SynapticIndividuallyWeightedActivityInput::weight_type>(10.0), this->mt);
                 if (is_inhibitory) {
                     random_weight = -random_weight;
                 }
                 weight_map[pair].push_back(random_weight);
                 if (fired_status[source.get_neuron_id()] == FiredStatus::Fired) {
-                    expected_input[neuron_id] += random_weight;
+                    expected_input[neuron_id] += utility::cast<double>(random_weight);
                 }
             }
         }
@@ -695,13 +700,13 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testLocalAndDistantInputsP
             const auto is_inhibitory = synapse_strength < 0;
             const auto synapse_strength_abs = std::abs(synapse_strength);
             for (auto i = 0; i < synapse_strength_abs; i++) {
-                auto random_weight = RandomFactory::get_random_double<SynapticIndividuallyWeightedActivityInput::weight_type>(0.1, 10.0, this->mt);
+                auto random_weight = RandomFactory::get_random_double<SynapticIndividuallyWeightedActivityInput::weight_type>(utility::as<SynapticIndividuallyWeightedActivityInput::weight_type>(0.1), utility::as<SynapticIndividuallyWeightedActivityInput::weight_type>(10.0), this->mt);
                 if (is_inhibitory) {
                     random_weight = -random_weight;
                 }
                 weight_map[pair].push_back(random_weight);
                 if (fired_status_comm_ptr->contains(key.get_rank(), key.get_neuron_id())) {
-                    expected_input[neuron_id] += random_weight;
+                    expected_input[neuron_id] += utility::cast<double>(random_weight);
                 }
             }
         }
@@ -711,10 +716,11 @@ TEST_F(SynapticIndividuallyWeightedActivityInputTest, testLocalAndDistantInputsP
 
     synaptic_activity_input.update_input(102);
     const auto actual_input = synaptic_activity_input.get_input();
-    for (const auto neuron_id : NeuronID::range(number_neurons_init)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons_init)) {
         const auto expected_value = expected_input[neuron_id.get_neuron_id()];
 
-        ASSERT_NEAR(synaptic_activity_input.get_input(neuron_id), expected_value, Constants::eps);
-        ASSERT_NEAR(actual_input[neuron_id.get_neuron_id()], expected_value, Constants::eps);
+        ASSERT_NEAR(synaptic_activity_input.get_input(neuron_id), expected_value, tolerance_for<RelearnTypes::activity_type>(utility::cast<double>(expected_value)));
+        ASSERT_NEAR(actual_input[neuron_id.get_neuron_id()], expected_value, tolerance_for<RelearnTypes::activity_type>(utility::cast<double>(expected_value)));
     }
 }
+#endif

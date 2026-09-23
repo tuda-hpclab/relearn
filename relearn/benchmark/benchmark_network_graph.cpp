@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -10,8 +10,6 @@
 
 #include "main.h"
 
-#include "mpi-wrapper/MPIRank.h"
-
 #include "adapter/network_graph/NetworkGraphAdapter.h"
 #include "adapter/synapses/SynapsesAdapter.h"
 
@@ -19,6 +17,8 @@
 #include "factory/synapses/synapses_factory.h"
 
 #include <benchmark/benchmark.h>
+
+#include <mpi-wrapper/core/MPIRank.h>
 
 namespace {
 void BM_NetworkGraph_InsertLocal(benchmark::State& state) {
@@ -127,7 +127,7 @@ void BM_NetworkGraph_RemoveDistantOut(benchmark::State& state) {
     }
 }
 
-void CustomArgsNetwork(benchmark::internal::Benchmark* b) {
+void CustomArgsNetwork(benchmark::Benchmark* b) {
     if constexpr (excessive_testing) {
         const auto neuron_sizes = { 1000,
                                     2000,

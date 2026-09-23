@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -19,13 +19,13 @@
 #include "util/RelearnException.h"
 #include "util/Vec3.h"
 
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
-
 #include "factory/neuron_id/neuron_id_factory.h"
 #include "factory/simulation/simulation_factory.h"
 
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <iostream>
 #include <sstream>
@@ -306,9 +306,9 @@ void CellTest::test_cell_dendrites_position_exception() {
     const auto& pos_ex_1 = SimulationFactory::get_random_position_in_box(min, max, mt);
     cell.set_excitatory_dendrites_position(pos_ex_1);
 
-    const auto& pos_ex_1_invalid_x_max = max + Vec3d{ 1, 0, 0 };
-    const auto& pos_ex_1_invalid_y_max = max + Vec3d{ 0, 1, 0 };
-    const auto& pos_ex_1_invalid_z_max = max + Vec3d{ 0, 0, 1 };
+    const auto& pos_ex_1_invalid_x_max = max + RelearnTypes::position_type{ 1, 0, 0 };
+    const auto& pos_ex_1_invalid_y_max = max + RelearnTypes::position_type{ 0, 1, 0 };
+    const auto& pos_ex_1_invalid_z_max = max + RelearnTypes::position_type{ 0, 0, 1 };
 
     ASSERT_THROW_NO_PRINT(cell.set_excitatory_dendrites_position(pos_ex_1_invalid_x_max), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_excitatory_dendrites_position(pos_ex_1_invalid_y_max), RelearnException);
@@ -330,9 +330,9 @@ void CellTest::test_cell_dendrites_position_exception() {
     ASSERT_THROW_NO_PRINT(cell.set_neuron_position(pos_ex_1_invalid_y_max), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_neuron_position(pos_ex_1_invalid_z_max), RelearnException);
 
-    const auto& pos_ex_1_invalid_x_min = min - Vec3d{ 1, 0, 0 };
-    const auto& pos_ex_1_invalid_y_min = min - Vec3d{ 0, 1, 0 };
-    const auto& pos_ex_1_invalid_z_min = min - Vec3d{ 0, 0, 1 };
+    const auto& pos_ex_1_invalid_x_min = min - RelearnTypes::position_type{ 1, 0, 0 };
+    const auto& pos_ex_1_invalid_y_min = min - RelearnTypes::position_type{ 0, 1, 0 };
+    const auto& pos_ex_1_invalid_z_min = min - RelearnTypes::position_type{ 0, 0, 1 };
 
     ASSERT_THROW_NO_PRINT(cell.set_excitatory_dendrites_position(pos_ex_1_invalid_x_min), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_excitatory_dendrites_position(pos_ex_1_invalid_y_min), RelearnException);
@@ -363,9 +363,9 @@ void CellTest::test_cell_dendrites_position_exception() {
     const auto& pos_ex_2 = SimulationFactory::get_random_position_in_box(min, max, mt);
     cell.set_excitatory_dendrites_position(pos_ex_2);
 
-    const auto& pos_ex_2_invalid_x_max = max + Vec3d{ 1, 0, 0 };
-    const auto& pos_ex_2_invalid_y_max = max + Vec3d{ 0, 1, 0 };
-    const auto& pos_ex_2_invalid_z_max = max + Vec3d{ 0, 0, 1 };
+    const auto& pos_ex_2_invalid_x_max = max + RelearnTypes::position_type{ 1, 0, 0 };
+    const auto& pos_ex_2_invalid_y_max = max + RelearnTypes::position_type{ 0, 1, 0 };
+    const auto& pos_ex_2_invalid_z_max = max + RelearnTypes::position_type{ 0, 0, 1 };
 
     ASSERT_THROW_NO_PRINT(cell.set_excitatory_dendrites_position(pos_ex_2_invalid_x_max), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_excitatory_dendrites_position(pos_ex_2_invalid_y_max), RelearnException);
@@ -387,9 +387,9 @@ void CellTest::test_cell_dendrites_position_exception() {
     ASSERT_THROW_NO_PRINT(cell.set_position_for(ElementType::Dendrite, SignalType::Excitatory, pos_ex_2_invalid_y_max), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_position_for(ElementType::Dendrite, SignalType::Excitatory, pos_ex_2_invalid_z_max), RelearnException);
 
-    const auto& pos_ex_2_invalid_x_min = min - Vec3d{ 1, 0, 0 };
-    const auto& pos_ex_2_invalid_y_min = min - Vec3d{ 0, 1, 0 };
-    const auto& pos_ex_2_invalid_z_min = min - Vec3d{ 0, 0, 1 };
+    const auto& pos_ex_2_invalid_x_min = min - RelearnTypes::position_type{ 1, 0, 0 };
+    const auto& pos_ex_2_invalid_y_min = min - RelearnTypes::position_type{ 0, 1, 0 };
+    const auto& pos_ex_2_invalid_z_min = min - RelearnTypes::position_type{ 0, 0, 1 };
 
     ASSERT_THROW_NO_PRINT(cell.set_excitatory_dendrites_position(pos_ex_2_invalid_x_min), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_excitatory_dendrites_position(pos_ex_2_invalid_y_min), RelearnException);
@@ -420,9 +420,9 @@ void CellTest::test_cell_dendrites_position_exception() {
     const auto& pos_in_1 = SimulationFactory::get_random_position_in_box(min, max, mt);
     cell.set_inhibitory_dendrites_position(pos_in_1);
 
-    const auto& pos_in_1_invalid_x_max = max + Vec3d{ 1, 0, 0 };
-    const auto& pos_in_1_invalid_y_max = max + Vec3d{ 0, 1, 0 };
-    const auto& pos_in_1_invalid_z_max = max + Vec3d{ 0, 0, 1 };
+    const auto& pos_in_1_invalid_x_max = max + RelearnTypes::position_type{ 1, 0, 0 };
+    const auto& pos_in_1_invalid_y_max = max + RelearnTypes::position_type{ 0, 1, 0 };
+    const auto& pos_in_1_invalid_z_max = max + RelearnTypes::position_type{ 0, 0, 1 };
 
     ASSERT_THROW_NO_PRINT(cell.set_inhibitory_dendrites_position(pos_in_1_invalid_x_max), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_inhibitory_dendrites_position(pos_in_1_invalid_y_max), RelearnException);
@@ -444,9 +444,9 @@ void CellTest::test_cell_dendrites_position_exception() {
     ASSERT_THROW_NO_PRINT(cell.set_position_for(ElementType::Dendrite, SignalType::Inhibitory, pos_in_1_invalid_y_max), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_position_for(ElementType::Dendrite, SignalType::Inhibitory, pos_in_1_invalid_z_max), RelearnException);
 
-    const auto& pos_in_1_invalid_x_min = min - Vec3d{ 1, 0, 0 };
-    const auto& pos_in_1_invalid_y_min = min - Vec3d{ 0, 1, 0 };
-    const auto& pos_in_1_invalid_z_min = min - Vec3d{ 0, 0, 1 };
+    const auto& pos_in_1_invalid_x_min = min - RelearnTypes::position_type{ 1, 0, 0 };
+    const auto& pos_in_1_invalid_y_min = min - RelearnTypes::position_type{ 0, 1, 0 };
+    const auto& pos_in_1_invalid_z_min = min - RelearnTypes::position_type{ 0, 0, 1 };
 
     ASSERT_THROW_NO_PRINT(cell.set_inhibitory_dendrites_position(pos_in_1_invalid_x_min), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_inhibitory_dendrites_position(pos_in_1_invalid_y_min), RelearnException);
@@ -477,9 +477,9 @@ void CellTest::test_cell_dendrites_position_exception() {
     const auto& pos_in_2 = SimulationFactory::get_random_position_in_box(min, max, mt);
     cell.set_inhibitory_dendrites_position(pos_in_2);
 
-    const auto& pos_in_2_invalid_x_max = max + Vec3d{ 1, 0, 0 };
-    const auto& pos_in_2_invalid_y_max = max + Vec3d{ 0, 1, 0 };
-    const auto& pos_in_2_invalid_z_max = max + Vec3d{ 0, 0, 1 };
+    const auto& pos_in_2_invalid_x_max = max + RelearnTypes::position_type{ 1, 0, 0 };
+    const auto& pos_in_2_invalid_y_max = max + RelearnTypes::position_type{ 0, 1, 0 };
+    const auto& pos_in_2_invalid_z_max = max + RelearnTypes::position_type{ 0, 0, 1 };
 
     ASSERT_THROW_NO_PRINT(cell.set_inhibitory_dendrites_position(pos_in_2_invalid_x_max), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_inhibitory_dendrites_position(pos_in_2_invalid_y_max), RelearnException);
@@ -501,9 +501,9 @@ void CellTest::test_cell_dendrites_position_exception() {
     ASSERT_THROW_NO_PRINT(cell.set_position_for(ElementType::Dendrite, SignalType::Inhibitory, pos_in_2_invalid_y_max), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_position_for(ElementType::Dendrite, SignalType::Inhibitory, pos_in_2_invalid_z_max), RelearnException);
 
-    const auto& pos_in_2_invalid_x_min = min - Vec3d{ 1, 0, 0 };
-    const auto& pos_in_2_invalid_y_min = min - Vec3d{ 0, 1, 0 };
-    const auto& pos_in_2_invalid_z_min = min - Vec3d{ 0, 0, 1 };
+    const auto& pos_in_2_invalid_x_min = min - RelearnTypes::position_type{ 1, 0, 0 };
+    const auto& pos_in_2_invalid_y_min = min - RelearnTypes::position_type{ 0, 1, 0 };
+    const auto& pos_in_2_invalid_z_min = min - RelearnTypes::position_type{ 0, 0, 1 };
 
     ASSERT_THROW_NO_PRINT(cell.set_inhibitory_dendrites_position(pos_in_2_invalid_x_min), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_inhibitory_dendrites_position(pos_in_2_invalid_y_min), RelearnException);
@@ -892,9 +892,9 @@ void CellTest::test_cell_axons_position_exception() {
     const auto& pos_ex_1 = SimulationFactory::get_random_position_in_box(min, max, mt);
     cell.set_excitatory_axons_position(pos_ex_1);
 
-    const auto& pos_ex_1_invalid_x_max = max + Vec3d{ 1, 0, 0 };
-    const auto& pos_ex_1_invalid_y_max = max + Vec3d{ 0, 1, 0 };
-    const auto& pos_ex_1_invalid_z_max = max + Vec3d{ 0, 0, 1 };
+    const auto& pos_ex_1_invalid_x_max = max + RelearnTypes::position_type{ 1, 0, 0 };
+    const auto& pos_ex_1_invalid_y_max = max + RelearnTypes::position_type{ 0, 1, 0 };
+    const auto& pos_ex_1_invalid_z_max = max + RelearnTypes::position_type{ 0, 0, 1 };
 
     ASSERT_THROW_NO_PRINT(cell.set_excitatory_axons_position(pos_ex_1_invalid_x_max), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_excitatory_axons_position(pos_ex_1_invalid_y_max), RelearnException);
@@ -916,9 +916,9 @@ void CellTest::test_cell_axons_position_exception() {
     ASSERT_THROW_NO_PRINT(cell.set_position_for(ElementType::Axon, SignalType::Excitatory, pos_ex_1_invalid_y_max), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_position_for(ElementType::Axon, SignalType::Excitatory, pos_ex_1_invalid_z_max), RelearnException);
 
-    const auto& pos_ex_1_invalid_x_min = min - Vec3d{ 1, 0, 0 };
-    const auto& pos_ex_1_invalid_y_min = min - Vec3d{ 0, 1, 0 };
-    const auto& pos_ex_1_invalid_z_min = min - Vec3d{ 0, 0, 1 };
+    const auto& pos_ex_1_invalid_x_min = min - RelearnTypes::position_type{ 1, 0, 0 };
+    const auto& pos_ex_1_invalid_y_min = min - RelearnTypes::position_type{ 0, 1, 0 };
+    const auto& pos_ex_1_invalid_z_min = min - RelearnTypes::position_type{ 0, 0, 1 };
 
     ASSERT_THROW_NO_PRINT(cell.set_excitatory_axons_position(pos_ex_1_invalid_x_min), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_excitatory_axons_position(pos_ex_1_invalid_y_min), RelearnException);
@@ -949,9 +949,9 @@ void CellTest::test_cell_axons_position_exception() {
     const auto& pos_ex_2 = SimulationFactory::get_random_position_in_box(min, max, mt);
     cell.set_excitatory_axons_position(pos_ex_2);
 
-    const auto& pos_ex_2_invalid_x_max = max + Vec3d{ 1, 0, 0 };
-    const auto& pos_ex_2_invalid_y_max = max + Vec3d{ 0, 1, 0 };
-    const auto& pos_ex_2_invalid_z_max = max + Vec3d{ 0, 0, 1 };
+    const auto& pos_ex_2_invalid_x_max = max + RelearnTypes::position_type{ 1, 0, 0 };
+    const auto& pos_ex_2_invalid_y_max = max + RelearnTypes::position_type{ 0, 1, 0 };
+    const auto& pos_ex_2_invalid_z_max = max + RelearnTypes::position_type{ 0, 0, 1 };
 
     ASSERT_THROW_NO_PRINT(cell.set_excitatory_axons_position(pos_ex_2_invalid_x_max), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_excitatory_axons_position(pos_ex_2_invalid_y_max), RelearnException);
@@ -973,9 +973,9 @@ void CellTest::test_cell_axons_position_exception() {
     ASSERT_THROW_NO_PRINT(cell.set_position_for(ElementType::Axon, SignalType::Excitatory, pos_ex_2_invalid_y_max), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_position_for(ElementType::Axon, SignalType::Excitatory, pos_ex_2_invalid_z_max), RelearnException);
 
-    const auto& pos_ex_2_invalid_x_min = min - Vec3d{ 1, 0, 0 };
-    const auto& pos_ex_2_invalid_y_min = min - Vec3d{ 0, 1, 0 };
-    const auto& pos_ex_2_invalid_z_min = min - Vec3d{ 0, 0, 1 };
+    const auto& pos_ex_2_invalid_x_min = min - RelearnTypes::position_type{ 1, 0, 0 };
+    const auto& pos_ex_2_invalid_y_min = min - RelearnTypes::position_type{ 0, 1, 0 };
+    const auto& pos_ex_2_invalid_z_min = min - RelearnTypes::position_type{ 0, 0, 1 };
 
     ASSERT_THROW_NO_PRINT(cell.set_excitatory_axons_position(pos_ex_2_invalid_x_min), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_excitatory_axons_position(pos_ex_2_invalid_y_min), RelearnException);
@@ -1006,9 +1006,9 @@ void CellTest::test_cell_axons_position_exception() {
     const auto& pos_in_1 = SimulationFactory::get_random_position_in_box(min, max, mt);
     cell.set_inhibitory_axons_position(pos_in_1);
 
-    const auto& pos_in_1_invalid_x_max = max + Vec3d{ 1, 0, 0 };
-    const auto& pos_in_1_invalid_y_max = max + Vec3d{ 0, 1, 0 };
-    const auto& pos_in_1_invalid_z_max = max + Vec3d{ 0, 0, 1 };
+    const auto& pos_in_1_invalid_x_max = max + RelearnTypes::position_type{ 1, 0, 0 };
+    const auto& pos_in_1_invalid_y_max = max + RelearnTypes::position_type{ 0, 1, 0 };
+    const auto& pos_in_1_invalid_z_max = max + RelearnTypes::position_type{ 0, 0, 1 };
 
     ASSERT_THROW_NO_PRINT(cell.set_inhibitory_axons_position(pos_in_1_invalid_x_max), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_inhibitory_axons_position(pos_in_1_invalid_y_max), RelearnException);
@@ -1030,9 +1030,9 @@ void CellTest::test_cell_axons_position_exception() {
     ASSERT_THROW_NO_PRINT(cell.set_position_for(ElementType::Axon, SignalType::Inhibitory, pos_in_1_invalid_y_max), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_position_for(ElementType::Axon, SignalType::Inhibitory, pos_in_1_invalid_z_max), RelearnException);
 
-    const auto& pos_in_1_invalid_x_min = min - Vec3d{ 1, 0, 0 };
-    const auto& pos_in_1_invalid_y_min = min - Vec3d{ 0, 1, 0 };
-    const auto& pos_in_1_invalid_z_min = min - Vec3d{ 0, 0, 1 };
+    const auto& pos_in_1_invalid_x_min = min - RelearnTypes::position_type{ 1, 0, 0 };
+    const auto& pos_in_1_invalid_y_min = min - RelearnTypes::position_type{ 0, 1, 0 };
+    const auto& pos_in_1_invalid_z_min = min - RelearnTypes::position_type{ 0, 0, 1 };
 
     ASSERT_THROW_NO_PRINT(cell.set_inhibitory_axons_position(pos_in_1_invalid_x_min), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_inhibitory_axons_position(pos_in_1_invalid_y_min), RelearnException);
@@ -1063,9 +1063,9 @@ void CellTest::test_cell_axons_position_exception() {
     const auto& pos_in_2 = SimulationFactory::get_random_position_in_box(min, max, mt);
     cell.set_inhibitory_axons_position(pos_in_2);
 
-    const auto& pos_in_2_invalid_x_max = max + Vec3d{ 1, 0, 0 };
-    const auto& pos_in_2_invalid_y_max = max + Vec3d{ 0, 1, 0 };
-    const auto& pos_in_2_invalid_z_max = max + Vec3d{ 0, 0, 1 };
+    const auto& pos_in_2_invalid_x_max = max + RelearnTypes::position_type{ 1, 0, 0 };
+    const auto& pos_in_2_invalid_y_max = max + RelearnTypes::position_type{ 0, 1, 0 };
+    const auto& pos_in_2_invalid_z_max = max + RelearnTypes::position_type{ 0, 0, 1 };
 
     ASSERT_THROW_NO_PRINT(cell.set_inhibitory_axons_position(pos_in_2_invalid_x_max), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_inhibitory_axons_position(pos_in_2_invalid_y_max), RelearnException);
@@ -1087,9 +1087,9 @@ void CellTest::test_cell_axons_position_exception() {
     ASSERT_THROW_NO_PRINT(cell.set_position_for(ElementType::Axon, SignalType::Inhibitory, pos_in_2_invalid_y_max), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_position_for(ElementType::Axon, SignalType::Inhibitory, pos_in_2_invalid_z_max), RelearnException);
 
-    const auto& pos_in_2_invalid_x_min = min - Vec3d{ 1, 0, 0 };
-    const auto& pos_in_2_invalid_y_min = min - Vec3d{ 0, 1, 0 };
-    const auto& pos_in_2_invalid_z_min = min - Vec3d{ 0, 0, 1 };
+    const auto& pos_in_2_invalid_x_min = min - RelearnTypes::position_type{ 1, 0, 0 };
+    const auto& pos_in_2_invalid_y_min = min - RelearnTypes::position_type{ 0, 1, 0 };
+    const auto& pos_in_2_invalid_z_min = min - RelearnTypes::position_type{ 0, 0, 1 };
 
     ASSERT_THROW_NO_PRINT(cell.set_inhibitory_axons_position(pos_in_2_invalid_x_min), RelearnException);
     ASSERT_THROW_NO_PRINT(cell.set_inhibitory_axons_position(pos_in_2_invalid_y_min), RelearnException);
@@ -1341,13 +1341,13 @@ void CellTest::test_cell_octants_exception() {
     const auto& [min, max] = SimulationFactory::get_random_simulation_box_size(mt);
     cell.set_size({ min, max });
 
-    const auto& pos_invalid_x_max = max + Vec3d{ 1, 0, 0 };
-    const auto& pos_invalid_y_max = max + Vec3d{ 0, 1, 0 };
-    const auto& pos_invalid_z_max = max + Vec3d{ 0, 0, 1 };
+    const auto& pos_invalid_x_max = max + RelearnTypes::position_type{ 1, 0, 0 };
+    const auto& pos_invalid_y_max = max + RelearnTypes::position_type{ 0, 1, 0 };
+    const auto& pos_invalid_z_max = max + RelearnTypes::position_type{ 0, 0, 1 };
 
-    const auto& pos_invalid_x_min = min - Vec3d{ 1, 0, 0 };
-    const auto& pos_invalid_y_min = min - Vec3d{ 0, 1, 0 };
-    const auto& pos_invalid_z_min = min - Vec3d{ 0, 0, 1 };
+    const auto& pos_invalid_x_min = min - RelearnTypes::position_type{ 1, 0, 0 };
+    const auto& pos_invalid_y_min = min - RelearnTypes::position_type{ 0, 1, 0 };
+    const auto& pos_invalid_z_min = min - RelearnTypes::position_type{ 0, 0, 1 };
 
     ASSERT_THROW_NO_PRINT(std::ignore = cell.get_octant_for_position(pos_invalid_x_max), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = cell.get_octant_for_position(pos_invalid_y_max), RelearnException);
@@ -1375,18 +1375,18 @@ void CellTest::test_cell_octants_size() {
         auto subcell_max = midpoint;
 
         if (larger_x == 1) {
-            subcell_min += Vec3d{ midpoint.get_x() - min.get_x(), 0, 0 };
-            subcell_max += Vec3d{ midpoint.get_x() - min.get_x(), 0, 0 };
+            subcell_min += RelearnTypes::position_type{ midpoint.get_x() - min.get_x(), 0, 0 };
+            subcell_max += RelearnTypes::position_type{ midpoint.get_x() - min.get_x(), 0, 0 };
         }
 
         if (larger_y == 1) {
-            subcell_min += Vec3d{ 0, midpoint.get_y() - min.get_y(), 0 };
-            subcell_max += Vec3d{ 0, midpoint.get_y() - min.get_y(), 0 };
+            subcell_min += RelearnTypes::position_type{ 0, midpoint.get_y() - min.get_y(), 0 };
+            subcell_max += RelearnTypes::position_type{ 0, midpoint.get_y() - min.get_y(), 0 };
         }
 
         if (larger_z == 1) {
-            subcell_min += Vec3d{ 0, 0, midpoint.get_z() - min.get_z() };
-            subcell_max += Vec3d{ 0, 0, midpoint.get_z() - min.get_z() };
+            subcell_min += RelearnTypes::position_type{ 0, 0, midpoint.get_z() - min.get_z() };
+            subcell_max += RelearnTypes::position_type{ 0, 0, midpoint.get_z() - min.get_z() };
         }
 
         const auto& [subcell_received_min, subcell_received_max] = cell.get_size_for_octant(static_cast<unsigned char>(id));
@@ -1394,8 +1394,10 @@ void CellTest::test_cell_octants_size() {
         const auto diff_subcell_min = subcell_min - subcell_received_min;
         const auto diff_subcell_max = subcell_max - subcell_received_max;
 
-        ASSERT_NEAR(diff_subcell_min.calculate_p_norm(2), 0.0, eps);
-        ASSERT_NEAR(diff_subcell_max.calculate_p_norm(2), 0.0, eps);
+        // The octant boundaries are derived from the midpoint, so they agree with the expectation above only
+        // to the resolution space_type has at the size of the simulation box.
+        ASSERT_NEAR(diff_subcell_min.calculate_p_norm(2), 0.0, tolerance_for<RelearnTypes::space_type>(subcell_min.calculate_2_norm()));
+        ASSERT_NEAR(diff_subcell_max.calculate_p_norm(2), 0.0, tolerance_for<RelearnTypes::space_type>(subcell_max.calculate_2_norm()));
     }
 }
 

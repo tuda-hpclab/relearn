@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -12,34 +12,47 @@
 
 #include "Config.h"
 
+#include "algorithm/Algorithm.h"
+#include "algorithm/FMMInternal/FastMultipoleMethod.h"
 #include "algorithm/FMMInternal/FastMultipoleMethodBase.h"
 #include "algorithm/FMMInternal/FastMultipoleMethodCell.h"
+#include "algorithm/FMMInternal/FastMultipoleMethodInverted.h"
 #include "algorithm/Internal/octree/NodeCache.h"
 #include "algorithm/Internal/octree/OctreeNode.h"
 #include "algorithm/Kernel/Gaussian.h"
+#include "neurons/NeuronsExtraInfo.h"
 #include "neurons/enums/SynapticElementType.h"
+#include "structure/Morton.h"
+#include "types/BasicTypes.h"
+#include "types/SpaceTypes.h"
+#include "util/BoundingBox.h"
 #include "util/MemoryHolder.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
 #include "util/Vec3.h"
 #include "util/shuffle/shuffle.h"
 
-#include "cpp-utility/ranges/Functional.hpp"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
-
 #include "adapter/octree/OctreeAdapter.h"
 
 #include "factory/fmm/fmm_factory.h"
+#include "factory/kernel/kernel_factory.h"
 #include "factory/memory_holder/memory_holder_factory.h"
+#include "factory/network_graph/network_graph_factory.h"
 #include "factory/neuron_id/neuron_id_factory.h"
 #include "factory/neuron_types/neuron_types_factory.h"
 #include "factory/octree/octree_factory.h"
 #include "factory/random/random_factory.h"
 #include "factory/simulation/simulation_factory.h"
+#include "factory/synaptic_elements/synaptic_elements_factory.h"
+
+#include <cpp-utility/Cast.hpp>
+#include <cpp-utility/ranges/Functional.hpp>
 
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
+#include <mpi-wrapper/patterns/MPIAdvancedCommunicationPatterns.h>
 
 #include <range/v3/action/sort.hpp>
 #include <range/v3/algorithm/any_of.hpp>
@@ -54,8 +67,12 @@
 #include <cstdint>
 #include <functional>
 #include <iostream>
+#include <limits>
+#include <numeric>
 #include <tuple>
 #include <vector>
+
+#ifndef RELEARN_CUDA_ENABLED
 
 TEST_F(FMMTest, testMultiIndexGetNumberOfIndices) {
     if (mpiPP::MPIInfo::get_number_ranks() != 1) {
@@ -104,7 +121,7 @@ TEST_F(FMMTest, testH) {
         return;
     }
 
-    const auto t = RandomFactory::get_random_double<double>(-10.0, 10.0, mt);
+    const auto t = RandomFactory::get_random_double(RelearnTypes::attraction_type{ -10 }, RelearnTypes::attraction_type{ 10 }, mt);
     const auto alpha = RandomFactory::get_random_integer<unsigned int>(0, 8, mt);
 
     const auto squared_t = t * t;
@@ -238,7 +255,7 @@ TEST_F(FMMTest, testCheckCalculationRequirementsLeaf) {
 
     const auto& [min, max] = SimulationFactory::get_random_simulation_box_size(this->mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
     auto node_1 = OctreeNode<FastMultipoleMethodCell>{};
     node_1.set_level(0);
@@ -302,10 +319,10 @@ TEST_F(FMMTest, testCheckCalculationRequirements) {
 
     const auto& [min, max] = SimulationFactory::get_random_simulation_box_size(this->mt);
 
-    const auto number_neurons_in_source = static_cast<NeuronID::value_type>(Constants::max_neurons_in_source * 0.75);
-    const auto number_neurons_in_target = static_cast<NeuronID::value_type>(Constants::max_neurons_in_target * 0.75);
+    const auto number_neurons_in_source = static_cast<RelearnTypes::number_neurons_type>(Constants::max_neurons_in_source * 0.75);
+    const auto number_neurons_in_target = static_cast<RelearnTypes::number_neurons_type>(Constants::max_neurons_in_target * 0.75);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
     auto source = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(number_neurons_in_source, memory_holder, min, max, this->mt);
     auto target = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(number_neurons_in_target, memory_holder, min, max, this->mt);
@@ -358,18 +375,18 @@ TEST_F(FMMTest, testDirectGaussException) {
     auto node_cache = NodeCache<FastMultipoleMethodCell>{};
     node_cache.set_is_already_downloaded();
 
-    const auto sigma = 150.0;
+    const auto sigma = RelearnTypes::attraction_type{ 150 };
 
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_direct_gauss(sigma, node_cache, nullptr, nullptr, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_direct_gauss(sigma, node_cache, nullptr, nullptr, ElementType::Axon, SignalType::Inhibitory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_direct_gauss(sigma, node_cache, nullptr, nullptr, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_direct_gauss(sigma, node_cache, nullptr, nullptr, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
-                                                                                   
+
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_direct_gauss(sigma, node_cache, &node, nullptr, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_direct_gauss(sigma, node_cache, &node, nullptr, ElementType::Axon, SignalType::Inhibitory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_direct_gauss(sigma, node_cache, &node, nullptr, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_direct_gauss(sigma, node_cache, &node, nullptr, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
-                                                                                   
+
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_direct_gauss(sigma, node_cache, nullptr, &node, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_direct_gauss(sigma, node_cache, nullptr, &node, ElementType::Axon, SignalType::Inhibitory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_direct_gauss(sigma, node_cache, nullptr, &node, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
@@ -387,10 +404,10 @@ TEST_F(FMMTest, testDirectGauss) {
 
     const auto& [min, max] = SimulationFactory::get_random_simulation_box_size(this->mt);
 
-    const auto number_neurons_in_source = static_cast<NeuronID::value_type>(Constants::max_neurons_in_source * 0.2);
-    const auto number_neurons_in_target = static_cast<NeuronID::value_type>(Constants::max_neurons_in_target * 0.2);
+    const auto number_neurons_in_source = static_cast<RelearnTypes::number_neurons_type>(Constants::max_neurons_in_source * 0.2);
+    const auto number_neurons_in_target = static_cast<RelearnTypes::number_neurons_type>(Constants::max_neurons_in_target * 0.2);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
     auto source = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(number_neurons_in_source, memory_holder, min, max, this->mt);
     auto target = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(number_neurons_in_target, memory_holder, min, max, this->mt);
@@ -402,9 +419,9 @@ TEST_F(FMMTest, testDirectGauss) {
     node_cache.set_is_already_downloaded();
 
     const auto check_combi = [&](const ElementType e, const SignalType s) {
-        auto sum = 0.0;
+        auto sum = RelearnTypes::attraction_type{ 0 };
 
-        const auto sigma = 150.0;
+        const auto sigma = RelearnTypes::attraction_type{ 150 };
 
         for (const auto* source_leaf : source_leaves) {
             for (const auto* target_leaf : target_leaves) {
@@ -419,7 +436,7 @@ TEST_F(FMMTest, testDirectGauss) {
                 const auto attraction = FastMultipoleMethodBase::kernel(source_leaf->get_cell().get_position_for(get_other_element_type(e), s).value(),
                                                                         target_leaf->get_cell().get_position_for(e, s).value(), sigma);
 
-                sum += attraction * product;
+                sum += attraction * static_cast<RelearnTypes::attraction_type>(product);
             }
         }
 
@@ -453,13 +470,13 @@ TEST_F(FMMTest, testHermiteCoefficientsException) {
     node.set_cell_neuron_id(NeuronID::virtual_id());
     node.set_cell_neuron_position(own_position);
 
-    const auto sigma = 150.0;
+    const auto sigma = RelearnTypes::attraction_type{ 150 };
 
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, nullptr, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, nullptr, ElementType::Axon, SignalType::Inhibitory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, nullptr, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, nullptr, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
-                                                                                           
+
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, &node, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, &node, ElementType::Axon, SignalType::Inhibitory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, &node, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
@@ -478,24 +495,24 @@ TEST_F(FMMTest, testHermiteCoefficientsException2) {
     const auto& [min, max] = SimulationFactory::get_random_simulation_box_size(this->mt);
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 10;
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
     auto no_axon_tree = OctreeFactory::get_tree_no_axons<FastMultipoleMethodCell>(number_neurons, memory_holder, min, max, mt);
     auto no_dendrite_tree = OctreeFactory::get_tree_no_dendrites<FastMultipoleMethodCell>(number_neurons, memory_holder, min, max, mt);
     auto no_synaptic_elements_tree = OctreeFactory::get_tree_no_synaptic_elements<FastMultipoleMethodCell>(number_neurons, memory_holder, min, max, mt);
 
-    const auto sigma = 150.0;
+    const auto sigma = RelearnTypes::attraction_type{ 150 };
 
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, &no_axon_tree, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, &no_axon_tree, ElementType::Axon, SignalType::Inhibitory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, &no_dendrite_tree, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, &no_dendrite_tree, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
-                                                                                           
+
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, &no_synaptic_elements_tree, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, &no_synaptic_elements_tree, ElementType::Axon, SignalType::Inhibitory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, &no_synaptic_elements_tree, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, &no_synaptic_elements_tree, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
-}                                                                                          
+}
 
 TEST_F(FMMTest, testHermiteCoefficientsForm) {
     if (mpiPP::MPIInfo::get_number_ranks() != 1) {
@@ -509,11 +526,11 @@ TEST_F(FMMTest, testHermiteCoefficientsForm) {
     const auto& [min, max] = SimulationFactory::get_random_simulation_box_size(this->mt);
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 10;
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
     auto tree = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(number_neurons, memory_holder, min, max, mt);
 
-    const auto sigma = 150.0;
+    const auto sigma = RelearnTypes::attraction_type{ 150 };
 
     const auto coefficients_a_e = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, &tree, ElementType::Axon, SignalType::Excitatory);
     ASSERT_EQ(coefficients_a_e.size(), Constants::p3);
@@ -544,9 +561,9 @@ TEST_F(FMMTest, testHermiteCoefficientsValues) {
     const auto& [min, max] = SimulationFactory::get_random_simulation_box_size(this->mt);
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 10;
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
-    const auto sigma = 150.0;
+    const auto sigma = RelearnTypes::attraction_type{ 150 };
 
     auto tree = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(number_neurons, memory_holder, min, max, mt);
     const auto coefficients_1 = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, &tree, ElementType::Axon, SignalType::Excitatory);
@@ -589,7 +606,7 @@ TEST_F(FMMTest, testTaylorCoefficientsException) {
     node.set_cell_neuron_id(NeuronID::virtual_id());
     node.set_cell_neuron_position(own_position);
 
-    const auto sigma = 150.0;
+    const auto sigma = RelearnTypes::attraction_type{ 150 };
 
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_taylor_coefficients(sigma, nullptr, other_position, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_taylor_coefficients(sigma, nullptr, other_position, ElementType::Axon, SignalType::Inhibitory), RelearnException);
@@ -615,15 +632,15 @@ TEST_F(FMMTest, testTaylorCoefficientsZero) {
     const auto& other_position = SimulationFactory::get_random_position_in_box(min, max, this->mt);
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 10;
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
     auto no_axon_tree = OctreeFactory::get_tree_no_axons<FastMultipoleMethodCell>(number_neurons, memory_holder, min, max, mt);
     auto no_dendrite_tree = OctreeFactory::get_tree_no_dendrites<FastMultipoleMethodCell>(number_neurons, memory_holder, min, max, mt);
     auto no_synaptic_elements_tree = OctreeFactory::get_tree_no_synaptic_elements<FastMultipoleMethodCell>(number_neurons, memory_holder, min, max, mt);
 
-    const auto coefficients = std::vector<double>(Constants::p3, 0.0);
+    const auto coefficients = std::vector<RelearnTypes::attraction_type>(Constants::p3, 0.0);
 
-    const auto sigma = 150.0;
+    const auto sigma = RelearnTypes::attraction_type{ 150 };
 
     ASSERT_EQ(FastMultipoleMethodBase::calc_taylor_coefficients(sigma, &no_axon_tree, other_position, ElementType::Axon, SignalType::Excitatory), coefficients);
     ASSERT_EQ(FastMultipoleMethodBase::calc_taylor_coefficients(sigma, &no_axon_tree, other_position, ElementType::Axon, SignalType::Inhibitory), coefficients);
@@ -694,14 +711,14 @@ TEST_F(FMMTest, testCalcHermiteException) {
     node.set_cell_neuron_id(NeuronID::virtual_id());
     node.set_cell_neuron_position(own_position);
 
-    auto coefficients = std::vector<double>(Constants::p3, 0.0);
+    auto coefficients = std::vector<RelearnTypes::attraction_type>(Constants::p3, 0.0);
 
     auto node_cache = NodeCache<FastMultipoleMethodCell>{};
     node_cache.set_is_already_downloaded();
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
-    const auto sigma = 150.0;
+    const auto sigma = RelearnTypes::attraction_type{ 150 };
 
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, nullptr, nullptr, coefficients, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, nullptr, nullptr, coefficients, ElementType::Axon, SignalType::Inhibitory), RelearnException);
@@ -726,10 +743,10 @@ TEST_F(FMMTest, testCalcHermiteException) {
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, &source_tree, &target_tree, {}, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, &source_tree, &target_tree, {}, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
 
-    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, &source_tree, &target_tree, std::vector{ 1.0, 2.9 }, ElementType::Axon, SignalType::Excitatory), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, &source_tree, &target_tree, std::vector{ 1.0, 2.9 }, ElementType::Axon, SignalType::Inhibitory), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, &source_tree, &target_tree, std::vector{ 1.0, 2.9 }, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, &source_tree, &target_tree, std::vector{ 1.0, 2.9 }, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, &source_tree, &target_tree, std::vector<RelearnTypes::attraction_type>{ RelearnTypes::attraction_type{ 1 }, utility::as<RelearnTypes::attraction_type>(2.9) }, ElementType::Axon, SignalType::Excitatory), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, &source_tree, &target_tree, std::vector<RelearnTypes::attraction_type>{ RelearnTypes::attraction_type{ 1 }, utility::as<RelearnTypes::attraction_type>(2.9) }, ElementType::Axon, SignalType::Inhibitory), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, &source_tree, &target_tree, std::vector<RelearnTypes::attraction_type>{ RelearnTypes::attraction_type{ 1 }, utility::as<RelearnTypes::attraction_type>(2.9) }, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, &source_tree, &target_tree, std::vector<RelearnTypes::attraction_type>{ RelearnTypes::attraction_type{ 1 }, utility::as<RelearnTypes::attraction_type>(2.9) }, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
 
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, &source_tree, &node, coefficients, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, &source_tree, &node, coefficients, ElementType::Axon, SignalType::Inhibitory), RelearnException);
@@ -737,14 +754,14 @@ TEST_F(FMMTest, testCalcHermiteException) {
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, &source_tree, &node, coefficients, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
 
     const auto test_combi = [&min, &max, &coefficients, &node_cache, sigma, this](const ElementType element_type, const SignalType signal_type) {
-        auto [_memory_holder, _cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+        auto _memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
         auto source_invalidated = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(30, _memory_holder, min, max, this->mt);
         auto target = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(40, _memory_holder, min, max, this->mt);
 
         OctreeAdapter::invalidate_elements<FastMultipoleMethodCell>(&source_invalidated, element_type, signal_type);
 
-        ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, &source_invalidated, &target, coefficients, element_type, signal_type), RelearnException);
+        ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_hermite(utility::cast<RelearnTypes::attraction_type>(sigma), node_cache, &source_invalidated, &target, coefficients, element_type, signal_type), RelearnException);
     };
 
     test_combi(ElementType::Axon, SignalType::Excitatory);
@@ -779,9 +796,9 @@ TEST_F(FMMTest, testCalcTaylorException) {
     auto node_cache = NodeCache<FastMultipoleMethodCell>{};
     node_cache.set_is_already_downloaded();
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
-    const auto sigma = 150.0;
+    const auto sigma = RelearnTypes::attraction_type{ 150 };
 
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_taylor(sigma, node_cache, nullptr, nullptr, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_taylor(sigma, node_cache, nullptr, nullptr, ElementType::Axon, SignalType::Inhibitory), RelearnException);
@@ -806,14 +823,14 @@ TEST_F(FMMTest, testCalcTaylorException) {
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_taylor(sigma, node_cache, &node, &target_tree, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
 
     const auto test_combi = [&min, &max, &node_cache, sigma, this](const ElementType element_type, const SignalType signal_type) {
-        auto [_memory_holder, _cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+        auto _memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
         auto source = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(30, _memory_holder, min, max, this->mt);
         auto target_invalidated = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(40, _memory_holder, min, max, this->mt);
 
         OctreeAdapter::invalidate_elements<FastMultipoleMethodCell>(&target_invalidated, get_other_element_type(element_type), signal_type);
 
-        ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_taylor(sigma, node_cache, &source, &target_invalidated, element_type, signal_type), RelearnException);
+        ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_taylor(utility::cast<RelearnTypes::attraction_type>(sigma), node_cache, &source, &target_invalidated, element_type, signal_type), RelearnException);
     };
 
     test_combi(ElementType::Axon, SignalType::Excitatory);
@@ -833,10 +850,10 @@ TEST_F(FMMTest, testCalcHermiteComparisons) {
 
     const auto& [min, max] = SimulationFactory::get_random_small_simulation_box_size(this->mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
     auto source_tree = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(30, memory_holder, min, max, this->mt);
-    auto target_tree = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(40, memory_holder, min + Vec3d{ 2000.0 }, max + Vec3d{ 2000.0 }, this->mt);
+    auto target_tree = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(40, memory_holder, min + RelearnTypes::position_type{ 2000.0 }, max + RelearnTypes::position_type{ 2000.0 }, this->mt);
 
     const auto searching_element_type = NeuronTypesFactory::get_random_element_type(this->mt);
     const auto signal_type = NeuronTypesFactory::get_random_signal_type(this->mt);
@@ -844,7 +861,7 @@ TEST_F(FMMTest, testCalcHermiteComparisons) {
     auto node_cache = NodeCache<FastMultipoleMethodCell>{};
     node_cache.set_is_already_downloaded();
 
-    const auto sigma = 150.0;
+    const auto sigma = RelearnTypes::attraction_type{ 150 };
 
     const auto coefficients_1 = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, &source_tree, searching_element_type, signal_type);
     const auto value_1 = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, &source_tree, &target_tree, coefficients_1, searching_element_type, signal_type);
@@ -854,9 +871,9 @@ TEST_F(FMMTest, testCalcHermiteComparisons) {
     const auto coefficients_2 = FastMultipoleMethodBase::calc_hermite_coefficients(sigma, &source_tree, searching_element_type, signal_type);
     const auto value_2 = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, &source_tree, &target_tree, coefficients_2, searching_element_type, signal_type);
 
-    if (value_2 == 0.0) {
+    if (value_2 == RelearnTypes::attraction_type{ 0 }) {
         ASSERT_NEAR(value_1, 0.0, eps);
-    } else if (value_2 > 1e-8) {
+    } else if (value_2 > utility::as<RelearnTypes::attraction_type>(1e-8)) {
         ASSERT_GT(value_2, value_1);
     }
 
@@ -864,9 +881,9 @@ TEST_F(FMMTest, testCalcHermiteComparisons) {
 
     const auto value_3 = FastMultipoleMethodBase::calc_hermite(sigma, node_cache, &source_tree, &target_tree, coefficients_2, searching_element_type, signal_type);
 
-    if (value_3 == 0.0) {
+    if (value_3 == RelearnTypes::attraction_type{ 0 }) {
         ASSERT_EQ(value_2, 0.0);
-    } else if (value_3 > 1e-8) {
+    } else if (value_3 > utility::as<RelearnTypes::attraction_type>(1e-8)) {
         ASSERT_GT(value_3, value_2);
     }
 }
@@ -882,10 +899,10 @@ TEST_F(FMMTest, testCalcTaylorComparisons) {
 
     const auto& [min, max] = SimulationFactory::get_random_small_simulation_box_size(this->mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
     auto source_tree = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(30, memory_holder, min, max, this->mt);
-    auto target_tree = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(40, memory_holder, min + Vec3d{ 2000.0 }, max + Vec3d{ 2000.0 }, this->mt);
+    auto target_tree = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(40, memory_holder, min + RelearnTypes::position_type{ 2000.0 }, max + RelearnTypes::position_type{ 2000.0 }, this->mt);
 
     const auto searching_element_type = NeuronTypesFactory::get_random_element_type(this->mt);
     const auto signal_type = NeuronTypesFactory::get_random_signal_type(this->mt);
@@ -893,7 +910,7 @@ TEST_F(FMMTest, testCalcTaylorComparisons) {
     auto node_cache = NodeCache<FastMultipoleMethodCell>{};
     node_cache.set_is_already_downloaded();
 
-    const auto sigma = 150.0;
+    const auto sigma = RelearnTypes::attraction_type{ 150 };
 
     const auto value_1 = FastMultipoleMethodBase::calc_taylor(sigma, node_cache, &source_tree, &target_tree, searching_element_type, signal_type);
 
@@ -901,8 +918,8 @@ TEST_F(FMMTest, testCalcTaylorComparisons) {
 
     const auto value_2 = FastMultipoleMethodBase::calc_taylor(sigma, node_cache, &source_tree, &target_tree, searching_element_type, signal_type);
 
-    if (value_2 < eps) {
-        ASSERT_LT(value_1, eps);
+    if (value_2 < utility::cast<RelearnTypes::attraction_type>(eps)) {
+        ASSERT_LT(value_1, utility::cast<RelearnTypes::attraction_type>(eps));
     } else {
         ASSERT_GT(value_2, value_1);
     }
@@ -911,8 +928,8 @@ TEST_F(FMMTest, testCalcTaylorComparisons) {
 
     const auto value_3 = FastMultipoleMethodBase::calc_taylor(sigma, node_cache, &source_tree, &target_tree, searching_element_type, signal_type);
 
-    if (value_3 < eps) {
-        ASSERT_LT(value_2, eps);
+    if (value_3 < utility::cast<RelearnTypes::attraction_type>(eps)) {
+        ASSERT_LT(value_2, utility::cast<RelearnTypes::attraction_type>(eps));
     } else {
         ASSERT_GT(value_3, value_2);
     }
@@ -930,7 +947,7 @@ TEST_F(FMMTest, testCalcAttractivenessToConnectException) {
     auto node_cache = NodeCache<FastMultipoleMethodCell>{};
     node_cache.set_is_already_downloaded();
 
-    const auto sigma = 150.0;
+    const auto sigma = RelearnTypes::attraction_type{ 150 };
 
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_attractiveness_to_connect(sigma, node_cache, nullptr, {}, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::calc_attractiveness_to_connect(sigma, node_cache, nullptr, {}, ElementType::Axon, SignalType::Inhibitory), RelearnException);
@@ -977,7 +994,7 @@ TEST_F(FMMTest, testCalcAttractivenessToConnect) {
 
     auto targets_holder = std::vector<OctreeNode<FastMultipoleMethodCell>>{};
     for (auto i = 0U; i < number_targets; i++) {
-        targets_holder.emplace_back(OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(40, min + Vec3d{ 2000.0 }, max + Vec3d{ 2000.0 }, this->mt));
+        targets_holder.emplace_back(OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(40, min + RelearnTypes::position_type{ 2000.0 }, max + RelearnTypes::position_type{ 2000.0 }, this->mt));
     }
 
     auto targets = std::vector<OctreeNode<FastMultipoleMethodCell>*>{};
@@ -1015,20 +1032,23 @@ TEST_F(FMMTest, testUnpackLevelsException) {
         return;
     }
 
-    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, 0, ElementType::Axon, SignalType::Excitatory), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, 0, ElementType::Axon, SignalType::Inhibitory), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, 0, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, 0, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
+    auto node_cache = NodeCache<FastMultipoleMethodCell>{};
+    node_cache.set_is_already_downloaded();
 
-    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, 1, ElementType::Axon, SignalType::Excitatory), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, 1, ElementType::Axon, SignalType::Inhibitory), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, 1, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, 1, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, node_cache, 0, ElementType::Axon, SignalType::Excitatory), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, node_cache, 0, ElementType::Axon, SignalType::Inhibitory), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, node_cache, 0, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, node_cache, 0, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
 
-    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, 4, ElementType::Axon, SignalType::Excitatory), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, 4, ElementType::Axon, SignalType::Inhibitory), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, 4, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, 4, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, node_cache, 1, ElementType::Axon, SignalType::Excitatory), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, node_cache, 1, ElementType::Axon, SignalType::Inhibitory), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, node_cache, 1, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, node_cache, 1, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
+
+    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, node_cache, 4, ElementType::Axon, SignalType::Excitatory), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, node_cache, 4, ElementType::Axon, SignalType::Inhibitory), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, node_cache, 4, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::unpack_levels(nullptr, node_cache, 4, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
 }
 
 TEST_F(FMMTest, testUnpackLevelsNoElements) {
@@ -1040,25 +1060,28 @@ TEST_F(FMMTest, testUnpackLevelsNoElements) {
         return;
     }
 
-    const auto check_axons = [](OctreeNode<FastMultipoleMethodCell>* ptr, std::uint16_t level) {
-        const auto targets_1 = FastMultipoleMethodBase::unpack_levels(ptr, level, ElementType::Axon, SignalType::Excitatory);
+    auto node_cache = NodeCache<FastMultipoleMethodCell>{};
+    node_cache.set_is_already_downloaded();
+
+    const auto check_axons = [&node_cache](OctreeNode<FastMultipoleMethodCell>* ptr, RelearnTypes::level_type level) {
+        const auto targets_1 = FastMultipoleMethodBase::unpack_levels(ptr, node_cache, level, ElementType::Axon, SignalType::Excitatory);
         ASSERT_TRUE(targets_1.empty());
 
-        const auto targets_2 = FastMultipoleMethodBase::unpack_levels(ptr, level, ElementType::Axon, SignalType::Inhibitory);
+        const auto targets_2 = FastMultipoleMethodBase::unpack_levels(ptr, node_cache, level, ElementType::Axon, SignalType::Inhibitory);
         ASSERT_TRUE(targets_2.empty());
     };
 
-    const auto check_dendrites = [](OctreeNode<FastMultipoleMethodCell>* ptr, std::uint16_t level) {
-        const auto targets_1 = FastMultipoleMethodBase::unpack_levels(ptr, level, ElementType::Dendrite, SignalType::Excitatory);
+    const auto check_dendrites = [&node_cache](OctreeNode<FastMultipoleMethodCell>* ptr, RelearnTypes::level_type level) {
+        const auto targets_1 = FastMultipoleMethodBase::unpack_levels(ptr, node_cache, level, ElementType::Dendrite, SignalType::Excitatory);
         ASSERT_TRUE(targets_1.empty());
 
-        const auto targets_2 = FastMultipoleMethodBase::unpack_levels(ptr, level, ElementType::Dendrite, SignalType::Inhibitory);
+        const auto targets_2 = FastMultipoleMethodBase::unpack_levels(ptr, node_cache, level, ElementType::Dendrite, SignalType::Inhibitory);
         ASSERT_TRUE(targets_2.empty());
     };
 
     const auto& [min, max] = SimulationFactory::get_random_small_simulation_box_size(this->mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
     auto empty_tree = OctreeFactory::get_tree_no_synaptic_elements<FastMultipoleMethodCell>(3000, memory_holder, min, max, this->mt);
     check_axons(&empty_tree, 0);
@@ -1088,8 +1111,11 @@ TEST_F(FMMTest, testUnpackLevels) {
         return;
     }
 
-    const auto check = [](OctreeNode<FastMultipoleMethodCell>* ptr, std::uint16_t level, ElementType element_type, SignalType signal_type) {
-        auto targets = FastMultipoleMethodBase::unpack_levels(ptr, level, element_type, signal_type);
+    auto node_cache = NodeCache<FastMultipoleMethodCell>{};
+    node_cache.set_is_already_downloaded();
+
+    const auto check = [&node_cache](OctreeNode<FastMultipoleMethodCell>* ptr, RelearnTypes::level_type level, ElementType element_type, SignalType signal_type) {
+        auto targets = FastMultipoleMethodBase::unpack_levels(ptr, node_cache, level, element_type, signal_type);
         for (auto* target : targets) {
             ASSERT_NE(target, nullptr);
 
@@ -1106,7 +1132,7 @@ TEST_F(FMMTest, testUnpackLevels) {
 
     const auto& [min, max] = SimulationFactory::get_random_small_simulation_box_size(this->mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
     auto tree = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(100, memory_holder, min, max, this->mt);
 
@@ -1125,10 +1151,10 @@ TEST_F(FMMTest, testUnpackLevels) {
     check(&tree, 4, ElementType::Dendrite, SignalType::Excitatory);
     check(&tree, 4, ElementType::Dendrite, SignalType::Inhibitory);
 
-    check(&tree, 300, ElementType::Axon, SignalType::Excitatory);
-    check(&tree, 300, ElementType::Axon, SignalType::Inhibitory);
-    check(&tree, 300, ElementType::Dendrite, SignalType::Excitatory);
-    check(&tree, 300, ElementType::Dendrite, SignalType::Inhibitory);
+    check(&tree, std::numeric_limits<RelearnTypes::level_type>::max(), ElementType::Axon, SignalType::Excitatory);
+    check(&tree, std::numeric_limits<RelearnTypes::level_type>::max(), ElementType::Axon, SignalType::Inhibitory);
+    check(&tree, std::numeric_limits<RelearnTypes::level_type>::max(), ElementType::Dendrite, SignalType::Excitatory);
+    check(&tree, std::numeric_limits<RelearnTypes::level_type>::max(), ElementType::Dendrite, SignalType::Inhibitory);
 }
 
 TEST_F(FMMTest, testFindTargetForLocalRootException) {
@@ -1167,45 +1193,45 @@ TEST_F(FMMTest, testFindTargetForLocalRootException) {
     auto node_cache = NodeCache<FastMultipoleMethodCell>{};
     node_cache.set_is_already_downloaded();
 
-    const auto sigma = 150.0;
+    const auto sigma = RelearnTypes::attraction_type{ 150 };
 
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, nullptr, nullptr, 0, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, nullptr, nullptr, 0, ElementType::Axon, SignalType::Inhibitory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, nullptr, nullptr, 0, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, nullptr, nullptr, 0, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
-                                                                                             
+
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, nullptr, 0, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, nullptr, 0, ElementType::Axon, SignalType::Inhibitory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, nullptr, 0, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, nullptr, 0, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
-                                                                                             
+
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, nullptr, &local_root, 0, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, nullptr, &local_root, 0, ElementType::Axon, SignalType::Inhibitory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, nullptr, &local_root, 0, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, nullptr, &local_root, 0, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
-                                                                                             
+
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 0, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 0, ElementType::Axon, SignalType::Inhibitory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 0, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 0, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
-                                                                                             
+
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 1, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 1, ElementType::Axon, SignalType::Inhibitory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 1, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 1, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
-                                                                                             
+
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 2, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 2, ElementType::Axon, SignalType::Inhibitory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 2, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 2, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
-                                                                                             
-    local_root.set_level(2);                                                                 
-                                                                                             
+
+    local_root.set_level(2);
+
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 1, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 1, ElementType::Axon, SignalType::Inhibitory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 1, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 1, ElementType::Dendrite, SignalType::Inhibitory), RelearnException);
-                                                                                             
+
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 3, ElementType::Axon, SignalType::Excitatory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 3, ElementType::Axon, SignalType::Inhibitory), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &root, &local_root, 3, ElementType::Dendrite, SignalType::Excitatory), RelearnException);
@@ -1223,15 +1249,15 @@ TEST_F(FMMTest, testFindTargetForLocalRootNoElements) {
 
     const auto& [min, max] = SimulationFactory::get_random_simulation_box_size(this->mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
-    auto no_elements_tree = OctreeFactory::get_tree_no_synaptic_elements<FastMultipoleMethodCell>(300, memory_holder, min, max, this->mt);
+    auto no_elements_tree = OctreeFactory::get_tree_no_axons<FastMultipoleMethodCell>(300, memory_holder, min, max, this->mt);
     const auto no_elements_branch_nodes = OctreeAdapter::extract_branch_nodes(&no_elements_tree, 2);
 
     auto node_cache = NodeCache<FastMultipoleMethodCell>{};
     node_cache.set_is_already_downloaded();
 
-    const auto sigma = 150.0;
+    const auto sigma = RelearnTypes::attraction_type{ 150 };
 
     for (auto* branch_node : no_elements_branch_nodes) {
         auto target_1 = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &no_elements_tree, branch_node, 2, ElementType::Axon, SignalType::Excitatory);
@@ -1281,13 +1307,13 @@ TEST_F(FMMTest, testFindTargetForLocalRoot) {
 
     const auto& [min, max] = SimulationFactory::get_random_small_simulation_box_size(this->mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
     auto tree = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(1000, memory_holder, min, max, this->mt);
 
-    const auto sigma = 150.0;
+    const auto sigma = RelearnTypes::attraction_type{ 150 };
 
-    for (auto branch_level = std::uint8_t{ 0 }; branch_level < 3; branch_level++) {
+    for (auto branch_level = RelearnTypes::level_type{ 0 }; branch_level < 3; branch_level++) {
         const auto branch_nodes = OctreeAdapter::extract_branch_nodes(&tree, branch_level);
 
         auto node_cache = NodeCache<FastMultipoleMethodCell>{};
@@ -1295,7 +1321,7 @@ TEST_F(FMMTest, testFindTargetForLocalRoot) {
 
         auto check = [&tree, branch_nodes, branch_level, &node_cache, sigma](auto element_type, auto signal_type) {
             for (auto* branch_node : branch_nodes) {
-                auto opt_target = FastMultipoleMethodBase::find_target_for_local_root(sigma, node_cache, &tree, branch_node, branch_level, element_type, signal_type);
+                auto opt_target = FastMultipoleMethodBase::find_target_for_local_root(utility::cast<RelearnTypes::attraction_type>(sigma), node_cache, &tree, branch_node, branch_level, element_type, signal_type);
                 ASSERT_TRUE(opt_target.has_value());
 
                 const auto& [source, target] = opt_target.value();
@@ -1326,30 +1352,30 @@ TEST_F(FMMTest, testFindPartnersException) {
 
     const auto& [min, max] = SimulationFactory::get_random_small_simulation_box_size(this->mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
     auto tree = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(1000, memory_holder, min, max, this->mt);
 
     auto node_cache = NodeCache<FastMultipoleMethodCell>{};
     node_cache.set_is_already_downloaded();
 
-    const auto sigma = 150.0;
+    const auto sigma = RelearnTypes::attraction_type{ 150 };
 
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_partners(sigma, node_cache, { nullptr, nullptr }, ElementType::Axon, SignalType::Excitatory, 1), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_partners(sigma, node_cache, { nullptr, nullptr }, ElementType::Axon, SignalType::Inhibitory, 1), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_partners(sigma, node_cache, { nullptr, nullptr }, ElementType::Dendrite, SignalType::Excitatory, 1), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_partners(sigma, node_cache, { nullptr, nullptr }, ElementType::Dendrite, SignalType::Inhibitory, 1), RelearnException);
-                                                                                
+
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_partners(sigma, node_cache, { &tree, nullptr }, ElementType::Axon, SignalType::Excitatory, 1), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_partners(sigma, node_cache, { &tree, nullptr }, ElementType::Axon, SignalType::Inhibitory, 1), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_partners(sigma, node_cache, { &tree, nullptr }, ElementType::Dendrite, SignalType::Excitatory, 1), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_partners(sigma, node_cache, { &tree, nullptr }, ElementType::Dendrite, SignalType::Inhibitory, 1), RelearnException);
-                                                                                
+
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_partners(sigma, node_cache, { nullptr, &tree }, ElementType::Axon, SignalType::Excitatory, 1), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_partners(sigma, node_cache, { nullptr, &tree }, ElementType::Axon, SignalType::Inhibitory, 1), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_partners(sigma, node_cache, { nullptr, &tree }, ElementType::Dendrite, SignalType::Excitatory, 1), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_partners(sigma, node_cache, { nullptr, &tree }, ElementType::Dendrite, SignalType::Inhibitory, 1), RelearnException);
-                                                                                
+
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_partners(sigma, node_cache, { &tree, &tree }, ElementType::Axon, SignalType::Excitatory, 0), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_partners(sigma, node_cache, { &tree, &tree }, ElementType::Axon, SignalType::Inhibitory, 0), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = FastMultipoleMethodBase::find_partners(sigma, node_cache, { &tree, &tree }, ElementType::Dendrite, SignalType::Excitatory, 0), RelearnException);
@@ -1368,13 +1394,13 @@ TEST_F(FMMTest, testFindPartners) {
     auto node_cache = NodeCache<FastMultipoleMethodCell>{};
     node_cache.set_is_already_downloaded();
 
-    const auto sigma = 150.0;
+    const auto sigma = RelearnTypes::attraction_type{ 150 };
 
     const auto check_valid = [&node_cache, sigma](OctreeNode<FastMultipoleMethodCell>* source, OctreeNode<FastMultipoleMethodCell>* target,
-                                           ElementType element_type, SignalType signal_type, std::uint8_t branch_level) {
+                                                  ElementType element_type, SignalType signal_type, RelearnTypes::level_type branch_level) {
         auto new_sources = OctreeAdapter::extract_branch_nodes(source, branch_level);
 
-        const auto pairs = FastMultipoleMethodBase::find_partners(sigma, node_cache, { .current_source = source, .current_target = target }, element_type, signal_type, branch_level);
+        const auto pairs = FastMultipoleMethodBase::find_partners(utility::cast<RelearnTypes::attraction_type>(sigma), node_cache, { .current_source = source, .current_target = target }, element_type, signal_type, branch_level);
         auto found_sources = std::vector<OctreeNode<FastMultipoleMethodCell>*>{};
 
         for (const auto& [s, t] : pairs) {
@@ -1398,7 +1424,7 @@ TEST_F(FMMTest, testFindPartners) {
     };
 
     const auto check_none = [&node_cache, sigma](OctreeNode<FastMultipoleMethodCell>* source, OctreeNode<FastMultipoleMethodCell>* target,
-                                          ElementType element_type, SignalType signal_type, std::uint16_t branch_level) {
+                                                 ElementType element_type, SignalType signal_type, RelearnTypes::level_type branch_level) {
         const auto pairs = FastMultipoleMethodBase::find_partners(sigma, node_cache, { .current_source = source, .current_target = target }, element_type, signal_type, branch_level);
 
         ASSERT_TRUE(pairs.empty());
@@ -1406,7 +1432,7 @@ TEST_F(FMMTest, testFindPartners) {
 
     const auto& [min, max] = SimulationFactory::get_random_simulation_box_size(this->mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
     auto source_tree = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(1000, memory_holder, min, max, this->mt);
     auto target_tree = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(1000, memory_holder, min, max, this->mt);
@@ -1457,7 +1483,7 @@ TEST_F(FMMTest, testFindPartnersUneven) {
 
     const auto& [min, max] = SimulationFactory::get_random_simulation_box_size(this->mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<FastMultipoleMethodCell>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<FastMultipoleMethodCell>();
 
     auto small_tree = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(2, memory_holder, min, max, this->mt);
     auto large_tree = OctreeFactory::get_standard_tree<FastMultipoleMethodCell>(1000, memory_holder, min, max, this->mt);
@@ -1467,7 +1493,7 @@ TEST_F(FMMTest, testFindPartnersUneven) {
     auto node_cache = NodeCache<FastMultipoleMethodCell>{};
     node_cache.set_is_already_downloaded();
 
-    const auto sigma = 150.0;
+    const auto sigma = RelearnTypes::attraction_type{ 150 };
 
     const auto found_targets_1 = FastMultipoleMethodBase::find_partners(sigma, node_cache, { .current_source = &small_tree, .current_target = &large_tree }, ElementType::Axon, SignalType::Excitatory, 2);
     if (!small_branch_nodes.empty()) {
@@ -1480,4 +1506,135 @@ TEST_F(FMMTest, testFindPartnersUneven) {
 
     const auto found_targets_2 = FastMultipoleMethodBase::find_partners(sigma, node_cache, { .current_source = &large_tree, .current_target = &small_tree }, ElementType::Dendrite, SignalType::Inhibitory, 2);
     ASSERT_EQ(found_targets_2.size(), large_branch_nodes.size());
+}
+#endif
+
+// End-to-end regression test of the FastMultipoleMethod class itself (as opposed to just the
+// free FastMultipoleMethodBase functions above): exercises find_target_neurons() /
+// process_requests() / process_responses() (FastMultipoleMethod.cpp) via the public
+// update_connectivity_host_mpi() pipeline, with two neurons positioned so that each one's single
+// vacant axon can only ever target the other's single vacant dendrite (autapses are forbidden).
+//
+// Unlike BarnesHutCUDA's acceptance criterion (a leaf with a vacant dendrite is *always*
+// accepted), FastMultipoleMethodBase::find_target_for_local_root/find_partners pick probabilistically
+// among the octree nodes unpacked at each level (via ProbabilityPicker::pick_target on Gaussian
+// attractivenesses), and an intermediate pick can lead to a dead end with zero elements -- so a
+// single update_connectivity_host_mpi() call is not guaranteed to connect every vacant axon, just
+// like a single simulation step isn't in production. Retry (each time refreshing the octree with
+// the current vacant-element counts, exactly as repeated simulation steps would) until both
+// neurons have connected or a generous bound is exhausted.
+TEST_F(FMMTest, testUpdateConnectivityHostMpiConnectsTwoNeurons) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr auto number_neurons = RelearnTypes::number_neurons_type{ 2 };
+    const auto box = RelearnTypes::bounding_box_type{ RelearnTypes::position_type{ 0.0, 0.0, 0.0 }, RelearnTypes::position_type{ 1.0, 1.0, 1.0 } };
+
+    const auto neuron_positions = std::vector<RelearnTypes::position_type>{
+        RelearnTypes::position_type{ 0.1F, 0.1F, 0.1F },
+        RelearnTypes::position_type{ 0.9F, 0.9F, 0.9F },
+    };
+
+    auto extra_infos = std::make_shared<NeuronsExtraInfo>();
+    extra_infos->init(number_neurons);
+    extra_infos->set_positions(neuron_positions);
+
+    const auto signal_types = std::vector<SignalType>(number_neurons, SignalType::Excitatory);
+    auto synaptic_elements = SynapticElementsFactory::construct_synaptic_elements_with_fixed_number_axons_dendrites(extra_infos, signal_types, 1.0, 1.0);
+
+    auto network_graph = NetworkGraphFactory::construct_empty_network_graph(number_neurons);
+
+    auto fmm = FastMultipoleMethod(box, std::make_shared<Morton>(0));
+    fmm.set_probability_kernel(KernelFactory::get_standard_gaussian());
+    fmm.set_synaptic_elements(synaptic_elements);
+    fmm.set_network_graph(network_graph);
+    fmm.set_neuron_extra_infos(extra_infos);
+    fmm.init(number_neurons);
+
+    auto total_connected_axons = RelearnTypes::counter_type{ 0 };
+    for (auto attempt = 0; attempt < 100 && total_connected_axons < 2; ++attempt) {
+        const auto vacant_axons = synaptic_elements->get_vacant_elements(SynapticElementType::Axon);
+        const auto vacant_excitatory_dendrites = synaptic_elements->get_vacant_elements(SynapticElementType::DendriteExcitatory);
+        const auto vacant_inhibitory_dendrites = synaptic_elements->get_vacant_elements(SynapticElementType::DendriteInhibitory);
+
+        ASSERT_NO_THROW(fmm.prepare_update_connectivity(signal_types, vacant_axons, vacant_excitatory_dendrites, vacant_inhibitory_dendrites));
+        ASSERT_NO_THROW(std::ignore = fmm.update_connectivity(number_neurons));
+
+        const auto& number_connected_axons = synaptic_elements->get_connected_elements(SynapticElementType::Axon);
+        total_connected_axons = std::accumulate(number_connected_axons.begin(), number_connected_axons.end(), RelearnTypes::counter_type{ 0 });
+    }
+
+    ASSERT_EQ(total_connected_axons, 2) << "Each of the two neurons has exactly one vacant axon and must eventually connect it to the other neuron's dendrite";
+}
+
+// Same idea as testUpdateConnectivityHostMpiConnectsTwoNeurons above, but for
+// FastMultipoleMethodInverted (FastMultipoleMethodInverted.cpp), which connects in the opposite
+// direction (dendrites search for axon partners, via BackwardConnector). Unlike
+// FastMultipoleMethod, BackwardAlgorithm::update_connectivity() unconditionally throws
+// CPU_NOT_SUPPORTED when RELEARN_CUDA_ENABLED is set and has no public "host_mpi" escape hatch, so
+// this test instead drives find_target_neurons()/process_requests()/process_responses() directly
+// -- accessible here only because FastMultipoleMethodInverted declares `friend class FMMTest;` --
+// replicating BackwardAlgorithm::update_connectivity()'s body without going through the
+// CUDA-build-only guard.
+TEST_F(FMMTest, testDrivingConnectivityStepsDirectlyConnectsTwoNeurons) {
+    if (mpiPP::MPIInfo::get_number_ranks() != 1) {
+        if (mpiPP::MPIInfo::get_my_rank() == mpiPP::MPIRank::root_rank()) {
+            std::cerr << "Test only works with 1 MPI ranks.\n";
+        }
+
+        return;
+    }
+
+    constexpr auto number_neurons = RelearnTypes::number_neurons_type{ 2 };
+    const auto box = RelearnTypes::bounding_box_type{ RelearnTypes::position_type{ 0.0, 0.0, 0.0 }, RelearnTypes::position_type{ 1.0, 1.0, 1.0 } };
+
+    const auto neuron_positions = std::vector<RelearnTypes::position_type>{
+        RelearnTypes::position_type{ 0.1F, 0.1F, 0.1F },
+        RelearnTypes::position_type{ 0.9F, 0.9F, 0.9F },
+    };
+
+    auto extra_infos = std::make_shared<NeuronsExtraInfo>();
+    extra_infos->init(number_neurons);
+    extra_infos->set_positions(neuron_positions);
+
+    const auto signal_types = std::vector<SignalType>(number_neurons, SignalType::Excitatory);
+    auto synaptic_elements = SynapticElementsFactory::construct_synaptic_elements_with_fixed_number_axons_dendrites(extra_infos, signal_types, 1.0, 1.0);
+
+    auto network_graph = NetworkGraphFactory::construct_empty_network_graph(number_neurons);
+
+    auto fmm_inverted = FastMultipoleMethodInverted(box, std::make_shared<Morton>(0));
+    fmm_inverted.set_probability_kernel(KernelFactory::get_standard_gaussian());
+    fmm_inverted.set_synaptic_elements(synaptic_elements);
+    fmm_inverted.set_network_graph(network_graph);
+    fmm_inverted.set_neuron_extra_infos(extra_infos);
+    fmm_inverted.init(number_neurons);
+
+    auto total_connected_dendrites = RelearnTypes::counter_type{ 0 };
+    for (auto attempt = 0; attempt < 100 && total_connected_dendrites < 2; ++attempt) {
+        const auto vacant_axons = synaptic_elements->get_vacant_elements(SynapticElementType::Axon);
+        const auto vacant_excitatory_dendrites = synaptic_elements->get_vacant_elements(SynapticElementType::DendriteExcitatory);
+        const auto vacant_inhibitory_dendrites = synaptic_elements->get_vacant_elements(SynapticElementType::DendriteInhibitory);
+
+        ASSERT_NO_THROW(fmm_inverted.prepare_update_connectivity(signal_types, vacant_axons, vacant_excitatory_dendrites, vacant_inhibitory_dendrites));
+
+        const auto& outgoing_requests = call_find_target_neurons(fmm_inverted, number_neurons);
+        const auto& incoming_requests = mpiPP::MPIAdvancedCommunicationPatterns::exchange_requests(outgoing_requests);
+
+        auto [responses_outgoing, number_created_synapses, synapses] = call_process_requests(fmm_inverted, incoming_requests);
+        std::ignore = number_created_synapses;
+        std::ignore = synapses;
+
+        const auto& responses_incoming = mpiPP::MPIAdvancedCommunicationPatterns::exchange_requests(responses_outgoing);
+        std::ignore = call_process_responses(fmm_inverted, outgoing_requests, responses_incoming);
+
+        const auto& number_connected_dendrites = synaptic_elements->get_connected_elements(SynapticElementType::DendriteExcitatory);
+        total_connected_dendrites = std::accumulate(number_connected_dendrites.begin(), number_connected_dendrites.end(), RelearnTypes::counter_type{ 0 });
+    }
+
+    ASSERT_EQ(total_connected_dendrites, 2) << "Each of the two neurons has exactly one vacant dendrite and must eventually connect it to the other neuron's axon";
 }

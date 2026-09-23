@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -13,11 +13,16 @@
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
 
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIRank.h>
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
 #include <boost/functional/hash.hpp>
+#pragma GCC diagnostic pop
 #include <fmt/format.h>
 #include <fmt/ostream.h>
+
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <compare>
 #include <ostream>
@@ -114,8 +119,8 @@ public:
     }
 
 private:
-    mpiPP::MPIRank rank{}; // MPI rank of the owner
-    NeuronID neuron_id{};  // Neuron id on the owner
+    mpiPP::MPIRank rank; // MPI rank of the owner
+    NeuronID neuron_id;  // Neuron id on the owner
 };
 
 template <>

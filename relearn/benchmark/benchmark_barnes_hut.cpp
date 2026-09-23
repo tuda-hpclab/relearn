@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2023-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -15,18 +15,21 @@
 #include "algorithm/Internal/octree/NodeCache.h"
 #include "algorithm/Kernel/Gaussian.h"
 #include "neurons/enums/SynapticElementType.h"
+#include "types/BasicTypes.h"
 
 #include <benchmark/benchmark.h>
 
-#include <cstdint>
+#include <cpp-utility/Cast.hpp>
+
 #include <cstddef>
+#include <cstdint>
 
 namespace {
 void BM_Test_Acceptance_Criterion(benchmark::State& state) {
-    constexpr auto default_theta = 0.3;
+    constexpr auto default_theta = utility::as<RelearnTypes::acceptance_criterion_type>(0.3);
     constexpr auto inner_iterations = 1000000;
 
-    const auto pos = Vec3d{ 2.0, 2.0, 2.0 };
+    const auto pos = RelearnTypes::position_type{ 2.0, 2.0, 2.0 };
     const auto root = get_octree<BarnesHutCell>(5);
 
     auto sum = 0;
@@ -42,12 +45,12 @@ void BM_Test_Acceptance_Criterion(benchmark::State& state) {
 }
 
 void BM_Get_Nodes_To_Consider(benchmark::State& state) {
-    constexpr auto default_theta = 0.3;
+    constexpr auto default_theta = utility::as<RelearnTypes::acceptance_criterion_type>(0.3);
     constexpr auto inner_iterations = 1000;
 
     const auto number_nodes = state.range(0);
 
-    const auto pos = Vec3d{ 1.0, 1.0, 1.0 };
+    const auto pos = RelearnTypes::position_type{ 1.0, 1.0, 1.0 };
     auto root = get_octree<BarnesHutCell>(static_cast<std::size_t>(number_nodes));
 
     auto sum = static_cast<std::size_t>(0);
@@ -66,12 +69,12 @@ void BM_Get_Nodes_To_Consider(benchmark::State& state) {
 }
 
 void BM_Find_Target_Neuron(benchmark::State& state) {
-    constexpr auto default_theta = 0.3;
+    constexpr auto default_theta = utility::as<RelearnTypes::acceptance_criterion_type>(0.3);
     constexpr auto inner_iterations = 1000;
 
     const auto number_nodes = state.range(0);
 
-    const auto pos = Vec3d{ 10, 10, 10 };
+    const auto pos = RelearnTypes::position_type{ 10, 10, 10 };
     auto root = get_octree<BarnesHutCell>(static_cast<std::size_t>(number_nodes));
 
     const auto rni = RankNeuronId{ mpiPP::MPIRank{ 1 }, NeuronID{ 0 } };
@@ -99,11 +102,11 @@ void BM_Find_Target_Neuron(benchmark::State& state) {
 }
 
 void BM_Find_Target_Neurons(benchmark::State& state) {
-    constexpr auto default_theta = 0.3;
+    constexpr auto default_theta = utility::as<RelearnTypes::acceptance_criterion_type>(0.3);
 
-    const auto number_nodes = static_cast<std::uint32_t >(state.range(0));
+    const auto number_nodes = static_cast<std::uint32_t>(state.range(0));
 
-    const auto pos = Vec3d{ 10, 10, 10 };
+    const auto pos = RelearnTypes::position_type{ 10, 10, 10 };
     auto root = get_octree<BarnesHutCell>(static_cast<std::size_t>(number_nodes));
 
     const auto rni = RankNeuronId{ mpiPP::MPIRank{ 1 }, NeuronID{ 0 } };

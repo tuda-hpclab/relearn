@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,17 +11,16 @@
 #include "GroupMonitor.h"
 
 #include "Config.h"
-#include "Types.h"
 
-#include "neurons/NetworkGraph.h"
 #include "neurons/Neurons.h"
 #include "neurons/enums/SynapticElementType.h"
 #include "neurons/firing/FiredStatusRecorder.h"
 #include "neurons/helper/GlobalGroupMapper.h"
 #include "sim/Simulation.h"
+#include "types/BasicTypes.h"
 #include "util/Timers.h"
 
-#include "cpp-utility/ranges/Functional.hpp"
+#include <cpp-utility/ranges/Functional.hpp>
 
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/concat.hpp>
@@ -34,8 +33,6 @@
 #include <ios>
 #include <memory>
 #include <set>
-#include <string>
-#include <tuple>
 #include <utility>
 
 GroupMonitor::GroupMonitor(std::shared_ptr<Neurons> _neurons,
@@ -133,7 +130,7 @@ void GroupMonitor::record_data(const NeuronID neuron_id) {
     const auto& fired_recorder = neurons->get_neuron_model()->get_fired_status_recorder();
     const auto fired = fired_recorder->get_fired_recorder(FiredStatusRecorder::FireRecorderPeriod::GroupMonitor);
 
-    internal_statistics.fired_fraction += static_cast<double>(fired[neuron_id.get_neuron_id()]) / static_cast<double>(Config::plasticity_update_step);
+    internal_statistics.fired_fraction += static_cast<RelearnTypes::fire_rate_type>(fired[neuron_id.get_neuron_id()]) / static_cast<RelearnTypes::fire_rate_type>(Config::plasticity_update_step);
     internal_statistics.num_enabled_neurons++;
 
     Timers::stop_and_add(TimerRegion::GROUP_MONITORS_STATISTICS);

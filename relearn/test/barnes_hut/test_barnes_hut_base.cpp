@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2023-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -9,7 +9,7 @@
  */
 
 #include "Config.h"
-#include "Types.h"
+#include "test_barnes_hut.h"
 
 #include "algorithm/BarnesHutInternal/BarnesHutBase.h"
 #include "algorithm/BarnesHutInternal/BarnesHutCell.h"
@@ -21,13 +21,12 @@
 #include "algorithm/Kernel/Gaussian.h"
 #include "neurons/enums/SynapticElementType.h"
 #include "neurons/helper/DistantNeuronRequests.h"
+#include "types/BasicTypes.h"
 #include "util/MemoryHolder.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnException.h"
 #include "util/Vec3.h"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "adapter/node_cache/NodeCacheAdapter.h"
 #include "adapter/octree/OctreeAdapter.h"
@@ -40,7 +39,13 @@
 #include "factory/random/random_factory.h"
 #include "factory/simulation/simulation_factory.h"
 
+#include <cpp-utility/Cast.hpp>
+
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
+#include <mpi-wrapper/core/MPIRankRange.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -48,8 +53,6 @@
 #include <stack>
 #include <tuple>
 #include <vector>
-
-#include "test_barnes_hut.h"
 
 TEST_F(BarnesHutBaseTest, testACException) {
     if (mpiPP::MPIInfo::get_number_ranks() != 1) {
@@ -62,11 +65,11 @@ TEST_F(BarnesHutBaseTest, testACException) {
 
     using additional_cell_attributes = BarnesHutCell;
 
-    const auto minimum = Vec3d{ 0.0, 0.0, 0.0 };
-    const auto maximum = Vec3d{ 10.0, 10.0, 10.0 };
+    const auto minimum = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
+    const auto maximum = RelearnTypes::position_type{ 10.0, 10.0, 10.0 };
 
     const auto rank = MPIRankFactory::get_random_mpi_rank(1024, mt);
-    const auto level = static_cast<std::uint8_t>(RandomFactory::get_random_integer<std::uint16_t>(0, 24, mt));
+    const auto level = static_cast<RelearnTypes::level_type>(RandomFactory::get_random_integer<std::uint16_t>(0, 24, mt));
     const auto& neuron_id = NeuronIdFactory::get_random_neuron_id(10000, mt);
     const auto& node_position = SimulationFactory::get_random_position_in_box(minimum, maximum, mt);
 
@@ -80,13 +83,13 @@ TEST_F(BarnesHutBaseTest, testACException) {
     node.set_cell_neuron_position(node_position);
 
     const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
-    const auto source_position = Vec3d{ 15.0, 15.0, 15.0 };
+    const auto source_position = RelearnTypes::position_type{ 15.0, 15.0, 15.0 };
 
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::test_acceptance_criterion(source_position,
                                                                                                              nullptr, ElementType::Dendrite, searched_signal_type, Constants::bh_default_theta),
                           RelearnException);
 
-    const auto too_small_acceptance_criterion = RandomFactory::get_random_double<double>(-1000.0, 0.0, mt);
+    const auto too_small_acceptance_criterion = RandomFactory::get_random_double(RelearnTypes::acceptance_criterion_type{ -1000 }, RelearnTypes::acceptance_criterion_type{ 0 }, mt);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::test_acceptance_criterion(source_position,
                                                                                                              &node, ElementType::Dendrite, searched_signal_type, 0.0),
                           RelearnException);
@@ -94,7 +97,7 @@ TEST_F(BarnesHutBaseTest, testACException) {
                                                                                                              &node, ElementType::Dendrite, searched_signal_type, too_small_acceptance_criterion),
                           RelearnException);
 
-    const auto too_large_acceptance_criterion = RandomFactory::get_random_double<double>(Constants::bh_max_theta + eps, 1000.0, mt);
+    const auto too_large_acceptance_criterion = RandomFactory::get_random_double(Constants::bh_max_theta + utility::cast<RelearnTypes::acceptance_criterion_type>(eps), RelearnTypes::acceptance_criterion_type{ 1000 }, mt);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::test_acceptance_criterion(source_position,
                                                                                                              &node, ElementType::Dendrite, searched_signal_type, too_large_acceptance_criterion),
                           RelearnException);
@@ -111,11 +114,11 @@ TEST_F(BarnesHutBaseTest, testACLeafDendrites) {
 
     using additional_cell_attributes = BarnesHutCell;
 
-    const auto minimum = Vec3d{ 0.0, 0.0, 0.0 };
-    const auto maximum = Vec3d{ 10.0, 10.0, 10.0 };
+    const auto minimum = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
+    const auto maximum = RelearnTypes::position_type{ 10.0, 10.0, 10.0 };
 
     const auto rank = MPIRankFactory::get_random_mpi_rank(1024, mt);
-    const auto level = static_cast<std::uint8_t>(RandomFactory::get_random_integer<std::uint16_t>(0, 24, mt));
+    const auto level = static_cast<RelearnTypes::level_type>(RandomFactory::get_random_integer<std::uint16_t>(0, 24, mt));
     const auto& neuron_id = NeuronIdFactory::get_random_neuron_id(10000, mt);
     const auto& node_position = SimulationFactory::get_random_position_in_box(minimum, maximum, mt);
 
@@ -129,7 +132,7 @@ TEST_F(BarnesHutBaseTest, testACLeafDendrites) {
     node.set_cell_neuron_position(node_position);
 
     const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
-    const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+    const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
 
     for (auto it = 0; it < 1000; it++) {
         const auto& position = SimulationFactory::get_random_position(mt);
@@ -166,11 +169,11 @@ TEST_F(BarnesHutBaseTest, testACLeafSamePositionDendrites) {
 
     using additional_cell_attributes = BarnesHutCell;
 
-    const auto minimum = Vec3d{ 0.0, 0.0, 0.0 };
-    const auto maximum = Vec3d{ 10.0, 10.0, 10.0 };
+    const auto minimum = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
+    const auto maximum = RelearnTypes::position_type{ 10.0, 10.0, 10.0 };
 
     const auto rank = MPIRankFactory::get_random_mpi_rank(1024, mt);
-    const auto level = static_cast<std::uint8_t>(RandomFactory::get_random_integer<std::uint16_t>(0, 24, mt));
+    const auto level = static_cast<RelearnTypes::level_type>(RandomFactory::get_random_integer<std::uint16_t>(0, 24, mt));
     const auto& neuron_id = NeuronIdFactory::get_random_neuron_id(10000, mt);
     const auto& node_position = SimulationFactory::get_random_position_in_box(minimum, maximum, mt);
 
@@ -184,7 +187,7 @@ TEST_F(BarnesHutBaseTest, testACLeafSamePositionDendrites) {
     node.set_cell_neuron_position(node_position);
 
     const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
-    const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+    const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
 
     for (auto it = 0; it < 1000; it++) {
         const auto number_free_elements_excitatory = RandomFactory::get_random_integer<RelearnTypes::counter_type>(0, 1000, mt);
@@ -213,7 +216,7 @@ TEST_F(BarnesHutBaseTest, testACParentDendrite) {
     const auto& scaled_maximum = maximum / 10.0;
 
     const auto rank = MPIRankFactory::get_random_mpi_rank(1024, mt);
-    const auto level = static_cast<std::uint8_t>(RandomFactory::get_random_integer<std::uint16_t>(0, 24, mt));
+    const auto level = static_cast<RelearnTypes::level_type>(RandomFactory::get_random_integer<std::uint16_t>(0, 24, mt));
     const auto& neuron_id = NeuronIdFactory::get_random_neuron_id(10000, mt);
     const auto& node_position = SimulationFactory::get_random_position_in_box(scaled_minimum, scaled_maximum, mt);
 
@@ -233,10 +236,10 @@ TEST_F(BarnesHutBaseTest, testACParentDendrite) {
     const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
 
     for (auto it = 0; it < 1000; it++) {
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         const auto& position = SimulationFactory::get_random_position(mt);
 
-        const auto distance = (node_position - position).calculate_2_norm();
+        const auto distance = (node_position - position).calculate_2_norm<RelearnTypes::space_type>();
         const auto quotient = maximum_cell_dimension / distance;
 
         const auto number_free_elements = RandomFactory::get_random_integer<RelearnTypes::counter_type>(1, 1000, mt);
@@ -281,27 +284,27 @@ TEST_F(BarnesHutBaseTest, testNodesToConsiderException) {
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
     const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
-    const auto position = Vec3d{ 0.0 };
+    const auto position = RelearnTypes::position_type{ 0.0 };
     auto root = OctreeFactory::get_standard_tree<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
 
-    const auto too_small_acceptance_criterion = RandomFactory::get_random_double<double>(-1000.0, 0.0, mt);
-    const auto too_large_acceptance_criterion = RandomFactory::get_random_double<double>(Constants::bh_max_theta + eps, 10000.0, mt);
+    const auto too_small_acceptance_criterion = RandomFactory::get_random_double(RelearnTypes::acceptance_criterion_type{ -1000 }, RelearnTypes::acceptance_criterion_type{ 0 }, mt);
+    const auto too_large_acceptance_criterion = RandomFactory::get_random_double(Constants::bh_max_theta + utility::cast<RelearnTypes::acceptance_criterion_type>(eps), RelearnTypes::acceptance_criterion_type{ 10000 }, mt);
 
     auto node_cache = NodeCache<additional_cell_attributes>{};
     node_cache.set_is_already_downloaded();
 
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, &root, ElementType::Dendrite, searched_signal_type, 0.0), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, &root, ElementType::Dendrite, searched_signal_type, Constants::bh_max_theta + eps), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, &root, ElementType::Dendrite, searched_signal_type, Constants::bh_max_theta + utility::cast<RelearnTypes::acceptance_criterion_type>(eps)), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, &root, ElementType::Dendrite, searched_signal_type, too_small_acceptance_criterion), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, &root, ElementType::Dendrite, searched_signal_type, too_large_acceptance_criterion), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, &root, ElementType::Dendrite, searched_signal_type, 0.0, true), RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, &root, ElementType::Dendrite, searched_signal_type, Constants::bh_max_theta + eps, true), RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, &root, ElementType::Dendrite, searched_signal_type, Constants::bh_max_theta + utility::cast<RelearnTypes::acceptance_criterion_type>(eps), true), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, &root, ElementType::Dendrite, searched_signal_type, too_small_acceptance_criterion, true), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, &root, ElementType::Dendrite, searched_signal_type, too_large_acceptance_criterion, true), RelearnException);
 
-    const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+    const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, nullptr, ElementType::Dendrite, searched_signal_type, Constants::bh_default_theta), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, nullptr, ElementType::Dendrite, searched_signal_type, acceptance_criterion), RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, nullptr, ElementType::Dendrite, searched_signal_type, Constants::bh_default_theta, true), RelearnException);
@@ -319,11 +322,11 @@ TEST_F(BarnesHutBaseTest, testNodesToConsiderLeaf) {
 
     using additional_cell_attributes = BarnesHutCell;
 
-    const auto minimum = Vec3d{ 0.0, 0.0, 0.0 };
-    const auto maximum = Vec3d{ 10.0, 10.0, 10.0 };
+    const auto minimum = RelearnTypes::position_type{ 0.0, 0.0, 0.0 };
+    const auto maximum = RelearnTypes::position_type{ 10.0, 10.0, 10.0 };
 
     const auto rank = MPIRankFactory::get_random_mpi_rank(1024, mt);
-    const auto level = static_cast<std::uint8_t>(RandomFactory::get_random_integer<std::uint16_t>(0, 24, mt));
+    const auto level = static_cast<RelearnTypes::level_type>(RandomFactory::get_random_integer<std::uint16_t>(0, 24, mt));
     const auto& neuron_id = NeuronIdFactory::get_random_neuron_id(10000, mt);
     const auto& node_position = SimulationFactory::get_random_position_in_box(minimum, maximum, mt);
 
@@ -343,7 +346,7 @@ TEST_F(BarnesHutBaseTest, testNodesToConsiderLeaf) {
 
     for (auto it = 0; it < 1000; it++) {
         const auto& position = SimulationFactory::get_random_position(mt);
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         const auto number_free_elements = RandomFactory::get_random_integer<RelearnTypes::counter_type>(1, 1000, mt);
 
         if (searched_signal_type == SignalType::Excitatory) {
@@ -377,7 +380,7 @@ TEST_F(BarnesHutBaseTest, testNodesToConsiderLeaf) {
 
     for (auto it = 0; it < 1000; it++) {
         const auto& position = SimulationFactory::get_random_position(mt);
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
 
         const auto accept_nodes = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, &node, ElementType::Dendrite, searched_signal_type, acceptance_criterion);
         ASSERT_TRUE(accept_nodes.empty());
@@ -401,7 +404,7 @@ TEST_F(BarnesHutBaseTest, testNodesToConsiderNoDendrites) {
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 1;
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_tree_no_dendrites<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
 
@@ -411,7 +414,7 @@ TEST_F(BarnesHutBaseTest, testNodesToConsiderNoDendrites) {
     node_cache.set_is_already_downloaded();
 
     for (auto it = 0; it < 1000; it++) {
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         const auto& position = SimulationFactory::get_random_position(mt);
 
         auto found_nodes_dendrite = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, &root, ElementType::Dendrite, searched_signal_type, acceptance_criterion, false);
@@ -433,7 +436,7 @@ TEST_F(BarnesHutBaseTest, testNodesToConsiderNoElements) {
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 1;
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_tree_no_synaptic_elements<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
 
@@ -443,7 +446,7 @@ TEST_F(BarnesHutBaseTest, testNodesToConsiderNoElements) {
     node_cache.set_is_already_downloaded();
 
     for (auto it = 0; it < 1000; it++) {
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         const auto& position = SimulationFactory::get_random_position(mt);
 
         auto found_nodes_dendrite = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, &root, ElementType::Dendrite, searched_signal_type, acceptance_criterion, false);
@@ -465,7 +468,7 @@ TEST_F(BarnesHutBaseTest, testNodesToConsider) {
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 1;
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_standard_tree<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
 
@@ -475,7 +478,7 @@ TEST_F(BarnesHutBaseTest, testNodesToConsider) {
     node_cache.set_is_already_downloaded();
 
     for (auto it = 0; it < 1000; it++) {
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         const auto& position = SimulationFactory::get_random_position(mt);
 
         auto found_nodes = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, &root, ElementType::Dendrite, searched_signal_type, acceptance_criterion, false);
@@ -530,7 +533,7 @@ TEST_F(BarnesHutBaseTest, testNodesToConsiderNoAxons) {
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 1;
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_tree_no_axons<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
 
@@ -540,7 +543,7 @@ TEST_F(BarnesHutBaseTest, testNodesToConsiderNoAxons) {
     node_cache.set_is_already_downloaded();
 
     for (auto it = 0; it < 1000; it++) {
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         const auto& position = SimulationFactory::get_random_position(mt);
 
         auto found_nodes = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, &root, ElementType::Dendrite, searched_signal_type, acceptance_criterion, false);
@@ -597,7 +600,7 @@ TEST_F(BarnesHutBaseTest, testNodesToConsiderDistributedTree) {
 
     const auto branching_level = SimulationFactory::get_small_positive_refinement_level(mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_standard_tree<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
     OctreeAdapter::mark_node_as_distributed(&root, branching_level);
@@ -608,7 +611,7 @@ TEST_F(BarnesHutBaseTest, testNodesToConsiderDistributedTree) {
     node_cache.set_is_already_downloaded();
 
     for (auto it = 0; it < 1000; it++) {
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         const auto& position = SimulationFactory::get_random_position(mt);
 
         auto found_nodes = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, &root, ElementType::Dendrite, searched_signal_type, acceptance_criterion, false);
@@ -663,7 +666,7 @@ TEST_F(BarnesHutBaseTest, testNodesToConsiderEarlyReturn) {
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 1;
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_standard_tree<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
 
@@ -673,7 +676,7 @@ TEST_F(BarnesHutBaseTest, testNodesToConsiderEarlyReturn) {
     node_cache.set_is_already_downloaded();
 
     for (auto it = 0; it < 1000; it++) {
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         const auto& position = SimulationFactory::get_random_position(mt);
 
         auto found_nodes = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, &root, ElementType::Dendrite, searched_signal_type, acceptance_criterion, true);
@@ -730,7 +733,7 @@ TEST_F(BarnesHutBaseTest, testNodesToConsiderEarlyReturnDistributedTree) {
 
     const auto branching_level = SimulationFactory::get_small_positive_refinement_level(mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_standard_tree<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
     OctreeAdapter::mark_node_as_distributed(&root, branching_level);
@@ -741,7 +744,7 @@ TEST_F(BarnesHutBaseTest, testNodesToConsiderEarlyReturnDistributedTree) {
     node_cache.set_is_already_downloaded();
 
     for (auto it = 0; it < 1000; it++) {
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         const auto& position = SimulationFactory::get_random_position(mt);
 
         auto found_nodes = BarnesHutBase<additional_cell_attributes>::get_nodes_to_consider(node_cache, position, &root, ElementType::Dendrite, searched_signal_type, acceptance_criterion, true);
@@ -799,16 +802,16 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronException) {
     using additional_cell_attributes = BarnesHutCell;
 
     const auto neuron_id = NeuronID(1000000);
-    const auto position = Vec3d{ 0.0 };
+    const auto position = RelearnTypes::position_type{ 0.0 };
 
     const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 1;
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
 
-    const auto too_small_acceptance_criterion = RandomFactory::get_random_double<double>(-1000.0, 0.0, mt);
-    const auto too_large_acceptance_criterion = RandomFactory::get_random_double<double>(Constants::bh_max_theta + eps, 10000.0, mt);
+    const auto too_small_acceptance_criterion = RandomFactory::get_random_double(RelearnTypes::acceptance_criterion_type{ -1000 }, RelearnTypes::acceptance_criterion_type{ 0 }, mt);
+    const auto too_large_acceptance_criterion = RandomFactory::get_random_double(Constants::bh_max_theta + utility::cast<RelearnTypes::acceptance_criterion_type>(eps), RelearnTypes::acceptance_criterion_type{ 10000 }, mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_standard_tree<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
 
@@ -819,7 +822,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronException) {
 
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neuron(kernel, node_cache, { mpiPP::MPIRank::root_rank(), neuron_id }, position, nullptr, ElementType::Dendrite, searched_signal_type, Constants::bh_default_theta);, RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neuron(kernel, node_cache, { mpiPP::MPIRank::root_rank(), neuron_id }, position, &root, ElementType::Dendrite, searched_signal_type, 0.0);, RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neuron(kernel, node_cache, { mpiPP::MPIRank::root_rank(), neuron_id }, position, &root, ElementType::Dendrite, searched_signal_type, Constants::bh_max_theta + eps);, RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neuron(kernel, node_cache, { mpiPP::MPIRank::root_rank(), neuron_id }, position, &root, ElementType::Dendrite, searched_signal_type, Constants::bh_max_theta + utility::cast<RelearnTypes::acceptance_criterion_type>(eps));, RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neuron(kernel, node_cache, { mpiPP::MPIRank::root_rank(), neuron_id }, position, &root, ElementType::Dendrite, searched_signal_type, too_small_acceptance_criterion);, RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neuron(kernel, node_cache, { mpiPP::MPIRank::root_rank(), neuron_id }, position, &root, ElementType::Dendrite, searched_signal_type, too_large_acceptance_criterion);, RelearnException);
 }
@@ -838,7 +841,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronNoDendrites) {
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 1;
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_tree_no_dendrites<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
     const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
@@ -848,10 +851,10 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronNoDendrites) {
 
     auto kernel = GaussianDistributionKernel{};
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         const auto searching_id = RankNeuronId{ mpiPP::MPIRank::root_rank(), neuron_id };
 
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         const auto& position = SimulationFactory::get_random_position(mt);
 
         auto found_target = BarnesHutBase<additional_cell_attributes>::find_target_neuron(kernel, node_cache, searching_id, position, &root, ElementType::Dendrite, searched_signal_type, acceptance_criterion);
@@ -893,7 +896,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronNoChoice) {
 
     for (auto it = 0; it < 1000; it++) {
         const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         const auto& position = SimulationFactory::get_random_position(mt);
 
         auto first_target_opt = BarnesHutBase<additional_cell_attributes>::find_target_neuron(kernel, node_cache, { mpiPP::MPIRank::root_rank(), NeuronID(0) }, position, &root, ElementType::Dendrite, searched_signal_type, acceptance_criterion);
@@ -930,7 +933,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronOneChoice) {
     root.set_cell_neuron_position(root_position);
     root.set_cell_neuron_id(NeuronID(2));
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     const auto first_position = SimulationFactory::get_random_position_in_box(minimum, maximum, mt);
     std::ignore = root.insert(first_position, NeuronID(0), memory_holder);
@@ -949,7 +952,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronOneChoice) {
     OctreeNodeUpdater<additional_cell_attributes>::update_tree(&root);
 
     const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
-    const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+    const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
 
     auto node_cache = NodeCache<additional_cell_attributes>{};
     node_cache.set_is_already_downloaded();
@@ -985,7 +988,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronFullChoice) {
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 1;
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_standard_tree<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
     const auto& nodes = OctreeAdapter::find_nodes(&root);
@@ -997,10 +1000,10 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronFullChoice) {
 
     auto kernel = GaussianDistributionKernel{};
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         const auto searching_id = RankNeuronId{ mpiPP::MPIRank::root_rank(), neuron_id };
 
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         auto position = SimulationFactory::get_random_position(mt);
 
         if (nodes.contains(searching_id)) {
@@ -1057,7 +1060,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronNoChoiceDistributed) {
 
     for (auto it = 0; it < 1000; it++) {
         const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         const auto& position = SimulationFactory::get_random_position(mt);
 
         const auto first_target_opt = BarnesHutBase<additional_cell_attributes>::find_target_neuron(kernel, node_cache, { mpiPP::MPIRank::root_rank(), NeuronID(0) }, position, &root, ElementType::Dendrite, searched_signal_type, acceptance_criterion);
@@ -1091,7 +1094,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronFullChoiceDistributed) {
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
     const auto branching_level = SimulationFactory::get_small_positive_refinement_level(mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_standard_tree<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
     OctreeAdapter::mark_node_as_distributed(&root, branching_level);
@@ -1104,10 +1107,10 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronFullChoiceDistributed) {
 
     auto kernel = GaussianDistributionKernel{};
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         const auto searching_id = RankNeuronId{ mpiPP::MPIRank::root_rank(), neuron_id };
 
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         auto position = SimulationFactory::get_random_position(mt);
 
         if (nodes.contains(searching_id)) {
@@ -1138,16 +1141,16 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronsException) {
     using additional_cell_attributes = BarnesHutCell;
 
     const auto neuron_id = NeuronID(1000000);
-    const auto position = Vec3d{ 0.0 };
+    const auto position = RelearnTypes::position_type{ 0.0 };
 
     const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 1;
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
 
-    const auto too_small_acceptance_criterion = RandomFactory::get_random_double<double>(-1000.0, 0.0, mt);
-    const auto too_large_acceptance_criterion = RandomFactory::get_random_double<double>(Constants::bh_max_theta + eps, 10000.0, mt);
+    const auto too_small_acceptance_criterion = RandomFactory::get_random_double(RelearnTypes::acceptance_criterion_type{ -1000 }, RelearnTypes::acceptance_criterion_type{ 0 }, mt);
+    const auto too_large_acceptance_criterion = RandomFactory::get_random_double(Constants::bh_max_theta + utility::cast<RelearnTypes::acceptance_criterion_type>(eps), RelearnTypes::acceptance_criterion_type{ 10000 }, mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_standard_tree<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
 
@@ -1158,7 +1161,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronsException) {
 
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neurons(kernel, node_cache, { mpiPP::MPIRank::root_rank(), neuron_id }, position, 1, nullptr, ElementType::Dendrite, searched_signal_type, Constants::bh_default_theta);, RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neurons(kernel, node_cache, { mpiPP::MPIRank::root_rank(), neuron_id }, position, 1, &root, ElementType::Dendrite, searched_signal_type, 0.0);, RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neurons(kernel, node_cache, { mpiPP::MPIRank::root_rank(), neuron_id }, position, 1, &root, ElementType::Dendrite, searched_signal_type, Constants::bh_max_theta + eps);, RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neurons(kernel, node_cache, { mpiPP::MPIRank::root_rank(), neuron_id }, position, 1, &root, ElementType::Dendrite, searched_signal_type, Constants::bh_max_theta + utility::cast<RelearnTypes::acceptance_criterion_type>(eps));, RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neurons(kernel, node_cache, { mpiPP::MPIRank::root_rank(), neuron_id }, position, 1, &root, ElementType::Dendrite, searched_signal_type, too_small_acceptance_criterion);, RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neurons(kernel, node_cache, { mpiPP::MPIRank::root_rank(), neuron_id }, position, 1, &root, ElementType::Dendrite, searched_signal_type, too_large_acceptance_criterion);, RelearnException);
 }
@@ -1197,7 +1200,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronsNoChoice) {
     for (auto it = 0; it < 1000; it++) {
         const auto number_vacant_elements = RandomFactory::get_random_integer<RelearnTypes::counter_type>(0, 10, mt);
         const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         const auto& position = SimulationFactory::get_random_position(mt);
 
         const auto first_targets = BarnesHutBase<additional_cell_attributes>::find_target_neurons(kernel, node_cache, { mpiPP::MPIRank::root_rank(), NeuronID(0) }, position, number_vacant_elements,
@@ -1238,7 +1241,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronsOneChoice) {
 
     const auto root_position = SimulationFactory::get_random_position_in_box(minimum, maximum, mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeNode<additional_cell_attributes>{};
     root.set_level(0);
@@ -1266,7 +1269,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronsOneChoice) {
     const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
     const auto number_vacant_elements_1 = RandomFactory::get_random_integer<RelearnTypes::counter_type>(0, 10, mt);
     const auto number_vacant_elements_2 = RandomFactory::get_random_integer<RelearnTypes::counter_type>(0, 10, mt);
-    const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+    const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
 
     auto node_cache = NodeCache<additional_cell_attributes>{};
     node_cache.set_is_already_downloaded();
@@ -1320,7 +1323,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronsFullChoice) {
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 1;
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_standard_tree<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
     const auto& nodes = OctreeAdapter::find_nodes(&root);
@@ -1332,11 +1335,11 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronsFullChoice) {
 
     auto kernel = GaussianDistributionKernel{};
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         const auto searching_id = RankNeuronId{ mpiPP::MPIRank::root_rank(), neuron_id };
 
         const auto number_vacant_elements = RandomFactory::get_random_integer<RelearnTypes::counter_type>(0, 10, mt);
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         auto position = SimulationFactory::get_random_position(mt);
 
         if (nodes.contains(searching_id)) {
@@ -1394,7 +1397,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronsNoChoiceDistributed) {
     for (auto it = 0; it < 1000; it++) {
         const auto number_vacant_elements = RandomFactory::get_random_integer<RelearnTypes::counter_type>(0, 10, mt);
         const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         const auto& position = SimulationFactory::get_random_position(mt);
 
         const auto first_targets = BarnesHutBase<additional_cell_attributes>::find_target_neurons(kernel, node_cache, { mpiPP::MPIRank::root_rank(), NeuronID(0) }, position, number_vacant_elements,
@@ -1446,7 +1449,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronsFullChoiceDistributed) {
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
     const auto branching_level = SimulationFactory::get_small_positive_refinement_level(mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_standard_tree<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
     OctreeAdapter::mark_node_as_distributed(&root, branching_level);
@@ -1459,11 +1462,11 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronsFullChoiceDistributed) {
 
     auto kernel = GaussianDistributionKernel{};
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         const auto searching_id = RankNeuronId{ mpiPP::MPIRank::root_rank(), neuron_id };
 
         const auto number_vacant_elements = RandomFactory::get_random_integer<RelearnTypes::counter_type>(0, 10, mt);
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         auto position = SimulationFactory::get_random_position(mt);
 
         if (nodes.contains(searching_id)) {
@@ -1503,7 +1506,7 @@ TEST_F(BarnesHutBaseTest, testConvertTargetNodeException) {
     using additional_cell_attributes = BarnesHutCell;
 
     const auto neuron_id = NeuronID(1000000);
-    const auto position = Vec3d{ 0.0 };
+    const auto position = RelearnTypes::position_type{ 0.0 };
 
     const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
     const auto branching_level = SimulationFactory::get_small_positive_refinement_level(mt);
@@ -1525,8 +1528,8 @@ TEST_F(BarnesHutBaseTest, testConvertTargetNodeLeaf) {
     const auto source = NeuronID(1000000);
     const auto target = NeuronID(1000001);
 
-    const auto source_position = Vec3d{ 0.2 };
-    const auto target_position = Vec3d{ 0.5 };
+    const auto source_position = RelearnTypes::position_type{ utility::cast<RelearnTypes::space_type>(0.2) };
+    const auto target_position = RelearnTypes::position_type{ utility::cast<RelearnTypes::space_type>(0.5) };
 
     const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
     const auto branching_level = SimulationFactory::get_small_positive_refinement_level(mt);
@@ -1534,12 +1537,12 @@ TEST_F(BarnesHutBaseTest, testConvertTargetNodeLeaf) {
 
     auto target_node = OctreeNode<additional_cell_attributes>{};
     target_node.set_cell_neuron_id(target);
-    target_node.set_cell_size(Vec3d{ -1.0 }, Vec3d{ 1.0 });
+    target_node.set_cell_size(RelearnTypes::position_type{ -1.0 }, RelearnTypes::position_type{ 1.0 });
     target_node.set_level(target_level);
     target_node.set_cell_neuron_position(target_position);
     target_node.set_rank(mpiPP::MPIRank::root_rank());
 
-    for (const auto mpi_rank : mpiPP::MPIRank::range(1000)) {
+    for (const auto mpi_rank : mpiPP::MPIRankRange::range(1000)) {
         const auto rni = RankNeuronId{ mpi_rank, source };
 
         const auto& val = BarnesHutBase<additional_cell_attributes>::convert_target_node(rni, source_position, &target_node, searched_signal_type, branching_level);
@@ -1573,24 +1576,24 @@ TEST_F(BarnesHutBaseTest, testConvertTargetNodeTooHigh) {
 
     const auto source = NeuronID(1000000);
 
-    const auto source_position = Vec3d{ 0.2 };
+    const auto source_position = RelearnTypes::position_type{ utility::cast<RelearnTypes::space_type>(0.2) };
 
     const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
     const auto target_level = SimulationFactory::get_small_positive_refinement_level(mt);
-    const auto branching_level = static_cast<std::uint8_t>(target_level + 1);
+    const auto branching_level = static_cast<RelearnTypes::level_type>(target_level + 1);
 
     auto target_node = OctreeNode<additional_cell_attributes>{};
-    target_node.set_cell_size(Vec3d{ -1.0 }, Vec3d{ 1.0 });
+    target_node.set_cell_size(RelearnTypes::position_type{ -1.0 }, RelearnTypes::position_type{ 1.0 });
     target_node.set_level(target_level);
     target_node.set_rank(mpiPP::MPIRank::root_rank());
     target_node.set_cell_neuron_id(NeuronID(0));
-    target_node.set_cell_neuron_position(Vec3d{ 0.0 });
+    target_node.set_cell_neuron_position(RelearnTypes::position_type{ 0.0 });
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
-    std::ignore = target_node.insert(Vec3d{ 0.3 }, NeuronID(1), memory_holder);
-    std::ignore = target_node.insert(Vec3d{ 0.5 }, NeuronID(2), memory_holder);
-    std::ignore = target_node.insert(Vec3d{ 0.7 }, NeuronID(3), memory_holder);
+    std::ignore = target_node.insert(RelearnTypes::position_type{ utility::cast<RelearnTypes::space_type>(0.3) }, NeuronID(1), memory_holder);
+    std::ignore = target_node.insert(RelearnTypes::position_type{ utility::cast<RelearnTypes::space_type>(0.5) }, NeuronID(2), memory_holder);
+    std::ignore = target_node.insert(RelearnTypes::position_type{ utility::cast<RelearnTypes::space_type>(0.7) }, NeuronID(3), memory_holder);
 
     const auto& val_0 = BarnesHutBase<additional_cell_attributes>::convert_target_node({ mpiPP::MPIRank(0), source }, source_position, &target_node, searched_signal_type, branching_level);
     ASSERT_FALSE(val_0.has_value());
@@ -1612,28 +1615,28 @@ TEST_F(BarnesHutBaseTest, testConvertTargetNodeVirtual) {
 
     const auto source = NeuronID(1000000);
 
-    const auto source_position = Vec3d{ 0.2 };
+    const auto source_position = RelearnTypes::position_type{ utility::cast<RelearnTypes::space_type>(0.2) };
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
     const auto branching_level = SimulationFactory::get_small_positive_refinement_level(mt);
-    const auto target_level = static_cast<std::uint8_t>(branching_level + 1);
+    const auto target_level = static_cast<RelearnTypes::level_type>(branching_level + 1);
 
     auto target_node = OctreeNode<additional_cell_attributes>{};
-    target_node.set_cell_size(Vec3d{ -1.0 }, Vec3d{ 1.0 });
+    target_node.set_cell_size(RelearnTypes::position_type{ -1.0 }, RelearnTypes::position_type{ 1.0 });
     target_node.set_level(target_level);
     target_node.set_cell_neuron_id(NeuronID(0));
-    target_node.set_cell_neuron_position(Vec3d{ 0.0 });
+    target_node.set_cell_neuron_position(RelearnTypes::position_type{ 0.0 });
     target_node.set_rank(mpiPP::MPIRank::root_rank());
 
-    std::ignore = target_node.insert(Vec3d{ 0.3 }, NeuronID(1), memory_holder);
-    std::ignore = target_node.insert(Vec3d{ 0.5 }, NeuronID(2), memory_holder);
-    std::ignore = target_node.insert(Vec3d{ 0.7 }, NeuronID(3), memory_holder);
+    std::ignore = target_node.insert(RelearnTypes::position_type{ utility::cast<RelearnTypes::space_type>(0.3) }, NeuronID(1), memory_holder);
+    std::ignore = target_node.insert(RelearnTypes::position_type{ utility::cast<RelearnTypes::space_type>(0.5) }, NeuronID(2), memory_holder);
+    std::ignore = target_node.insert(RelearnTypes::position_type{ utility::cast<RelearnTypes::space_type>(0.7) }, NeuronID(3), memory_holder);
 
     target_node.set_cell_neuron_id(NeuronID(true, 10101010));
 
-    for (const auto mpi_rank : mpiPP::MPIRank::range(1000)) {
+    for (const auto mpi_rank : mpiPP::MPIRankRange::range(1000)) {
         const auto rni = RankNeuronId{ mpi_rank, source };
 
         const auto& val = BarnesHutBase<additional_cell_attributes>::convert_target_node(rni, source_position, &target_node, searched_signal_type, branching_level);
@@ -1666,17 +1669,17 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronLocationAwareException) {
     using additional_cell_attributes = BarnesHutCell;
 
     const auto neuron_id = NeuronID(1000000);
-    const auto position = Vec3d{ 0.0 };
+    const auto position = RelearnTypes::position_type{ 0.0 };
 
     const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 1;
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
     const auto branching_level = SimulationFactory::get_small_positive_refinement_level(mt);
 
-    const auto too_small_acceptance_criterion = RandomFactory::get_random_double<double>(-1000.0, 0.0, mt);
-    const auto too_large_acceptance_criterion = RandomFactory::get_random_double<double>(Constants::bh_max_theta + eps, 10000.0, mt);
+    const auto too_small_acceptance_criterion = RandomFactory::get_random_double(RelearnTypes::acceptance_criterion_type{ -1000 }, RelearnTypes::acceptance_criterion_type{ 0 }, mt);
+    const auto too_large_acceptance_criterion = RandomFactory::get_random_double(Constants::bh_max_theta + utility::cast<RelearnTypes::acceptance_criterion_type>(eps), RelearnTypes::acceptance_criterion_type{ 10000 }, mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_standard_tree<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
 
@@ -1689,10 +1692,10 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronLocationAwareException) {
 
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neuron_location_aware(kernel, node_cache, source, position, nullptr, ElementType::Dendrite, searched_signal_type, branching_level, Constants::bh_default_theta);, RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neuron_location_aware(kernel, node_cache, source, position, &root, ElementType::Dendrite, searched_signal_type, branching_level, 0.0);, RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neuron_location_aware(kernel, node_cache, source, position, &root, ElementType::Dendrite, searched_signal_type, branching_level, Constants::bh_max_theta + eps);, RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neuron_location_aware(kernel, node_cache, source, position, &root, ElementType::Dendrite, searched_signal_type, branching_level, Constants::bh_max_theta + utility::cast<RelearnTypes::acceptance_criterion_type>(eps));, RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neuron_location_aware(kernel, node_cache, source, position, &root, ElementType::Dendrite, searched_signal_type, branching_level, too_small_acceptance_criterion);, RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neuron_location_aware(kernel, node_cache, source, position, &root, ElementType::Dendrite, searched_signal_type, branching_level, too_large_acceptance_criterion);, RelearnException);
-}                                                                                                                     
+}
 
 TEST_F(BarnesHutBaseTest, testFindTargetNeuronLocationAwareNoDendrites) {
     if (mpiPP::MPIInfo::get_number_ranks() != 1) {
@@ -1709,7 +1712,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronLocationAwareNoDendrites) {
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
     const auto branching_level = SimulationFactory::get_small_positive_refinement_level(mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_tree_no_dendrites<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
     const auto& nodes = OctreeAdapter::find_nodes(&root);
@@ -1721,10 +1724,10 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronLocationAwareNoDendrites) {
 
     auto kernel = GaussianDistributionKernel{};
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         const auto searching_id = RankNeuronId{ mpiPP::MPIRank::root_rank(), neuron_id };
 
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         auto position = SimulationFactory::get_random_position(mt);
 
         if (nodes.contains(searching_id)) {
@@ -1752,7 +1755,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronLocationAwareFullChoice) {
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
     const auto branching_level = SimulationFactory::get_small_positive_refinement_level(mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_standard_tree<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
 
@@ -1766,10 +1769,10 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronLocationAwareFullChoice) {
 
     auto kernel = GaussianDistributionKernel{};
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         const auto searching_id = RankNeuronId{ mpiPP::MPIRank::root_rank(), neuron_id };
 
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         auto position = SimulationFactory::get_random_position(mt);
 
         if (nodes.contains(searching_id)) {
@@ -1804,12 +1807,13 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronLocationAwareFullChoice) {
 
             auto* expected_node = rma_dict.at(_target_identifier);
 
-            auto* identified_node = memory_holder.get_node_from_offset(_target_identifier);
-
-            for (auto child_idx = 0U; child_idx < Constants::number_oct; child_idx++) {
+            for (auto child_idx = static_cast<unsigned char>(0); child_idx < Constants::number_oct; child_idx++) {
                 if (expected_node->get_child(child_idx) != nullptr) {
                     auto* ptr1 = expected_node->get_child(child_idx);
-                    auto* ptr2 = identified_node + child_idx;
+                    // memory_holder is backed by a deque (SemiStableVector), so consecutive offsets
+                    // are not necessarily contiguous in memory once a chunk boundary is crossed --
+                    // look each child up by its own offset rather than doing pointer arithmetic.
+                    auto* ptr2 = memory_holder->get_node_from_offset(_target_identifier + child_idx);
 
                     ASSERT_EQ(ptr1, ptr2);
                 }
@@ -1830,17 +1834,17 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronsLocationAwareException) {
     using additional_cell_attributes = BarnesHutCell;
 
     const auto neuron_id = NeuronID(1000000);
-    const auto position = Vec3d{ 0.0 };
+    const auto position = RelearnTypes::position_type{ 0.0 };
 
     const auto searched_signal_type = NeuronTypesFactory::get_random_signal_type(mt);
     const auto number_neurons = NeuronIdFactory::get_random_number_neurons(mt) + 1;
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
     const auto branching_level = SimulationFactory::get_small_positive_refinement_level(mt);
 
-    const auto too_small_acceptance_criterion = RandomFactory::get_random_double<double>(-1000.0, 0.0, mt);
-    const auto too_large_acceptance_criterion = RandomFactory::get_random_double<double>(Constants::bh_max_theta + eps, 10000.0, mt);
+    const auto too_small_acceptance_criterion = RandomFactory::get_random_double(RelearnTypes::acceptance_criterion_type{ -1000 }, RelearnTypes::acceptance_criterion_type{ 0 }, mt);
+    const auto too_large_acceptance_criterion = RandomFactory::get_random_double(Constants::bh_max_theta + utility::cast<RelearnTypes::acceptance_criterion_type>(eps), RelearnTypes::acceptance_criterion_type{ 10000 }, mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_standard_tree<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
 
@@ -1853,7 +1857,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronsLocationAwareException) {
 
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neurons_location_aware(kernel, node_cache, source, position, 1, nullptr, ElementType::Dendrite, searched_signal_type, branching_level, Constants::bh_default_theta);, RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neurons_location_aware(kernel, node_cache, source, position, 1, &root, ElementType::Dendrite, searched_signal_type, branching_level, 0.0);, RelearnException);
-    ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neurons_location_aware(kernel, node_cache, source, position, 1, &root, ElementType::Dendrite, searched_signal_type, branching_level, Constants::bh_max_theta + eps);, RelearnException);
+    ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neurons_location_aware(kernel, node_cache, source, position, 1, &root, ElementType::Dendrite, searched_signal_type, branching_level, Constants::bh_max_theta + utility::cast<RelearnTypes::acceptance_criterion_type>(eps));, RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neurons_location_aware(kernel, node_cache, source, position, 1, &root, ElementType::Dendrite, searched_signal_type, branching_level, too_small_acceptance_criterion);, RelearnException);
     ASSERT_THROW_NO_PRINT(std::ignore = BarnesHutBase<additional_cell_attributes>::find_target_neurons_location_aware(kernel, node_cache, source, position, 1, &root, ElementType::Dendrite, searched_signal_type, branching_level, too_large_acceptance_criterion);, RelearnException);
 }
@@ -1873,7 +1877,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronsLocationAwareFullChoice) {
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
     const auto branching_level = SimulationFactory::get_small_positive_refinement_level(mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_standard_tree<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
     const auto& nodes = OctreeAdapter::find_nodes(&root);
@@ -1886,11 +1890,11 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronsLocationAwareFullChoice) {
 
     auto kernel = GaussianDistributionKernel{};
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         const auto searching_id = RankNeuronId{ mpiPP::MPIRank::root_rank(), neuron_id };
 
         const auto number_vacant_elements = RandomFactory::get_random_integer<RelearnTypes::counter_type>(0, 10, mt);
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         auto position = SimulationFactory::get_random_position(mt);
 
         if (nodes.contains(searching_id)) {
@@ -1953,7 +1957,7 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronsLocationAwareFullChoiceDistribute
     const auto& [minimum, maximum] = SimulationFactory::get_random_simulation_box_size(mt);
     const auto branching_level = SimulationFactory::get_small_positive_refinement_level(mt);
 
-    auto [memory_holder, cells] = MemoryHolderFactory::get_memory_holder<additional_cell_attributes>();
+    auto memory_holder = MemoryHolderFactory::get_default_memory_holder<additional_cell_attributes>();
 
     auto root = OctreeFactory::get_standard_tree<additional_cell_attributes>(number_neurons, memory_holder, minimum, maximum, mt);
     OctreeAdapter::mark_node_as_distributed(&root, branching_level);
@@ -1968,11 +1972,11 @@ TEST_F(BarnesHutBaseTest, testFindTargetNeuronsLocationAwareFullChoiceDistribute
 
     auto kernel = GaussianDistributionKernel{};
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         const auto searching_id = RankNeuronId{ mpiPP::MPIRank::root_rank(), neuron_id };
 
         const auto number_vacant_elements = RandomFactory::get_random_integer<RelearnTypes::counter_type>(0, 10, mt);
-        const auto acceptance_criterion = RandomFactory::get_random_double<double>(eps, Constants::bh_max_theta, mt);
+        const auto acceptance_criterion = RandomFactory::get_random_double(utility::cast<RelearnTypes::acceptance_criterion_type>(eps), Constants::bh_max_theta, mt);
         auto position = SimulationFactory::get_random_position(mt);
 
         if (nodes.contains(searching_id)) {

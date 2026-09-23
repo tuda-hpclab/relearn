@@ -1,9 +1,26 @@
+/*
+ * This file is part of the RELeARN software developed at Technical University Darmstadt
+ *
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
+ *
+ * This software may be modified and distributed under the terms of a BSD-style license.
+ * See the LICENSE file in the base directory for details.
+ *
+ */
+
 #include "AxonPositionIO.h"
 
-#include "cpp-utility/ranges/views/IO.hpp"
+#include "types/BasicTypes.h"
+#include "util/NeuronID.h"
+#include "util/RelearnException.h"
+
+#include <cpp-utility/ranges/views/IO.hpp>
 
 #include <range/v3/view/getlines.hpp>
+
 #include <spdlog/spdlog.h>
+
+#include <fstream>
 
 std::vector<std::vector<RelearnTypes::position_type>> AxonPositionIO::read_axon_positions(const std::filesystem::path& file_path) {
     auto file = std::ifstream(file_path);
@@ -13,7 +30,7 @@ std::vector<std::vector<RelearnTypes::position_type>> AxonPositionIO::read_axon_
 
     RelearnException::check(file_is_good && !file_is_not_good, "AxonPositionIO::read_axon_positions: Opening the file was not successful");
 
-    constexpr static auto guessed_number_neurons = std::size_t{ 64000 };
+    constexpr static auto guessed_number_neurons = RelearnTypes::number_neurons_type{ 64000 };
     constexpr static auto guessed_number_positions = std::size_t{ 10 };
 
     auto positions = std::vector<std::vector<position_type>>{};
@@ -46,7 +63,7 @@ std::vector<std::vector<RelearnTypes::position_type>> AxonPositionIO::read_axon_
 
         RelearnException::check(id >= last_id, "AxonPositionIO::read_axon_positions: Neuron ids must be increasing. Found: {} but expected: {} (or larger)", id, last_id);
         last_id = std::max(id, last_id);
-        
+
         id--;
 
         if (positions.size() <= id) {

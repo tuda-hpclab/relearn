@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -14,7 +14,7 @@
 
 #include "util/RelearnException.h"
 
-#include "cpp-utility/MemoryFootprint.hpp"
+#include <cpp-utility/MemoryFootprint.hpp>
 
 /**
  * Provides a constant growth rate
@@ -26,7 +26,7 @@ public:
      * @param growth_rate The intended growth rate, must be >= min_growth_rate and <= max_growth_rate
      * @exception Throws a RelearnException if growth_rate is not from [min_growth_rate, max_growth_rate]
      */
-    ConstantGrowthrateCalculator(const double growth_rate)
+    ConstantGrowthrateCalculator(const grown_type growth_rate)
         : intended_growth_rate(growth_rate) {
         RelearnException::check(min_growth_rate <= growth_rate,
                                 "ConstantGrowthrateCalculator::ConstantGrowthrateCalculator: growth_rate is too small: {}", growth_rate);
@@ -55,7 +55,7 @@ public:
      * @param neuron_id unused
      * @return The intended growth rate
      */
-    [[nodiscard]] double get_growth_rate([[maybe_unused]] const NeuronID neuron_id) const noexcept override {
+    [[nodiscard]] grown_type get_growth_rate([[maybe_unused]] const NeuronID neuron_id) const noexcept override {
         return intended_growth_rate;
     }
 
@@ -64,7 +64,7 @@ public:
      * @param neuron_id unused
      * @return The intended growth rate
      */
-    [[nodiscard]] double get_growth_rate([[maybe_unused]] const NeuronID::value_type neuron_id) const noexcept override {
+    [[nodiscard]] grown_type get_growth_rate([[maybe_unused]] const NeuronID::value_type neuron_id) const noexcept override {
         return intended_growth_rate;
     }
 
@@ -78,5 +78,5 @@ public:
     }
 
 private:
-    double intended_growth_rate{};
+    grown_type intended_growth_rate{};
 };

@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -15,17 +15,19 @@
 #include "algorithm/Internal/octree/OctreeNode.h"
 #include "util/RelearnException.h"
 
-#include "cpp-utility/data-structure/SemiStableVector.hpp"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
-#include "mpi-wrapper/RMAWindow.h"
+#include <cpp-utility/data-structure/SemiStableVector.hpp>
 
 #include <fmt/ostream.h>
 
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
+#include <mpi-wrapper/rma/RMAWindow.h>
+
 #include <array>
 #include <cstddef>
+#include <iostream>
 #include <map>
+#include <sstream>
 #include <utility>
 
 class NodeCacheAdapter;
@@ -146,7 +148,7 @@ private:
 
             window->get(where_to_insert, Constants::number_oct, offset, target_rank);
 
-            for (auto child_index = 0U; child_index < Constants::number_oct; child_index++) {
+            for (auto child_index = static_cast<unsigned char>(0); child_index < Constants::number_oct; child_index++) {
                 if (parent_node->get_child(child_index) == nullptr) {
                     local_children[child_index] = nullptr;
                     continue;
@@ -164,6 +166,31 @@ private:
 
 #pragma omp critical(node_cache_download)
         local_children = actual_download(node);
+
+        for (auto* child : local_children) {
+            if (child == nullptr) {
+                continue;
+            }
+
+            const auto parent_rank = node->get_mpi_rank().get_rank();
+            const auto parent_offset = node->get_cell_neuron_id().get_rma_offset();
+            const auto parent_level = node->get_level();
+
+            if (!child->get_mpi_rank().is_initialized()) {
+                const auto& cell = child->get_cell();
+                const auto neuron_id = cell.get_neuron_id();
+
+                RelearnException::check(child->get_mpi_rank().is_initialized(),
+                                        "NodeCache::download_children: Downloaded child has no MPI rank.\nParent: {} {} {} {}",
+                                        parent_rank, parent_level, parent_offset, neuron_id);
+            }
+
+            if (child->get_mpi_rank() != target_rank) {
+                RelearnException::check(child->get_mpi_rank() == target_rank,
+                                        "NodeCache::download_children: Downloaded child has wrong MPI rank.\nParent: {} {} {}",
+                                        parent_rank, parent_level, parent_offset);
+            }
+        }
 
         return local_children;
     }

@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2023-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -13,6 +13,7 @@
 #include "algorithm/BarnesHutInternal/BarnesHutCell.h"
 #include "algorithm/Internal/octree/OctreeNodeHelper.h"
 #include "neurons/enums/SynapticElementType.h"
+#include "types/SpaceTypes.h"
 
 #include <benchmark/benchmark.h>
 
@@ -33,7 +34,7 @@ void BM_Update_Octree(benchmark::State& state) {
         const auto num1 = root.get_cell().get_number_dendrites_for(SignalType::Excitatory);
         const auto num2 = root.get_cell().get_number_dendrites_for(SignalType::Inhibitory);
 
-        benchmark::DoNotOptimize(norm1 + norm2 + num1 + num2);
+        benchmark::DoNotOptimize(norm1 + norm2 + static_cast<RelearnTypes::space_type>(num1) + static_cast<RelearnTypes::space_type>(num2));
 
         state.ResumeTiming();
     }

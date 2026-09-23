@@ -3,22 +3,21 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2025-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types2.h"
-
 #include "algorithm/AlgorithmEnum.h"
 #include "algorithm/CombinedAlgorithmsInternal/AlgorithmConfig.h"
 #include "algorithm/CombinedAlgorithmsInternal/CombinedAlgorithms.h"
 #include "neurons/LocalGroupTranslator.h"
+#include "types/AlgorithmTypes.h"
 #include "util/NeuronID.h"
 
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <filesystem>
 #include <functional>

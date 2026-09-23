@@ -3,20 +3,24 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
+#include "types/BasicTypes.h"
+
+#include <cpp-utility/Cast.hpp>
+
 namespace models::poisson {
 
 /**
  * This class contains the parameters for the Poisson model.
- * @tparam real_type The type of the parameters, default is double
+ * @tparam real_type The type of the parameters, i.e., of the membrane potential and the recovery variables
  */
-template <typename real_type = double, typename integral_type = unsigned int>
+template <typename real_type = RelearnTypes::activity_type, typename integral_type = unsigned int>
 class Parameters {
 public:
     /**
@@ -62,16 +66,16 @@ public:
         return refractory_period;
     }
 
-    static constexpr real_type default_x_0{ 0.05 };
-    static constexpr real_type default_tau_x{ 5.0 };
+    static constexpr real_type default_x_0{ utility::as<real_type>(0.05) };
+    static constexpr real_type default_tau_x{ utility::as<real_type>(5.0) };
     static constexpr integral_type default_refractory_period{ 4 };
 
-    static constexpr real_type min_x_0{ 0.0 };
-    static constexpr real_type min_tau_x{ 0.0 };
+    static constexpr real_type min_x_0{ utility::as<real_type>(0.0) };
+    static constexpr real_type min_tau_x{ utility::as<real_type>(0.0) };
     static constexpr integral_type min_refractory_time{ 0 };
 
-    static constexpr real_type max_x_0{ 1.0 };
-    static constexpr real_type max_tau_x{ 1000.0 };
+    static constexpr real_type max_x_0{ utility::as<real_type>(1.0) };
+    static constexpr real_type max_tau_x{ utility::as<real_type>(1000.0) };
     static constexpr integral_type max_refractory_time{ 1000 };
 
 private:

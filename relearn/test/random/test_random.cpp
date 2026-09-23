@@ -1,7 +1,7 @@
 ﻿/*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2023-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -13,12 +13,12 @@
 #include "util/Random.h"
 #include "util/RelearnException.h"
 
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
-
 #include "factory/random/random_factory.h"
 
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <range/v3/numeric/accumulate.hpp>
 #include <range/v3/range/conversion.hpp>
@@ -152,8 +152,8 @@ TEST_F(RandomTest, testUniformDoubleRange) {
         return;
     }
 
-    const auto lower_inclusive = RandomFactory::get_random_double<double>(0.0, 1000.0, mt);
-    const auto upper_exclusive = RandomFactory::get_random_double<double>(0.0001, 1000.0, mt) + lower_inclusive;
+    const auto lower_inclusive = RandomFactory::get_random_double(0.0, 1000.0, mt);
+    const auto upper_exclusive = RandomFactory::get_random_double(0.0001, 1000.0, mt) + lower_inclusive;
 
     for (auto i = 0U; i < iterations; i++) {
         const auto random_number = RandomHolder::get_random_uniform_double(RandomHolderKey::Partition, lower_inclusive, upper_exclusive);
@@ -171,7 +171,7 @@ TEST_F(RandomTest, testUniformDoubleMinimumRange) {
         return;
     }
 
-    const auto lower_inclusive = RandomFactory::get_random_double<double>(0.0, 1000.0, mt);
+    const auto lower_inclusive = RandomFactory::get_random_double(0.0, 1000.0, mt);
     const auto upper_exclusive = std::nextafter(lower_inclusive, lower_inclusive * 2.0);
 
     for (auto i = 0U; i < iterations; i++) {
@@ -189,8 +189,8 @@ TEST_F(RandomTest, testUniformDoubleException) {
         return;
     }
 
-    const auto lower_inclusive = RandomFactory::get_random_double<double>(1000.0001, 2000.0, mt);
-    const auto upper_exclusive = RandomFactory::get_random_double<double>(0.0, 1000.0, mt);
+    const auto lower_inclusive = RandomFactory::get_random_double(1000.0001, 2000.0, mt);
+    const auto upper_exclusive = RandomFactory::get_random_double(0.0, 1000.0, mt);
 
     for (auto i = 0U; i < iterations; i++) {
         ASSERT_THROW_NO_PRINT(std::ignore = RandomHolder::get_random_uniform_double(RandomHolderKey::Partition, lower_inclusive, upper_exclusive);, RelearnException);
@@ -287,8 +287,8 @@ TEST_F(RandomTest, testNormalDoubleRange) {
         return;
     }
 
-    const auto mean = RandomFactory::get_random_double<double>(0.0, 1000.0, mt);
-    const auto stddev = RandomFactory::get_random_double<double>(0.0001, 1.0, mt);
+    const auto mean = RandomFactory::get_random_double(0.0, 1000.0, mt);
+    const auto stddev = RandomFactory::get_random_double(0.0001, 1.0, mt);
 
     auto random_numbers = std::vector<double>(iterations);
     for (auto i = 0U; i < iterations; i++) {
@@ -308,8 +308,8 @@ TEST_F(RandomTest, testFillRange) {
         return;
     }
 
-    const auto lower_inclusive = RandomFactory::get_random_double<double>(0.0, 1000.0, mt);
-    const auto upper_exclusive = RandomFactory::get_random_double<double>(0.0001, 1000.0, mt) + lower_inclusive;
+    const auto lower_inclusive = RandomFactory::get_random_double(0.0, 1000.0, mt);
+    const auto upper_exclusive = RandomFactory::get_random_double(0.0001, 1000.0, mt) + lower_inclusive;
 
     auto random_numbers = std::vector<double>(iterations);
     RandomHolder::fill(RandomHolderKey::Partition, random_numbers, lower_inclusive, upper_exclusive);
@@ -330,7 +330,7 @@ TEST_F(RandomTest, testFillMinimumRange) {
         return;
     }
 
-    const auto lower_inclusive = RandomFactory::get_random_double<double>(0.0, 1000.0, mt);
+    const auto lower_inclusive = RandomFactory::get_random_double(0.0, 1000.0, mt);
     const auto upper_exclusive = std::nextafter(lower_inclusive, lower_inclusive * 2.0);
 
     auto random_numbers = std::vector<double>(iterations);
@@ -351,8 +351,8 @@ TEST_F(RandomTest, testFillException) {
         return;
     }
 
-    const auto lower_inclusive = RandomFactory::get_random_double<double>(1000.0001, 2000.0, mt);
-    const auto upper_exclusive = RandomFactory::get_random_double<double>(0.0, 1000.0, mt);
+    const auto lower_inclusive = RandomFactory::get_random_double(1000.0001, 2000.0, mt);
+    const auto upper_exclusive = RandomFactory::get_random_double(0.0, 1000.0, mt);
 
     auto random_numbers = std::vector<double>(iterations);
     ASSERT_THROW_NO_PRINT(RandomHolder::fill(RandomHolderKey::Partition, random_numbers, lower_inclusive, upper_exclusive);, RelearnException);
@@ -367,8 +367,8 @@ TEST_F(RandomTest, testShuffle) {
         return;
     }
 
-    const auto lower_inclusive = RandomFactory::get_random_double<double>(0.0, 1000.0, mt);
-    const auto upper_exclusive = RandomFactory::get_random_double<double>(0.1, 1000.0, mt) + lower_inclusive;
+    const auto lower_inclusive = RandomFactory::get_random_double(0.0, 1000.0, mt);
+    const auto upper_exclusive = RandomFactory::get_random_double(0.1, 1000.0, mt) + lower_inclusive;
 
     auto random_numbers = std::vector<double>(iterations);
     RandomHolder::fill(RandomHolderKey::Partition, random_numbers, lower_inclusive, upper_exclusive);

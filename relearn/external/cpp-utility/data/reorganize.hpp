@@ -3,7 +3,7 @@
 /*
  * This file is part of the CPP-Utility software developed at Technical University Darmstadt
  *
- * Copyright (c) 2024, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -31,8 +31,8 @@ namespace utility {
  * @param counts The counts of data per part
  * @param displacements The displacements of data elements per part
  *
- * @exception Throws an Exception if counts.size() != displacements.size() or if for some part,
- *      its count and displacement add up to more than is present
+ * @exception Throws an Exception if counts.size() != displacements.size(), a count or displacement
+ *      is negative or not representable by std::size_t, or a requested part lies outside global_data
  *
  * @return std::vector<std::vector<T>> Deflattened data
  */
@@ -50,10 +50,11 @@ template <typename T, std::integral count_type, std::integral displacement_type>
     deflattened_data.reserve(number_sizes);
 
     for (auto part = std::size_t{ 0 }; part < number_sizes; ++part) {
-        const auto size = save_cast<std::size_t>(counts[part]);
-        const auto displacement = save_cast<std::size_t>(displacements[part]);
+        const auto size = safe_cast<std::size_t>(counts[part]);
+        const auto displacement = safe_cast<std::size_t>(displacements[part]);
 
-        Exception::check(size + displacement <= number_elements, "reorganize_data: size ({}) + displacement ({}) is too large ({})", size, displacement, number_elements);
+        Exception::check(displacement <= number_elements && size <= number_elements - displacement,
+                         "reorganize_data: size ({}) at displacement ({}) is too large for {} elements", size, displacement, number_elements);
 
         const auto span_for_part = global_data.subspan(displacement, size);
         deflattened_data.emplace_back(span_for_part.begin(), span_for_part.end());

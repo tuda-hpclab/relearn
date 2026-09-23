@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -10,21 +10,24 @@
 
 #include "BackgroundActivityIO.h"
 
-#include "Types.h"
-
 #include "io/parser/MonitorParser.h"
 #include "neurons/helper/CachedChoiceFunction.h"
 #include "neurons/input/ConstantActivityInput.h"
 #include "neurons/input/NormalActivityInput.h"
+#include "types/BasicTypes.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
 
-#include "cpp-utility/Cast.hpp"
-#include "cpp-utility/ranges/views/IO.hpp"
-
-#include "mpi-wrapper/MPIRank.h"
-
 #include <boost/lexical_cast.hpp>
+
+#include <cpp-utility/Cast.hpp>
+#include <cpp-utility/StringUtil.hpp>
+#include <cpp-utility/ranges/views/IO.hpp>
+
+#include <fmt/std.h>
+
+#include <mpi-wrapper/core/MPIRank.h>
+
 #include <range/v3/action/sort.hpp>
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/getlines.hpp>
@@ -41,7 +44,7 @@
 #include <utility>
 #include <vector>
 
-std::pair<std::vector<std::shared_ptr<ActivityInput>>, std::unique_ptr<ChoiceFunction>> BackgroundActivityIO::load_background_activity(const std::filesystem::path& file_path, const mpiPP::MPIRank my_rank, const std::shared_ptr<LocalGroupTranslator>& local_group_translator) {
+LoadedBackgroundActivity BackgroundActivityIO::load_background_activity(const std::filesystem::path& file_path, const mpiPP::MPIRank my_rank, const std::shared_ptr<LocalGroupTranslator>& local_group_translator) {
     auto file = std::ifstream{ file_path };
 
     const auto file_is_good = file.good();
@@ -68,7 +71,7 @@ std::pair<std::vector<std::shared_ptr<ActivityInput>>, std::unique_ptr<ChoiceFun
             return std::tuple{ begin, std::numeric_limits<RelearnTypes::step_type>::max(), input_descr, parsed_ids };
         }
 
-        return std::tuple{ begin, utility::save_cast<RelearnTypes::step_type>(end), input_descr, parsed_ids };
+        return std::tuple{ begin, utility::safe_cast<RelearnTypes::step_type>(end), input_descr, parsed_ids };
     };
 
     RelearnException::check(file_is_good && !file_is_not_good,
@@ -93,12 +96,12 @@ std::pair<std::vector<std::shared_ptr<ActivityInput>>, std::unique_ptr<ChoiceFun
     std::vector<std::shared_ptr<ActivityInput>> inputs{};
     inputs.reserve(input_keys.size());
 
-    auto background_activities_with_indices = std::vector<std::tuple<RelearnTypes::step_type, RelearnTypes::step_type, std::size_t, std::vector<NeuronID>>>{};
+    auto background_activities_with_indices = std::vector<BackgroundActivityEntry>{};
 
     for (const auto& [begin, end, input_descr, parsed_ids] : background_activities) {
         const auto it = std::find(input_keys.begin(), input_keys.end(), input_descr);
         RelearnException::check(it != input_keys.end(), "BackgroundActivityIO::load_background_activity: Input {} does not exist", input_descr);
-        const auto index = std::distance(input_keys.begin(), it);
+        const auto index = static_cast<std::size_t>(std::distance(input_keys.begin(), it));
         background_activities_with_indices.emplace_back(begin, end, index, parsed_ids);
     }
 
@@ -107,14 +110,14 @@ std::pair<std::vector<std::shared_ptr<ActivityInput>>, std::unique_ptr<ChoiceFun
     }
 
     std::unique_ptr<ChoiceFunction> function = std::make_unique<CachedChoiceFunction>(std::move(background_activities_with_indices), local_group_translator->get_number_neurons_in_total());
-    return std::make_pair(inputs, std::move(function));
+    return LoadedBackgroundActivity{ inputs, std::move(function) };
 }
 
 std::shared_ptr<ActivityInput> BackgroundActivityIO::create_input(std::string key) {
-    StringUtil::to_lower(key);
+    utility::to_lower(key);
     const auto i1 = key.find(':');
     const auto prefix = key.substr(0, i1);
-    const auto params = StringUtil::split_string(key.substr(i1 + 1), ',');
+    const auto params = utility::split_string(key.substr(i1 + 1), ',');
 
     if (prefix == "normal") {
         // normal background
@@ -122,7 +125,7 @@ std::shared_ptr<ActivityInput> BackgroundActivityIO::create_input(std::string ke
                                 "FlexibleBackgroundActivityCalculator::create_input: Needs 2 parameters but {} were given ({})",
                                 params.size(), key);
 
-        const auto new_calculator = std::make_shared<NormalActivityInput>(boost::lexical_cast<double>(params[0]), boost::lexical_cast<double>(params[1]));
+        const auto new_calculator = std::make_shared<NormalActivityInput>(1, boost::lexical_cast<RelearnTypes::activity_type>(params[0]), boost::lexical_cast<RelearnTypes::activity_type>(params[1]));
         return new_calculator;
     }
 
@@ -132,7 +135,7 @@ std::shared_ptr<ActivityInput> BackgroundActivityIO::create_input(std::string ke
                                 "FlexibleBackgroundActivityCalculator::create_input: Needs 2 parameters but {} were given ({})",
                                 params.size(), key);
 
-        const auto new_calculator = std::make_shared<FastNormalActivityInput>(boost::lexical_cast<double>(params[0]), boost::lexical_cast<double>(params[1]), 1000);
+        const auto new_calculator = std::make_shared<FastNormalActivityInput>(1, boost::lexical_cast<RelearnTypes::activity_type>(params[0]), boost::lexical_cast<RelearnTypes::activity_type>(params[1]), 1000);
         return new_calculator;
     }
 
@@ -142,7 +145,7 @@ std::shared_ptr<ActivityInput> BackgroundActivityIO::create_input(std::string ke
                                 "FlexibleBackgroundActivityCalculator::create_input: Needs 1 parameters but {} were given ({})",
                                 params.size(), key);
 
-        const auto new_calculator = std::make_shared<ConstantActivityInput>(boost::lexical_cast<double>(params[0]));
+        const auto new_calculator = std::make_shared<ConstantActivityInput>(1, boost::lexical_cast<RelearnTypes::activity_type>(params[0]));
         return new_calculator;
     }
 

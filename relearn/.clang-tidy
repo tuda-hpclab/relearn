@@ -8,6 +8,9 @@ Checks: "
         -llvmlibc-*,
 		-misc-no-recursion,
         -modernize-use-trailing-return-type,
+        -readability-identifier-length,
+        -bugprone-easily-swappable-parameters,
+        -*-pro-bounds-avoid-unchecked-container-access,
         "
 WarningsAsErrors: ''
 HeaderFilterRegex: '.*'

@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2025-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,17 +11,13 @@
 #include "test_neuron_to_algorithm_io.h"
 
 #include "RelearnTest.hpp"
-#include "Types.h"
-#include "Types2.h"
 
 #include "algorithm/CombinedAlgorithmsInternal/AlgorithmConfig.h"
 #include "io/NeuronToAlgorithmIO.h"
 #include "neurons/LocalGroupTranslator.h"
+#include "types/BasicTypes.h"
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "factory/algorithm/algorithm_config_factory.h"
 #include "factory/local_group_translator/local_group_translator_factory.h"
@@ -30,6 +26,9 @@
 #include "factory/random/random_factory.h"
 
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -185,7 +184,7 @@ TEST_F(NeuronToAlgorithmIOTest, testIndicesAndNeurons) {
     const auto my_rank = mpiPP::MPIRank::root_rank();
     const auto num_neurons = NeuronIdFactory::get_random_number_neurons(mt);
 
-    const auto num_algorithms = AlgorithmConfigFactory::get_random_number_algorithms(1, std::min(num_neurons, NeuronID::value_type{ 10 }), mt);
+    const auto num_algorithms = AlgorithmConfigFactory::get_random_number_algorithms(1, std::min(num_neurons, RelearnTypes::number_neurons_type{ 10 }), mt);
 
     const auto num_groups_except_default = RandomFactory::get_random_integer(num_algorithms, num_neurons, mt); // we have to do this to get at least num_algorithms many group names
 
@@ -241,6 +240,8 @@ TEST_F(NeuronToAlgorithmIOTest, testIndicesAndNeurons) {
     ofstream.close();
 
     auto pair = NeuronToAlgorithmIO::read_descriptions(file_path, my_rank, local_group_translator);
+
+    std::filesystem::remove(file_path);
 
     const auto& indices_and_neurons = pair.first;
 

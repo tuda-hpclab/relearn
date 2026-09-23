@@ -3,18 +3,24 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
+#include "Macros.h"
+
+#include <stdexcept>
+
+#ifdef HOST_COMPILER
+#include "util/RelearnException.h"
+
 #include <fmt/ostream.h>
 
 #include <ostream>
-
-#include "util/RelearnException.h"
+#endif
 
 /**
  * An instance of this enum classifies the synaptic elements of a neuron.
@@ -99,7 +105,11 @@ enum class SynapticElementType : char {
         return SignalType::Inhibitory;
     }
 
+#ifndef RELEARN_CUDA_ENABLED
     RelearnException::fail("Invalid synaptic element type");
+#else
+    throw std::invalid_argument("Invalid synaptic element type");
+#endif
 }
 
 /**
@@ -116,9 +126,11 @@ enum class SynapticElementType : char {
     if (signal_type == SignalType::Excitatory) {
         return SynapticElementType::DendriteExcitatory;
     }
+
     return SynapticElementType::DendriteInhibitory;
 }
 
+#ifdef HOST_COMPILER
 /**
  * @brief Pretty-prints the element type to the chosen stream
  * @param out The stream to which to print the element type
@@ -185,3 +197,4 @@ inline std::ostream& operator<<(std::ostream& out, const SynapticElementType syn
 
 template <>
 struct fmt::formatter<SynapticElementType> : ostream_formatter { };
+#endif

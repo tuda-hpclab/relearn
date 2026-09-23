@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2025-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -20,8 +20,8 @@
  * be kept in sync with the classes to allow a seamless integration
  */
 enum class SpaceFillingCurveType : std::uint8_t {
-    Hilbert,
-    Morton,
+    HilbertCurve,
+    MortonCurve,
 };
 
 /**
@@ -32,9 +32,9 @@ enum class SpaceFillingCurveType : std::uint8_t {
  */
 inline std::ostream& operator<<(std::ostream& out, const SpaceFillingCurveType& curve_type) {
     switch (curve_type) {
-    case SpaceFillingCurveType::Hilbert:
+    case SpaceFillingCurveType::HilbertCurve:
         return out << "Hilbert";
-    case SpaceFillingCurveType::Morton:
+    case SpaceFillingCurveType::MortonCurve:
         return out << "Morton";
     }
 

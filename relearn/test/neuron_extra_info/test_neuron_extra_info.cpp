@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -13,21 +13,24 @@
 #include "neurons/NeuronsExtraInfo.h"
 #include "neurons/enums/UpdateStatus.h"
 #include "util/NeuronID.h"
+#include "util/NeuronIDRange.h"
 #include "util/RelearnAllocator.h"
 #include "util/RelearnException.h"
 #include "util/Vec3.h"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
 
 #include "factory/mpi_rank/mpi_rank_factory.h"
 #include "factory/neuron_id/neuron_id_factory.h"
 #include "factory/random/random_factory.h"
 #include "factory/simulation/simulation_factory.h"
 
+#include <fmt/core.h>
+
 #include <gtest/gtest.h>
 
-#include <fmt/core.h>
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
+#include <mpi-wrapper/core/MPIRankRange.h>
+
 #include <range/v3/view/indices.hpp>
 
 #include <algorithm>
@@ -35,22 +38,22 @@
 #include <iostream>
 #include <vector>
 
-void NeuronsExtraInfoTest::assert_empty(const NeuronsExtraInfo& extra_info, size_t number_neurons) {
+void NeuronsExtraInfoTest::assert_empty(const NeuronsExtraInfo& extra_info, RelearnTypes::number_neurons_type number_neurons) {
     const auto& positions = extra_info.get_positions();
 
     const auto& positions_size = positions.size();
 
     ASSERT_EQ(0, positions_size) << positions_size;
 
-    for ([[maybe_unused]] const auto i : NeuronID::range_id(number_neurons_out_of_scope)) {
+    for ([[maybe_unused]] const auto i : NeuronIDRange::range_id(number_neurons_out_of_scope)) {
         const auto neuron_id = NeuronIdFactory::get_random_neuron_id(number_neurons, 1, mt);
 
         ASSERT_THROW_NO_PRINT_MSG(std::ignore = extra_info.get_position(neuron_id), RelearnException, fmt::format("assert empty position {}", neuron_id));
     }
 }
 
-void NeuronsExtraInfoTest::assert_contains(const NeuronsExtraInfo& extra_info, size_t number_neurons, size_t num_neurons_check,
-                                           const std::vector<Vec3d>& expected_positions) {
+void NeuronsExtraInfoTest::assert_contains(const NeuronsExtraInfo& extra_info, RelearnTypes::number_neurons_type number_neurons, RelearnTypes::number_neurons_type num_neurons_check,
+                                           const std::vector<RelearnTypes::position_type>& expected_positions) {
 
     const auto& expected_positions_size = expected_positions.size();
 
@@ -62,7 +65,7 @@ void NeuronsExtraInfoTest::assert_contains(const NeuronsExtraInfo& extra_info, s
 
     ASSERT_EQ(positions_size, number_neurons) << positions_size << ' ' << number_neurons;
 
-    for (const auto neuron_id : NeuronID::range(num_neurons_check)) {
+    for (const auto neuron_id : NeuronIDRange::range(num_neurons_check)) {
         ASSERT_EQ(expected_positions[neuron_id.get_neuron_id()], actual_positions[neuron_id.get_neuron_id()]) << neuron_id;
         ASSERT_EQ(expected_positions[neuron_id.get_neuron_id()], extra_info.get_position(neuron_id)) << neuron_id;
     }
@@ -126,17 +129,17 @@ TEST_F(NeuronsExtraInfoTest, testInit) {
         num_neurons_wrong++;
     }
 
-    const auto positions_wrong = std::vector<Vec3d>(num_neurons_wrong);
+    const auto positions_wrong = std::vector<RelearnTypes::position_type>(num_neurons_wrong);
 
     ASSERT_THROW_NO_PRINT(extra_info.set_positions(positions_wrong), RelearnException);
 
     assert_empty(extra_info, number_neurons);
 
-    auto positions_right = SimulationFactory::get_random_positions<std::allocator<Vec3d>>(mt, number_neurons);
+    auto positions_right = SimulationFactory::get_random_positions<std::allocator<RelearnTypes::position_type>>(mt, number_neurons);
     extra_info.set_positions(positions_right);
     assert_contains(extra_info, number_neurons, number_neurons, positions_right);
 
-    auto positions_right_2 = SimulationFactory::get_random_positions<std::allocator<Vec3d>>(mt, number_neurons);
+    auto positions_right_2 = SimulationFactory::get_random_positions<std::allocator<RelearnTypes::position_type>>(mt, number_neurons);
     extra_info.set_positions(positions_right_2);
     assert_contains(extra_info, number_neurons, number_neurons, positions_right_2);
 
@@ -173,7 +176,7 @@ TEST_F(NeuronsExtraInfoTest, testCreate) {
 
     assert_empty(extra_info, num_neurons_init);
 
-    auto positions_right = SimulationFactory::get_random_positions<std::allocator<Vec3d>>(mt, num_neurons_init);
+    auto positions_right = SimulationFactory::get_random_positions<std::allocator<RelearnTypes::position_type>>(mt, num_neurons_init);
 
     extra_info.set_positions(positions_right);
 
@@ -183,7 +186,7 @@ TEST_F(NeuronsExtraInfoTest, testCreate) {
 
     assert_contains(extra_info, num_neurons_total_1, num_neurons_init, positions_right);
 
-    auto positions_right_2 = SimulationFactory::get_random_positions<std::allocator<Vec3d>>(mt, num_neurons_total_1);
+    auto positions_right_2 = SimulationFactory::get_random_positions<std::allocator<RelearnTypes::position_type>>(mt, num_neurons_total_1);
 
     extra_info.set_positions(positions_right_2);
 
@@ -195,7 +198,7 @@ TEST_F(NeuronsExtraInfoTest, testCreate) {
 
     assert_contains(extra_info, num_neurons_total_2, num_neurons_total_1, positions_right_2);
 
-    auto positions_right_3 = SimulationFactory::get_random_positions<std::allocator<Vec3d>>(mt, num_neurons_total_2);
+    auto positions_right_3 = SimulationFactory::get_random_positions<std::allocator<RelearnTypes::position_type>>(mt, num_neurons_total_2);
 
     extra_info.set_positions(positions_right_3);
 
@@ -224,7 +227,7 @@ TEST_F(NeuronsExtraInfoTest, testSetStatus) {
     auto disabled_neurons = std::vector<NeuronID>{};
     auto static_neurons = std::vector<NeuronID>{};
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         const auto random_number = RandomFactory::get_random_integer(0, 5, mt);
         if (random_number == 0) {
             static_neurons.emplace_back(neuron_id);
@@ -244,7 +247,7 @@ TEST_F(NeuronsExtraInfoTest, testSetStatus) {
     const auto status_flags = extra_info.get_disable_flags();
     ASSERT_EQ(status_flags.size(), number_neurons);
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         const auto index = neuron_id.get_neuron_id();
 
         if (std::ranges::binary_search(enabled_neurons, neuron_id)) {
@@ -281,7 +284,7 @@ TEST_F(NeuronsExtraInfoTest, testSetStatusShuffle) {
     auto disabled_neurons = std::vector<NeuronID>{};
     auto static_neurons = std::vector<NeuronID>{};
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         const auto random_number = RandomFactory::get_random_integer(0, 5, mt);
         if (random_number == 0) {
             static_neurons.emplace_back(neuron_id);
@@ -309,7 +312,7 @@ TEST_F(NeuronsExtraInfoTest, testSetStatusShuffle) {
     const auto status_flags = extra_info.get_disable_flags();
     ASSERT_EQ(status_flags.size(), number_neurons);
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         const auto index = neuron_id.get_neuron_id();
 
         if (std::ranges::binary_search(enabled_neurons, neuron_id)) {
@@ -346,7 +349,7 @@ TEST_F(NeuronsExtraInfoTest, testSetStatusOutOfBounds) {
     auto disabled_neurons = std::vector<NeuronID>{};
     auto static_neurons = std::vector<NeuronID>{};
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         const auto random_number = RandomFactory::get_random_integer(0, 5, mt);
         if (random_number == 0) {
             static_neurons.emplace_back(neuron_id);
@@ -415,7 +418,7 @@ TEST_F(NeuronsExtraInfoTest, testGetPositionsFor) {
     auto extra_info = NeuronsExtraInfo{};
     extra_info.init(number_neurons);
 
-    auto positions = SimulationFactory::get_random_positions<std::allocator<Vec3d>>(mt, number_neurons);
+    auto positions = SimulationFactory::get_random_positions<std::allocator<RelearnTypes::position_type>>(mt, number_neurons);
 
     extra_info.set_positions(positions);
 
@@ -423,7 +426,7 @@ TEST_F(NeuronsExtraInfoTest, testGetPositionsFor) {
 
     auto cm = RelearnTypes::comm_map_position<NeuronID>(number_ranks, NeuronIdFactory::upper_bound_num_neurons);
 
-    for (const auto rank : mpiPP::MPIRank::range(number_ranks)) {
+    for (const auto rank : mpiPP::MPIRankRange::range(number_ranks)) {
         const auto number_neurons_for_rank = NeuronIdFactory::get_random_number_neurons(mt);
         for (auto it = 0U; it < number_neurons_for_rank; it++) {
             cm.emplace_back(rank, NeuronIdFactory::get_random_neuron_id(number_neurons, mt));
@@ -462,7 +465,7 @@ TEST_F(NeuronsExtraInfoTest, testGetPositionsForException) {
     auto extra_info = NeuronsExtraInfo{};
     extra_info.init(number_neurons);
 
-    auto positions = SimulationFactory::get_random_positions<std::allocator<Vec3d>>(mt, number_neurons);
+    auto positions = SimulationFactory::get_random_positions<std::allocator<RelearnTypes::position_type>>(mt, number_neurons);
 
     extra_info.set_positions(positions);
 
@@ -470,7 +473,7 @@ TEST_F(NeuronsExtraInfoTest, testGetPositionsForException) {
 
     auto cm = RelearnTypes::comm_map_position<NeuronID>(number_ranks, NeuronIdFactory::upper_bound_num_neurons);
 
-    for (const auto rank : mpiPP::MPIRank::range(number_ranks)) {
+    for (const auto rank : mpiPP::MPIRankRange::range(number_ranks)) {
         const auto number_neurons_for_rank = NeuronIdFactory::get_random_number_neurons(mt);
         for (auto it = 0U; it < number_neurons_for_rank; it++) {
             cm.emplace_back(rank, NeuronIdFactory::get_random_neuron_id(number_neurons, mt));

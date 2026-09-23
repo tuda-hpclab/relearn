@@ -3,25 +3,27 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-#include "Types3.h"
-
 #include "algorithm/AlgorithmEnum.h"
 #include "algorithm/CombinedAlgorithmsInternal/RequestEnums.h"
 #include "algorithm/Kernel/KernelBase.h"
+#include "neurons/NeuronsExtraInfo.h"
 #include "neurons/enums/SynapticElementType.h"
 #include "neurons/helper/DistantNeuronRequests.h"
 #include "neurons/helper/SynapseCreationRequests.h"
+#include "neurons/synaptic_elements/SynapticElements.h"
+#include "types/BasicTypes.h"
+#include "types/CommunicationTypes.h"
+#include "types/SynapseTypes.h"
 #include "util/RelearnException.h"
 
-#include "cpp-utility/MemoryFootprint.hpp"
+#include <cpp-utility/MemoryFootprint.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -30,9 +32,14 @@
 #include <variant>
 
 class NetworkGraph;
-class NeuronsExtraInfo;
-class SynapticElements;
-class SynapticElements;
+
+/** Synapses created by a single Algorithm::update_connectivity() call, to be committed to the network graph. */
+struct ConnectivityUpdateResult {
+    std::uint64_t number_created_synapses{};
+    PlasticLocalSynapses local_synapses;
+    PlasticDistantInSynapses distant_in_synapses;
+    PlasticDistantOutSynapses distant_out_synapses;
+};
 
 /**
  * This is a virtual interface for all algorithms that can be used to create new synapses.
@@ -41,6 +48,7 @@ class SynapticElements;
 class Algorithm {
 public:
     using number_neurons_type = RelearnTypes::number_neurons_type;
+    using counter_type = RelearnTypes::counter_type;
 
     Algorithm() = default;
 
@@ -126,9 +134,9 @@ public:
      * @exception Can throw a RelearnException
      */
     virtual void prepare_update_connectivity(const std::span<const SignalType> signal_types,
-                                             const std::span<const unsigned int> vacant_axons,
-                                             const std::span<const unsigned int> vacant_excitatory_dendrites,
-                                             const std::span<const unsigned int> vacant_inhibitory_dendrites)
+                                             const std::span<const counter_type> vacant_axons,
+                                             const std::span<const counter_type> vacant_excitatory_dendrites,
+                                             const std::span<const counter_type> vacant_inhibitory_dendrites)
         = 0;
 
     /**
@@ -138,7 +146,7 @@ public:
      * @exception Can throw a RelearnException
      * @return A tuple with the created synapses that must be committed to the network graph
      */
-    [[nodiscard]] virtual std::tuple<PlasticLocalSynapses, PlasticDistantInSynapses, PlasticDistantOutSynapses> update_connectivity(number_neurons_type number_neurons) = 0;
+    [[nodiscard]] virtual ConnectivityUpdateResult update_connectivity(number_neurons_type number_neurons) = 0;
 
     /**
      * @brief Records the memory footprint of the current object
@@ -151,15 +159,15 @@ public:
 
     using ResultType = std::variant<RelearnTypes::comm_map_creation<SynapseCreationRequest>, RelearnTypes::comm_map_creation<DistantNeuronRequest>>;
     /**
-    * @brief Returns a collection of proposed synapse creations for each neuron. Used when using multiple algorithms by CombinedAlgorithms::update_connectivity
-    * @param neuron_ids The neuron_ids that should find targets
-    * @exception Can throw a RelearnException (especially when this is called but the method is not implemented in the algorithm itself)
-    * @return a tuple containing: - a map wrapped in a variant, indicating for every MPI rank all requests that are made from this rank. Does not send those requests to the other MPI ranks. the map can be of type mpiPP::CommunicationMap<SynapseCreationRequest> or 
-    *                               mpiPP::CommunicationMap<DistantNeuronRequest>
-    *                             - the request type of the map, returned as an element from an enum
-    *                             - the direction that the algorithm uses, i.e. forward (from axons to dendrites) or backward (from dendrites to axons)
-    */
-    [[nodiscard]] virtual std::tuple<ResultType, RequestTypeEnum, DirectionEnum> find_target_neurons_for_combined_algorithms([[maybe_unused]] const std::vector<NeuronID>& neuron_ids) { 
+     * @brief Returns a collection of proposed synapse creations for each neuron. Used when using multiple algorithms by CombinedAlgorithms::update_connectivity
+     * @param neuron_ids The neuron_ids that should find targets
+     * @exception Can throw a RelearnException (especially when this is called but the method is not implemented in the algorithm itself)
+     * @return a tuple containing: - a map wrapped in a variant, indicating for every MPI rank all requests that are made from this rank. Does not send those requests to the other MPI ranks. the map can be of type mpiPP::CommunicationMap<SynapseCreationRequest> or
+     *                               mpiPP::CommunicationMap<DistantNeuronRequest>
+     *                             - the request type of the map, returned as an element from an enum
+     *                             - the direction that the algorithm uses, i.e. forward (from axons to dendrites) or backward (from dendrites to axons)
+     */
+    [[nodiscard]] virtual std::tuple<ResultType, RequestTypeEnum, DirectionEnum> find_target_neurons_for_combined_algorithms([[maybe_unused]] const std::vector<NeuronID>& neuron_ids) {
         RelearnException::fail("Algorithm::find_target_neurons_for_combined_algorithms: Unimplemented find_target_neurons_for_combined_algorithms!");
     }
 
@@ -182,7 +190,7 @@ public:
     [[nodiscard]] virtual AlgorithmEnum get_algorithm_type() const = 0;
 
 protected:
-    std::unique_ptr<KernelBase> kernel{};                  // NOLINT
+    std::shared_ptr<KernelBase> kernel{};                  // NOLINT
     std::shared_ptr<SynapticElements> synaptic_elements{}; // NOLINT
     std::shared_ptr<NetworkGraph> network_graph{};         // NOLINT
     std::shared_ptr<NeuronsExtraInfo> extra_infos{};       // NOLINT

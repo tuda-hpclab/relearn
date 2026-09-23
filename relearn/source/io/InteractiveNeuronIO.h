@@ -3,19 +3,18 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
 
-#include "Types.h"
-#include "Types2.h"
-
+#include "types/BasicTypes.h"
+#include "types/StimulusTypes.h"
 #include "util/NeuronID.h"
 
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <cstdint>
 #include <filesystem>
@@ -34,7 +33,8 @@ class InteractiveNeuronIO {
 public:
     using step_type = RelearnTypes::step_type;
     using number_neurons_type = RelearnTypes::number_neurons_type;
-    using stimuli_vector_type = std::vector<std::pair<std::unordered_set<NeuronID ::value_type>, double>>;
+    using activity_type = RelearnTypes::activity_type;
+    using stimuli_vector_type = std::vector<std::pair<std::unordered_set<NeuronID ::value_type>, activity_type>>;
 
     /**
      * @brief Reads the file specified by the path and extracts all enable-interrupts.
@@ -47,7 +47,7 @@ public:
      * @param path_to_file The path to the interrupts file
      * @param my_rank The current MPI rank
      * @exception Throws a RelearnException if opening the file fails
-     * @return A collection of pairs: (<simulation step>, <all neurons that should be enabled in the simulation step>)
+     * @return A collection of step interrupts: (<simulation step>, <all neurons that should be enabled in the simulation step>)
      */
     [[nodiscard]] static std::vector<std::pair<step_type, std::vector<NeuronID>>> load_enable_interrupts(const std::filesystem::path& path_to_file, mpiPP::MPIRank my_rank);
 
@@ -62,7 +62,7 @@ public:
      * @param path_to_file The path to the interrupts file
      * @param my_rank The current MPI rank
      * @exception Throws a RelearnException if opening the file fails
-     * @return A collection of pairs: (<simulation step>, <all neurons that should be disabled in the simulation step>)
+     * @return A collection of step interrupts: (<simulation step>, <all neurons that should be disabled in the simulation step>)
      */
     [[nodiscard]] static std::vector<std::pair<step_type, std::vector<NeuronID>>> load_disable_interrupts(const std::filesystem::path& path_to_file, mpiPP::MPIRank my_rank);
 
@@ -76,7 +76,7 @@ public:
      *      Only lines starting with c are processed
      * @param path_to_file The path to the interrupts file
      * @exception Throws a RelearnException if opening the file fails
-     * @return A collection of pairs: (<simulation step>, <number of neurons to be created>)
+     * @return A collection of step interrupts: (<simulation step>, <number of neurons to be created>)
      */
     [[nodiscard]] static std::vector<std::pair<step_type, number_neurons_type>> load_creation_interrupts(const std::filesystem::path& path_to_file);
 

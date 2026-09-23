@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -10,13 +10,20 @@
 
 #include "NeuronMonitor.h"
 
+#include "types/BasicTypes.h"
 #include "util/RelearnException.h"
 
-#include "mpi-wrapper/MPIInfo.h"
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
+#include <cstddef>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <sstream>
+#include <limits>
+#include <string>
+#include <utility>
+#include <variant>
 
 void NeuronMonitor::set_output_path(std::filesystem::path path, const bool clear_contents) {
     output_path = std::move(path);
@@ -39,6 +46,10 @@ void NeuronMonitor::register_neuron(RelearnTypes::number_neurons_type neuron) {
 void NeuronMonitor::record_data(const RelearnTypes::step_type current_step) {
     RelearnException::check(!output_path.empty(), "NeuronMonitor::register_neuron: Call set_output_path first");
 
+    for (const auto& pre_processing : pre_processings) {
+        pre_processing();
+    }
+
     for (const auto neuron : neurons_to_monitor) {
         auto& information_for_neuron = information[neuron].emplace_back();
         information_for_neuron.reserve(callbacks.size());
@@ -46,6 +57,10 @@ void NeuronMonitor::record_data(const RelearnTypes::step_type current_step) {
         for (const auto& callback : callbacks) {
             information_for_neuron.push_back(callback(neuron));
         }
+    }
+
+    for (const auto& post_processing : post_processings) {
+        post_processing();
     }
 
     steps.push_back(current_step);

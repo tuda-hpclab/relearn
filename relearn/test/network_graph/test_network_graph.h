@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2022-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -12,7 +12,9 @@
 
 #include "RelearnTest.hpp"
 
-#include "Types.h"
+#include "neurons/helper/RankNeuronId.h"
+#include "types/BasicTypes.h"
+#include "util/NeuronID.h"
 
 #include <map>
 
@@ -58,23 +60,23 @@ protected:
      * @brief Format is: target -> source -> weight
      */
     static void assert_in_connectivity(const NetworkGraph& network_graph, const std::map<NeuronID, std::map<NeuronID, RelearnTypes::plastic_synapse_weight>>& incoming_edges,
-        const std::map<NeuronID, std::map<RankNeuronId, RelearnTypes::plastic_synapse_weight>>& distant_incoming_edges);
+                                       const std::map<NeuronID, std::map<RankNeuronId, RelearnTypes::plastic_synapse_weight>>& distant_incoming_edges);
 
     /**
      * @brief Format is: source -> target-> weight
      */
     static void assert_out_connectivity(const NetworkGraph& network_graph, const std::map<NeuronID, std::map<NeuronID, RelearnTypes::plastic_synapse_weight>>& outgoing_edges,
-        const std::map<NeuronID, std::map<RankNeuronId, RelearnTypes::plastic_synapse_weight>>& distant_outgoing_edges);
+                                        const std::map<NeuronID, std::map<RankNeuronId, RelearnTypes::plastic_synapse_weight>>& distant_outgoing_edges);
 
     /**
      * @brief Format is: target -> source -> weight
      */
     static void assert_in_connectivity(const NetworkGraph& network_graph, const std::map<NeuronID, std::map<NeuronID, RelearnTypes::static_synapse_weight>>& incoming_edges,
-        const std::map<NeuronID, std::map<RankNeuronId, RelearnTypes::static_synapse_weight>>& distant_incoming_edges);
+                                       const std::map<NeuronID, std::map<RankNeuronId, RelearnTypes::static_synapse_weight>>& distant_incoming_edges);
 
     /**
      * @brief Format is: source -> target-> weight
      */
     static void assert_out_connectivity(const NetworkGraph& network_graph, const std::map<NeuronID, std::map<NeuronID, RelearnTypes::static_synapse_weight>>& outgoing_edges,
-        const std::map<NeuronID, std::map<RankNeuronId, RelearnTypes::static_synapse_weight>>& distant_outgoing_edges);
+                                        const std::map<NeuronID, std::map<RankNeuronId, RelearnTypes::static_synapse_weight>>& distant_outgoing_edges);
 };

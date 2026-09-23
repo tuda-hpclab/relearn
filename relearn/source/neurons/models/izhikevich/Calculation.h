@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -16,22 +16,22 @@
 
 namespace models::izhikevich {
 
-template <typename real_type = double>
+template <typename real_type = RelearnTypes::activity_type>
 [[nodiscard]] real_type iterate_v(const real_type current_v, const real_type current_u, const real_type input, const real_type k2, const real_type k1, const real_type k0) noexcept {
     return (k2 * current_v * current_v) + (k1 * current_v) + k0 - current_u + input;
 }
 
-template <typename real_type = double>
+template <typename real_type = RelearnTypes::activity_type>
 [[nodiscard]] real_type iterate_u(const real_type current_v, const real_type current_u, const real_type a, const real_type b) noexcept {
     return a * (b * current_v - current_u);
 }
 
-template <typename real_type = double>
+template <typename real_type = RelearnTypes::activity_type>
 [[nodiscard]] bool is_spiking(const real_type current_v, const real_type V_spike) noexcept {
     return current_v >= V_spike;
 }
 
-template <typename real_type = double>
+template <typename real_type = RelearnTypes::activity_type>
 [[nodiscard]] std::tuple<real_type, real_type, bool> iterate(const unsigned int h, const real_type current_v, const real_type current_u,
                                                              const real_type input, const Parameters<real_type>& params) noexcept {
     const auto k2 = params.get_k1();

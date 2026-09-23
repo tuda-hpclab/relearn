@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -11,13 +11,17 @@
 #include "main.h"
 
 #include "neurons/helper/CachedChoiceFunction.h"
+#include "util/NeuronIDRange.h"
+#include "util/OMPHelper.h"
 
 #include "factory/activity_input/activity_input_factory.h"
 #include "factory/extra_info/extra_info_factory.h"
 
 #include <benchmark/benchmark.h>
-#include <omp.h>
+
 #include <range/v3/numeric/accumulate.hpp>
+
+#include <omp.h>
 
 #include <cmath>
 #include <vector>
@@ -41,8 +45,10 @@ void BM_Constant_Activity_Input(benchmark::State& state) {
         state.PauseTiming();
 
         const auto values = activity_input->get_input();
+        // This is non-const on purpose
+        auto sum = ranges::accumulate(values, 0.0);
 
-        benchmark::DoNotOptimize(ranges::accumulate(values, 0.0));
+        benchmark::DoNotOptimize(sum);
         state.ResumeTiming();
     }
 }
@@ -65,13 +71,15 @@ void BM_Normal_Activity_Input(benchmark::State& state) {
         state.PauseTiming();
 
         const auto values = activity_input->get_input();
+        // This is non-const on purpose
+        auto sum = ranges::accumulate(values, 0.0);
 
-        benchmark::DoNotOptimize(ranges::accumulate(values, 0.0));
+        benchmark::DoNotOptimize(sum);
         state.ResumeTiming();
     }
 }
 
-void BM_Fast_Normal_Activity_Input(benchmark::State& state) {
+[[maybe_unused]] void BM_Fast_Normal_Activity_Input(benchmark::State& state) {
     const auto number_neurons = static_cast<RelearnTypes::number_neurons_type>(state.range(0));
 
     omp_set_num_threads(1);
@@ -89,8 +97,10 @@ void BM_Fast_Normal_Activity_Input(benchmark::State& state) {
         state.PauseTiming();
 
         const auto values = activity_input->get_input();
+        // This is non-const on purpose
+        auto sum = ranges::accumulate(values, 0.0);
 
-        benchmark::DoNotOptimize(ranges::accumulate(values, 0.0));
+        benchmark::DoNotOptimize(sum);
         state.ResumeTiming();
     }
 }
@@ -100,7 +110,7 @@ void BM_Combined_Activity_Input(benchmark::State& state) {
 
     omp_set_num_threads(1);
 
-    auto other_inputs = std::vector{ ActivityInputFactory::construct_fast_normal_activity(4.2, 0.42, 10), ActivityInputFactory::construct_normal_activity(4.2, 0.42), ActivityInputFactory::construct_constant_activity(1.1) };
+    auto other_inputs = std::vector{ ActivityInputFactory::construct_normal_activity(4.2, 0.42), ActivityInputFactory::construct_normal_activity(4.2, 0.42), ActivityInputFactory::construct_constant_activity(1.1) };
 
     auto activity_input = ActivityInputFactory::construct_combined_activity(other_inputs);
     activity_input->init(number_neurons);
@@ -115,12 +125,15 @@ void BM_Combined_Activity_Input(benchmark::State& state) {
         state.PauseTiming();
 
         const auto values = activity_input->get_input();
+        // This is non-const on purpose
+        auto sum = ranges::accumulate(values, 0.0);
 
-        benchmark::DoNotOptimize(ranges::accumulate(values, 0.0));
+        benchmark::DoNotOptimize(sum);
         state.ResumeTiming();
     }
 }
 
+#ifndef RELEARN_CUDA_ENABLED
 void BM_Flexible_Activity_Input_Easy(benchmark::State& state) {
     const auto number_neurons = static_cast<RelearnTypes::number_neurons_type>(state.range(0));
 
@@ -131,7 +144,7 @@ void BM_Flexible_Activity_Input_Easy(benchmark::State& state) {
     auto even_neuron_ids = std::vector<NeuronID>{};
     auto odd_neuron_ids = std::vector<NeuronID>{};
 
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         if (neuron_id.get_neuron_id() % 2 == 0) {
             even_neuron_ids.push_back(neuron_id);
         } else {
@@ -140,7 +153,7 @@ void BM_Flexible_Activity_Input_Easy(benchmark::State& state) {
     }
 
     constexpr auto max_step = std::numeric_limits<RelearnTypes::step_type>::max();
-    auto changes = std::vector<std::tuple<RelearnTypes::step_type, RelearnTypes::step_type, std::size_t, std::vector<NeuronID>>>{
+    auto changes = std::vector<BackgroundActivityEntry>{
         { 0, max_step, 0, even_neuron_ids }, { 0, max_step, 1, odd_neuron_ids }
     };
 
@@ -160,8 +173,10 @@ void BM_Flexible_Activity_Input_Easy(benchmark::State& state) {
         state.PauseTiming();
 
         const auto values = activity_input->get_input();
+        // This is non-const on purpose
+        auto sum = ranges::accumulate(values, 0.0);
 
-        benchmark::DoNotOptimize(ranges::accumulate(values, 0.0));
+        benchmark::DoNotOptimize(sum);
         step++;
         state.ResumeTiming();
     }
@@ -181,12 +196,12 @@ void BM_Flexible_Activity_Input_Complex(benchmark::State& state) {
 
     auto neuron_ids = std::vector<std::vector<NeuronID>>{};
     neuron_ids.resize(number_inputs);
-    for (const auto neuron_id : NeuronID::range(number_neurons)) {
+    for (const auto neuron_id : NeuronIDRange::range(number_neurons)) {
         auto index = neuron_id.get_neuron_id() % number_inputs;
         neuron_ids[index].emplace_back(neuron_id);
     }
 
-    auto changes = std::vector<std::tuple<RelearnTypes::step_type, RelearnTypes::step_type, std::size_t, std::vector<NeuronID>>>{};
+    auto changes = std::vector<BackgroundActivityEntry>{};
 
     for (auto step = 0U; step < state.max_iterations; step += update_interval) {
         for (auto index = 0U; index < number_inputs; index++) {
@@ -210,8 +225,10 @@ void BM_Flexible_Activity_Input_Complex(benchmark::State& state) {
         state.PauseTiming();
 
         const auto values = activity_input->get_input();
+        // This is non-const on purpose
+        auto sum = ranges::accumulate(values, 0.0);
 
-        benchmark::DoNotOptimize(ranges::accumulate(values, 0.0));
+        benchmark::DoNotOptimize(sum);
         step++;
         state.ResumeTiming();
     }
@@ -239,8 +256,10 @@ void BM_Scale_Activity_Input_Multiply(benchmark::State& state) {
         state.PauseTiming();
 
         const auto values = activity_input->get_input();
+        // This is non-const on purpose
+        auto sum = ranges::accumulate(values, 0.0);
 
-        benchmark::DoNotOptimize(ranges::accumulate(values, 0.0));
+        benchmark::DoNotOptimize(sum);
         state.ResumeTiming();
     }
 }
@@ -267,8 +286,10 @@ void BM_Scale_Activity_Input_Logarithm(benchmark::State& state) {
         state.PauseTiming();
 
         const auto values = activity_input->get_input();
+        // This is non-const on purpose
+        auto sum = ranges::accumulate(values, 0.0);
 
-        benchmark::DoNotOptimize(ranges::accumulate(values, 0.0));
+        benchmark::DoNotOptimize(sum);
         state.ResumeTiming();
     }
 }
@@ -295,21 +316,27 @@ void BM_Scale_Activity_Input_Tanh(benchmark::State& state) {
         state.PauseTiming();
 
         const auto values = activity_input->get_input();
+        // This is non-const on purpose
+        auto sum = ranges::accumulate(values, 0.0);
 
-        benchmark::DoNotOptimize(ranges::accumulate(values, 0.0));
+        benchmark::DoNotOptimize(sum);
         state.ResumeTiming();
     }
 }
+#endif
 } // namespace
 
-constexpr static auto number_inputs = 50U;
-constexpr static auto update_increments = 10U;
 BENCHMARK(BM_Combined_Activity_Input)->Unit(benchmark::kMillisecond)->Arg(large_number_neurons)->Iterations(large_number_iterations);
 BENCHMARK(BM_Constant_Activity_Input)->Unit(benchmark::kMillisecond)->Arg(large_number_neurons)->Iterations(large_number_iterations);
-BENCHMARK(BM_Flexible_Activity_Input_Easy)->Unit(benchmark::kMillisecond)->Arg(large_number_neurons)->Iterations(large_number_iterations);
-BENCHMARK(BM_Flexible_Activity_Input_Complex)->Unit(benchmark::kMillisecond)->Args({ large_number_neurons, number_inputs, update_increments })->Iterations(large_number_iterations);
 BENCHMARK(BM_Normal_Activity_Input)->Unit(benchmark::kMillisecond)->Arg(large_number_neurons)->Iterations(large_number_iterations);
+
+#ifndef RELEARN_CUDA_ENABLED
+constexpr static auto number_inputs = 50U;
+constexpr static auto update_increments = 10U;
 BENCHMARK(BM_Fast_Normal_Activity_Input)->Unit(benchmark::kMillisecond)->Arg(large_number_neurons)->Iterations(large_number_iterations);
 BENCHMARK(BM_Scale_Activity_Input_Multiply)->Unit(benchmark::kMillisecond)->Arg(large_number_neurons)->Iterations(large_number_iterations);
 BENCHMARK(BM_Scale_Activity_Input_Logarithm)->Unit(benchmark::kMillisecond)->Arg(large_number_neurons)->Iterations(large_number_iterations);
 BENCHMARK(BM_Scale_Activity_Input_Tanh)->Unit(benchmark::kMillisecond)->Arg(large_number_neurons)->Iterations(large_number_iterations);
+BENCHMARK(BM_Flexible_Activity_Input_Easy)->Unit(benchmark::kMillisecond)->Arg(large_number_neurons)->Iterations(large_number_iterations);
+BENCHMARK(BM_Flexible_Activity_Input_Complex)->Unit(benchmark::kMillisecond)->Args({ large_number_neurons, number_inputs, update_increments })->Iterations(large_number_iterations);
+#endif

@@ -1,7 +1,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2024-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -10,37 +10,32 @@
 
 #include "Connector.h"
 
-#include "Types.h"
-
 #include "neurons/enums/SynapticElementType.h"
 #include "neurons/helper/SynapseCreationRequests.h"
+#include "neurons/helper/SynapseCreationResponse.h"
 #include "neurons/synaptic_elements/SynapticElements.h"
+#include "types/CommunicationTypes.h"
+#include "types/SynapseTypes.h"
 #include "util/Random.h"
+#include "util/RandomHolderKey.h"
 #include "util/RelearnException.h"
 
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
+#include <mpi-wrapper/core/MPIRankRange.h>
 
-#include <range/v3/range/conversion.hpp>
-#include <range/v3/range/primitives.hpp>
-#include <range/v3/view/for_each.hpp>
-#include <range/v3/view/indices.hpp>
-#include <range/v3/view/iota.hpp>
-#include <range/v3/view/repeat.hpp>
-#include <range/v3/view/zip.hpp>
-
-#include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <memory>
-#include <utility>
 #include <vector>
 
-std::pair<RelearnTypes::comm_map_creation<SynapseCreationResponse>, std::pair<PlasticLocalSynapses, PlasticDistantInSynapses>>
+ForwardProcessRequestsResult<SynapseCreationResponse>
 ForwardConnector::process_requests(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests,
                                    const std::shared_ptr<SynapticElements>& synaptic_elements) {
 
     const auto synaptic_elements_empty = synaptic_elements != nullptr;
-    RelearnException::check(synaptic_elements_empty, "ForwardConnector::process_requests: The synaptic elements are empty");
+    RelearnException::check(synaptic_elements_empty,
+                            "ForwardConnector::process_requests: The synaptic elements are empty");
 
     const auto my_rank = mpiPP::MPIInfo::get_my_rank();
     const auto number_ranks = creation_requests.get_number_ranks();
@@ -50,12 +45,13 @@ ForwardConnector::process_requests(const RelearnTypes::comm_map_creation<Synapse
     auto responses = RelearnTypes::comm_map_creation<SynapseCreationResponse>(number_ranks, size_hint);
 
     if (creation_requests.empty()) {
-        return { responses, {} };
+        return { responses, 0, {} };
     }
 
     responses.resize(creation_requests.get_request_sizes());
 
     const auto total_number_requests = creation_requests.get_total_number_requests();
+    auto created_synapses = std::uint64_t{};
 
     auto local_synapses = PlasticLocalSynapses{};
     local_synapses.reserve(total_number_requests);
@@ -63,17 +59,16 @@ ForwardConnector::process_requests(const RelearnTypes::comm_map_creation<Synapse
     auto distant_synapses = PlasticDistantInSynapses{};
     distant_synapses.reserve(total_number_requests);
 
-    auto indices = std::vector<std::pair<mpiPP::MPIRank, std::size_t>>{};
+    auto indices = std::vector<std::tuple<mpiPP::MPIRank, std::size_t, NeuronID>>{};
     indices.reserve(creation_requests.get_total_number_requests());
-
     for (const auto& [source_rank, requests] : creation_requests) {
         for (auto request_index = 0U; request_index < requests.size(); request_index++) {
-            indices.emplace_back(source_rank, request_index);
+            const auto& request = requests[request_index];
+            indices.emplace_back(source_rank, request_index, request.get_target());
         }
     }
 
     RandomHolder::shuffle(RandomHolderKey::Connector, indices);
-
     // We need to shuffle the request indices so we do not prefer those from smaller MPI ranks and lower neuron ids
     // const auto indices = creation_requests
     //                     | ranges::views::for_each([](const auto& request) {
@@ -85,18 +80,21 @@ ForwardConnector::process_requests(const RelearnTypes::comm_map_creation<Synapse
     //                     | ranges::to<std::vector<std::pair<mpiPP::MPIRank, std::size_t>>>
     //                     | RandomHolder::shuffleAction(RandomHolderKey::Connector);
 
-    for (const auto& [source_rank, request_index] : indices) {
-        const auto& [target_neuron_id, source_neuron_id, dendrite_type_needed] = creation_requests.get_request(source_rank, request_index);
+    for (const auto& [source_rank, request_index, target_neuron] : indices) {
+        const auto& [target_neuron_id, source_neuron_id, dendrite_type_needed] = creation_requests.get_request(
+            source_rank, request_index);
 
         if (source_rank == my_rank && target_neuron_id == source_neuron_id) {
             responses.set_request(source_rank, request_index, SynapseCreationResponse::Failed);
             continue;
         }
 
-        RelearnException::check(target_neuron_id.get_neuron_id() < number_neurons, "ForwardConnector::process_requests: target_neuron_id exceeds my neurons");
+        RelearnException::check(target_neuron_id.get_neuron_id() < number_neurons,
+                                "ForwardConnector::process_requests: target_neuron_id exceeds my neurons");
 
         const auto synaptic_elements_type = get_synaptic_element_type(ElementType::Dendrite, dendrite_type_needed);
-        const auto number_free_elements = synaptic_elements->get_vacant_elements(synaptic_elements_type)[target_neuron_id.get_neuron_id()];
+        const auto number_free_elements = synaptic_elements->get_vacant_elements(
+            synaptic_elements_type)[target_neuron_id.get_neuron_id()];
         if (number_free_elements == 0) {
             // Other axons were faster and came first
             responses.set_request(source_rank, request_index, SynapseCreationResponse::Failed);
@@ -117,16 +115,18 @@ ForwardConnector::process_requests(const RelearnTypes::comm_map_creation<Synapse
 
         distant_synapses.emplace_back(target_neuron_id, RankNeuronId{ source_rank, source_neuron_id }, weight);
     }
-
-    return { responses, { local_synapses, distant_synapses } };
+    created_synapses = local_synapses.size() + distant_synapses.size();
+    return { responses, created_synapses, { local_synapses, distant_synapses } };
 }
 
-PlasticDistantOutSynapses ForwardConnector::process_responses(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests,
-                                                              const RelearnTypes::comm_map_creation<SynapseCreationResponse>& creation_responses,
-                                                              const std::shared_ptr<SynapticElements>& synaptic_elements) {
+PlasticDistantOutSynapses
+ForwardConnector::process_responses(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests,
+                                    const RelearnTypes::comm_map_creation<SynapseCreationResponse>& creation_responses,
+                                    const std::shared_ptr<SynapticElements>& synaptic_elements) {
 
     const auto synaptic_elements_empty = synaptic_elements != nullptr;
-    RelearnException::check(synaptic_elements_empty, "ForwardConnector::process_responses: The synaptic elements are empty");
+    RelearnException::check(synaptic_elements_empty,
+                            "ForwardConnector::process_responses: The synaptic elements are empty");
 
     RelearnException::check(creation_requests.get_number_ranks() == creation_responses.get_number_ranks(),
                             "ForwardConnector::process_responses: Requests and Responses had a different number of ranks");
@@ -137,11 +137,13 @@ PlasticDistantOutSynapses ForwardConnector::process_responses(const RelearnTypes
         return {};
     }
 
-    RelearnException::check(creation_requests.size() < std::numeric_limits<int>::max(), "ForwardConnector::process_responses: Too many requests: {}", creation_requests.size());
+    RelearnException::check(creation_requests.size() < std::numeric_limits<int>::max(),
+                            "ForwardConnector::process_responses: Too many requests: {}", creation_requests.size());
 
-    for (const auto rank : mpiPP::MPIRank::range(creation_requests.get_number_ranks())) {
+    for (const auto rank : mpiPP::MPIRankRange::range(creation_requests.get_number_ranks())) {
         RelearnException::check(creation_requests.size(rank) == creation_responses.size(rank),
-                                "ForwardConnector::process_responses: Requests and Responses for rank {} had different sizes", rank);
+                                "ForwardConnector::process_responses: Requests and Responses for rank {} had different sizes",
+                                rank);
     }
 
     const auto number_neurons = synaptic_elements->get_size();
@@ -163,14 +165,18 @@ PlasticDistantOutSynapses ForwardConnector::process_responses(const RelearnTypes
                 continue;
             }
 
-            const auto& [target_neuron_id, source_neuron_id, dendrite_type_needed] = creation_requests.get_request(target_rank, request_index);
+            const auto& [target_neuron_id, source_neuron_id, dendrite_type_needed] = creation_requests.get_request(
+                target_rank, request_index);
 
             RelearnException::check(source_neuron_id.get_neuron_id() < number_neurons,
-                                    "ForwardConnector::process_responses: The source neuron id was too large: {} vs {}", source_neuron_id.get_neuron_id(), number_neurons);
+                                    "ForwardConnector::process_responses: The source neuron id was too large: {} vs {}",
+                                    source_neuron_id.get_neuron_id(), number_neurons);
 
-            const auto number_free_elements = synaptic_elements->get_vacant_elements(SynapticElementType::Axon)[source_neuron_id.get_neuron_id()];
+            const auto number_free_elements = synaptic_elements->get_vacant_elements(
+                SynapticElementType::Axon)[source_neuron_id.get_neuron_id()];
             RelearnException::check(number_free_elements > 0,
-                                    "ForwardConnector::process_responses: The source neuron did not have a vacant element: {}", source_neuron_id);
+                                    "ForwardConnector::process_responses: The source neuron did not have a vacant element: {}",
+                                    source_neuron_id);
 
             // Increment number of connected axons
             synaptic_elements->connect_elements(1, source_neuron_id.get_neuron_id(), SynapticElementType::Axon);
@@ -189,12 +195,13 @@ PlasticDistantOutSynapses ForwardConnector::process_responses(const RelearnTypes
     return synapses;
 }
 
-std::pair<RelearnTypes::comm_map_creation<SynapseCreationResponse>, std::pair<PlasticLocalSynapses, PlasticDistantOutSynapses>>
+BackwardProcessRequestsResult<SynapseCreationResponse>
 BackwardConnector::process_requests(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests,
                                     const std::shared_ptr<SynapticElements>& synaptic_elements) {
 
     const auto synaptic_elements_empty = synaptic_elements != nullptr;
-    RelearnException::check(synaptic_elements_empty, "BackwardConnector::process_requests: The synaptic elements are empty");
+    RelearnException::check(synaptic_elements_empty,
+                            "BackwardConnector::process_requests: The synaptic elements are empty");
 
     const auto number_neurons = synaptic_elements->get_size();
     const auto my_rank = mpiPP::MPIInfo::get_my_rank();
@@ -203,7 +210,7 @@ BackwardConnector::process_requests(const RelearnTypes::comm_map_creation<Synaps
     const auto size_hint = creation_requests.size();
     auto responses = RelearnTypes::comm_map_creation<SynapseCreationResponse>(number_ranks, size_hint);
     if (creation_requests.empty()) {
-        return { responses, {} };
+        return { responses, 0, {} };
     }
 
     responses.resize(creation_requests.get_request_sizes());
@@ -241,13 +248,17 @@ BackwardConnector::process_requests(const RelearnTypes::comm_map_creation<Synaps
     const auto& signal_types = synaptic_elements->get_signal_types();
 
     for (const auto& [source_rank, request_index] : indices) {
-        const auto& [target_neuron_id, source_neuron_id, axon_type_needed] = creation_requests.get_request(source_rank, request_index);
+        const auto& [target_neuron_id, source_neuron_id, axon_type_needed] = creation_requests.get_request(source_rank,
+                                                                                                           request_index);
 
-        RelearnException::check(target_neuron_id.get_neuron_id() < number_neurons, "BackwardConnector::process_requests: target_neuron_id exceeds my neurons");
-        RelearnException::check(signal_types[target_neuron_id.get_neuron_id()] == axon_type_needed, "BackwardConnector::process_requests: Request had the wrong signal type");
+        RelearnException::check(target_neuron_id.get_neuron_id() < number_neurons,
+                                "BackwardConnector::process_requests: target_neuron_id exceeds my neurons");
+        RelearnException::check(signal_types[target_neuron_id.get_neuron_id()] == axon_type_needed,
+                                "BackwardConnector::process_requests: Request had the wrong signal type");
 
         const auto weight = (SignalType::Inhibitory == axon_type_needed) ? -1 : 1;
-        const auto number_free_elements = synaptic_elements->get_vacant_elements(SynapticElementType::Axon)[target_neuron_id.get_neuron_id()];
+        const auto number_free_elements = synaptic_elements->get_vacant_elements(
+            SynapticElementType::Axon)[target_neuron_id.get_neuron_id()];
 
         if (number_free_elements == 0) {
             // Other axons were faster and came first
@@ -269,15 +280,18 @@ BackwardConnector::process_requests(const RelearnTypes::comm_map_creation<Synaps
         distant_synapses.emplace_back(RankNeuronId{ source_rank, source_neuron_id }, target_neuron_id, weight);
     }
 
-    return { responses, { local_synapses, distant_synapses } };
+    const auto created_synapses = local_synapses.size() + distant_synapses.size();
+    return { responses, created_synapses, { local_synapses, distant_synapses } };
 }
 
-PlasticDistantInSynapses BackwardConnector::process_responses(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests,
-                                                              const RelearnTypes::comm_map_creation<SynapseCreationResponse>& creation_responses,
-                                                              const std::shared_ptr<SynapticElements>& synaptic_elements) {
+PlasticDistantInSynapses
+BackwardConnector::process_responses(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests,
+                                     const RelearnTypes::comm_map_creation<SynapseCreationResponse>& creation_responses,
+                                     const std::shared_ptr<SynapticElements>& synaptic_elements) {
 
     const auto synaptic_elements_empty = synaptic_elements != nullptr;
-    RelearnException::check(synaptic_elements_empty, "BackwardConnector::process_responses: The synaptic elements are empty");
+    RelearnException::check(synaptic_elements_empty,
+                            "BackwardConnector::process_responses: The synaptic elements are empty");
 
     RelearnException::check(creation_requests.get_number_ranks() == creation_responses.get_number_ranks(),
                             "BackwardConnector::process_responses: Requests and Responses had a different number of ranks");
@@ -288,11 +302,13 @@ PlasticDistantInSynapses BackwardConnector::process_responses(const RelearnTypes
         return {};
     }
 
-    RelearnException::check(creation_requests.size() < std::numeric_limits<int>::max(), "BackwardConnector::process_responses: Too many requests: {}", creation_requests.size());
+    RelearnException::check(creation_requests.size() < std::numeric_limits<int>::max(),
+                            "BackwardConnector::process_responses: Too many requests: {}", creation_requests.size());
 
-    for (const auto rank : mpiPP::MPIRank::range(creation_requests.get_number_ranks())) {
+    for (const auto rank : mpiPP::MPIRankRange::range(creation_requests.get_number_ranks())) {
         RelearnException::check(creation_requests.size(rank) == creation_responses.size(rank),
-                                "BackwardConnector::process_responses: Requests and Responses for rank {} had different sizes", rank);
+                                "BackwardConnector::process_responses: Requests and Responses for rank {} had different sizes",
+                                rank);
     }
 
     const auto number_neurons = synaptic_elements->get_size();
@@ -315,10 +331,12 @@ PlasticDistantInSynapses BackwardConnector::process_responses(const RelearnTypes
                 continue;
             }
 
-            const auto& [target_neuron_id, source_neuron_id, axon_type_needed] = creation_requests.get_request(target_rank, request_index);
+            const auto& [target_neuron_id, source_neuron_id, axon_type_needed] = creation_requests.get_request(
+                target_rank, request_index);
 
             RelearnException::check(source_neuron_id.get_neuron_id() < number_neurons,
-                                    "BackwardConnector::process_responses: The source neuron id was too large: {} vs {}", source_neuron_id.get_neuron_id(), number_neurons);
+                                    "BackwardConnector::process_responses: The source neuron id was too large: {} vs {}",
+                                    source_neuron_id.get_neuron_id(), number_neurons);
 
             const auto synaptic_element_type = get_synaptic_element_type(ElementType::Dendrite, axon_type_needed);
             // Increment number of connected dendrites

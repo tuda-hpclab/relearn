@@ -3,7 +3,7 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2023-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -12,9 +12,9 @@
 
 #include "util/RelearnException.h"
 
-#include "mpi-wrapper/CommunicationMap.h"
-#include "mpi-wrapper/CommunicationVector.h"
-#include "mpi-wrapper/MPIRank.h"
+#include <mpi-wrapper/core/MPIRank.h>
+#include <mpi-wrapper/patterns/CommunicationMap.h>
+#include <mpi-wrapper/patterns/CommunicationVector.h>
 
 #include <cmath>
 #include <random>

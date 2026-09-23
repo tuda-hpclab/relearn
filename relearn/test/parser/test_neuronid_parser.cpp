@@ -1,7 +1,7 @@
 ﻿/*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2023-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
@@ -15,17 +15,17 @@
 #include "util/NeuronID.h"
 #include "util/RelearnException.h"
 
-#include "cpp-utility/ranges/Functional.hpp"
-
-#include "mpi-wrapper/MPIInfo.h"
-#include "mpi-wrapper/MPIRank.h"
-
 #include "factory/mpi_rank/mpi_rank_factory.h"
 #include "factory/neuron_id/neuron_id_factory.h"
 #include "factory/random/random_factory.h"
 #include "factory/rank_neuron_id/rank_neuron_id_factory.h"
 
+#include <cpp-utility/ranges/Functional.hpp>
+
 #include <gtest/gtest.h>
+
+#include <mpi-wrapper/core/MPIInfo.h>
+#include <mpi-wrapper/core/MPIRank.h>
 
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/filter.hpp>

@@ -3,14 +3,12 @@
 /*
  * This file is part of the RELeARN software developed at Technical University Darmstadt
  *
- * Copyright (c) 2020, Technical University of Darmstadt, Germany
+ * Copyright (c) 2021-2026, Technical University of Darmstadt, Germany
  *
  * This software may be modified and distributed under the terms of a BSD-style license.
  * See the LICENSE file in the base directory for details.
  *
  */
-
-#include "Types.h"
 
 #include "algorithm/AlgorithmEnum.h"
 #include "algorithm/FMMInternal/FastMultipoleMethodCell.h"
@@ -19,6 +17,10 @@
 #include "neurons/enums/UpdateStatus.h"
 #include "neurons/helper/SynapseCreationRequests.h"
 #include "structure/SpaceFillingCurve.h"
+#include "types/BasicTypes.h"
+#include "types/CommunicationTypes.h"
+#include "types/SpaceTypes.h"
+#include "types/SynapseTypes.h"
 
 #include <memory>
 #include <utility>
@@ -28,12 +30,13 @@
  * This class represents the implementation and adaptation of fast multipole method. The parameters can be set on the fly.
  * It is strongly tied to Octree, and might perform MPI communication via NodeCache::get_children()
  */
-class FastMultipoleMethod : public ForwardAlgorithm<SynapseCreationRequest, SynapseCreationResponse>, private OctreeAlgorithm<FastMultipoleMethodCell> {
+class FastMultipoleMethod : public ForwardCPUAlgorithm<SynapseCreationRequest, SynapseCreationResponse>, private OctreeAlgorithm<FastMultipoleMethodCell> {
     friend class FMMTest;
 
 public:
     using AdditionalCellAttributes = FastMultipoleMethodCell;
     using number_neurons_type = RelearnTypes::number_neurons_type;
+    using counter_type = RelearnTypes::counter_type;
 
     /**
      * @brief Constructs a new instance with the given octree
@@ -42,8 +45,8 @@ public:
      * @exception Throws a RelearnException if _space_filling_curve is nullptr
      */
     FastMultipoleMethod(const RelearnTypes::bounding_box_type& bounding_box, std::shared_ptr<SpaceFillingCurve> _space_filling_curve)
-        : ForwardAlgorithm()
-        , OctreeAlgorithm(bounding_box, std::move(_space_filling_curve)) { }
+        : ForwardCPUAlgorithm()
+        , OctreeAlgorithm(bounding_box, std::move(_space_filling_curve), true) { }
 
     virtual ~FastMultipoleMethod() = default;
 
@@ -53,7 +56,7 @@ public:
      * @exception throws a RelearnException if infos is empty
      */
     void set_neuron_extra_infos(std::shared_ptr<NeuronsExtraInfo> infos) override {
-        ForwardAlgorithm::set_neuron_extra_infos(infos);
+        ForwardCPUAlgorithm::set_neuron_extra_infos(infos);
         OctreeAlgorithm::set_neuron_extra_infos(infos);
     }
 
@@ -86,7 +89,7 @@ public:
     /**
      * @brief Returns the octree that is used by this algorithm
      */
-    [[nodiscard]] const std::unique_ptr<Octree<AdditionalCellAttributes>>& get_octree() {
+    [[nodiscard]] const std::shared_ptr<Octree<AdditionalCellAttributes>>& get_octree() {
         return OctreeAlgorithm::get_octree();
     }
 
@@ -100,9 +103,9 @@ public:
      * @exception Can throw a RelearnException
      */
     void prepare_update_connectivity(const std::span<const SignalType> signal_types,
-                                     const std::span<const unsigned int> vacant_axons,
-                                     const std::span<const unsigned int> vacant_excitatory_dendrites,
-                                     const std::span<const unsigned int> vacant_inhibitory_dendrites) override {
+                                     const std::span<const counter_type> vacant_axons,
+                                     const std::span<const counter_type> vacant_excitatory_dendrites,
+                                     const std::span<const counter_type> vacant_inhibitory_dendrites) override {
         OctreeAlgorithm::update_tree(signal_types, vacant_axons, vacant_excitatory_dendrites, vacant_inhibitory_dendrites);
     }
 
@@ -111,10 +114,10 @@ public:
      * @param footprint Where to store the current footprint
      */
     void record_memory_footprint(const std::unique_ptr<utility::MemoryFootprint>& footprint) override {
-        const auto my_footprint = sizeof(*this) - sizeof(ForwardAlgorithm<SynapseCreationRequest, SynapseCreationResponse>);
+        const auto my_footprint = sizeof(*this) - sizeof(ForwardCPUAlgorithm<SynapseCreationRequest, SynapseCreationResponse>);
         footprint->emplace("FastMultipoleMethod", my_footprint);
 
-        ForwardAlgorithm<SynapseCreationRequest, SynapseCreationResponse>::record_memory_footprint(footprint);
+        ForwardCPUAlgorithm<SynapseCreationRequest, SynapseCreationResponse>::record_memory_footprint(footprint);
     }
 
     [[nodiscard]] AlgorithmEnum get_algorithm_type() const override {
@@ -136,7 +139,7 @@ protected:
      * @exception Can throw a RelearnException
      * @return A pair of (1) The responses to each request and (2) another pair of (a) all local synapses and (b) all distant synapses to the local rank
      */
-    [[nodiscard]] std::pair<RelearnTypes::comm_map_creation<SynapseCreationResponse>, std::pair<PlasticLocalSynapses, PlasticDistantInSynapses>>
+    [[nodiscard]] ForwardProcessRequestsResult<SynapseCreationResponse>
     process_requests(const RelearnTypes::comm_map_creation<SynapseCreationRequest>& creation_requests) override;
 
     /**
