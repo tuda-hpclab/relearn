@@ -1,0 +1,25 @@
+diff --git a/include/ctpg/ctpg.hpp b/include/ctpg/ctpg.hpp
+index 04b46cc..51c7d7f 100644
+--- a/include/ctpg/ctpg.hpp
++++ b/include/ctpg/ctpg.hpp
+@@ -2439,8 +2439,9 @@ private:
+         const rule_info& ri = rule_infos[addr.rule_info_idx];
+         bool reduction = addr.after >= ri.r_elements;
+ 
+-        const auto& s = right_sides[ri.r_idx][addr.after];
+-        size16_t symbol_idx = reduction ? get_parse_table_idx(true, addr.t) : s.get_parse_table_idx();
++        // Only index right_sides when not reducing: for a reduction addr.after == r_elements, which
++        // would form a reference one past the end (rejected in constant evaluation by Clang >= 22).
++        size16_t symbol_idx = reduction ? get_parse_table_idx(true, addr.t) : right_sides[ri.r_idx][addr.after].get_parse_table_idx();
+         auto& entry = parse_table[state_idx][symbol_idx];
+         if (reduction)
+         {
+@@ -2464,6 +2465,8 @@ private:
+             return;
+         }
+ 
++        const auto& s = right_sides[ri.r_idx][addr.after];
++
+         situation_info new_addr = situation_info{ addr.rule_info_idx, size16_t(addr.after + 1), addr.t };
+         size32_t new_idx = make_situation_idx(new_addr);
+ 

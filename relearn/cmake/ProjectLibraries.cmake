@@ -7,6 +7,7 @@ add_library(project_libraries INTERFACE)
 add_library(project_libraries_gpu INTERFACE)
 
 include(FetchContent)
+find_package(Git REQUIRED)
 
 find_package(Threads REQUIRED)
 target_link_libraries(project_libraries INTERFACE Threads::Threads)
@@ -174,7 +175,12 @@ FetchContent_Declare(
 FetchContent_Declare(
   ctpg
   GIT_REPOSITORY https://github.com/peter-winter/ctpg
-  GIT_TAG v1.3.7)
+  GIT_TAG v1.3.7
+  # Fix one-past-the-end reference in constexpr code (rejected by Clang >= 22).
+  # Reset first so re-applying on reconfigure is idempotent.
+  PATCH_COMMAND ${GIT_EXECUTABLE} checkout -- .
+  COMMAND ${GIT_EXECUTABLE} apply --whitespace=nowarn
+          ${CMAKE_CURRENT_LIST_DIR}/patches/ctpg-one-past-end.patch)
 
 # fmt
 set(FMT_SYSTEM_HEADERS ON)
